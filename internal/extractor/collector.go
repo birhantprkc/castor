@@ -47,6 +47,7 @@ type candidate struct {
 
 // collector captures and deduplicates stream URLs from browser events.
 type collector struct {
+	ctx           context.Context
 	patterns      []*regexp.Regexp
 	maxCandidates int
 	mu            sync.Mutex
@@ -55,8 +56,9 @@ type collector struct {
 }
 
 // newCollector creates a collector for the given capture patterns.
-func newCollector(patterns []*regexp.Regexp, maxCandidates int) *collector {
+func newCollector(ctx context.Context, patterns []*regexp.Regexp, maxCandidates int) *collector {
 	return &collector{
+		ctx:           ctx,
 		patterns:      patterns,
 		maxCandidates: maxCandidates,
 		notify:        make(chan struct{}),
@@ -67,7 +69,6 @@ func newCollector(patterns []*regexp.Regexp, maxCandidates int) *collector {
 // and the candidate list is not full.
 func (c *collector) Add(u string, headers map[string]string) {
 	if !matchesPattern(u, c.patterns) {
-		// slog.Debug("collector: URL did not match patterns", "url", u)
 		return
 	}
 	c.add(u, headers, "")
@@ -77,7 +78,6 @@ func (c *collector) Add(u string, headers map[string]string) {
 // stream type. Pattern matching is skipped — the confirmed MIME takes precedence.
 func (c *collector) AddByMIME(u string, mime string, headers map[string]string) {
 	if !streamMIMETypes[strings.ToLower(mime)] {
-		// slog.Debug("collector: MIME type not a stream type", "url", u, "mime", mime)
 		return
 	}
 	c.add(u, headers, strings.ToLower(mime))
@@ -89,16 +89,16 @@ func (c *collector) add(u string, headers map[string]string, mimeType string) {
 	defer c.mu.Unlock()
 
 	if len(c.candidates) >= c.maxCandidates {
-		slog.Debug("collector: max candidates reached, skipping URL", "url", u)
+		slog.DebugContext(c.ctx, "max candidates reached, skipping URL", "url", u)
 		return
 	}
 
 	if slices.ContainsFunc(c.candidates, func(cand candidate) bool { return cand.rawURL == u }) {
-		slog.Debug("collector: duplicate URL, skipping", "url", u)
+		slog.DebugContext(c.ctx, "duplicate URL, skipping", "url", u)
 		return
 	}
 
-	slog.Info("collector: captured stream URL", "url", u, "mime", mimeType)
+	slog.InfoContext(c.ctx, "captured stream", "url", u, "mime", mimeType)
 
 	c.candidates = append(c.candidates, candidate{
 		rawURL:   u,

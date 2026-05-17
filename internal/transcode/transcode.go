@@ -17,22 +17,17 @@ import (
 // Transcode starts an ffmpeg process that reads from sourceURL and writes
 // transcoded output to a pipe. Returns the readable end, a wait function
 // for the process, and any startup error.
-func Transcode(ctx context.Context, cfg app.TranscodeConfig, sourceURL *url.URL, headers map[string]string) (io.ReadCloser, func() error, error) {
+func Transcode(ctx context.Context, cfg app.TranscodeConfig, outputFormat string, sourceURL *url.URL, headers map[string]string) (io.ReadCloser, func() error, error) {
 	args := []string{
-		// Network timeout and reconnection for HTTP(S) inputs
 		"-rw_timeout", strconv.FormatInt(cfg.RWTimeout.Microseconds(), 10),
 		"-reconnect", "1",
 		"-reconnect_streamed", "1",
 		"-reconnect_delay_max", "5",
-		// Throttle input reading to roughly real-time playback speed
 		"-readrate", strconv.Itoa(cfg.ReadRate),
-		// Allow an initial burst of data before rate-limiting kicks in
 		"-readrate_initial_burst", strconv.Itoa(cfg.ReadRateBurst),
-		// Generate missing PTS and discard corrupt frames
 		"-fflags", "+genpts+discardcorrupt",
 	}
 
-	// Forward any HTTP headers (e.g. Referer, User-Agent) to the stream server
 	if h := media.FormatHTTPHeaders(headers); h != "" {
 		args = append(args, "-headers", h)
 	}
@@ -40,19 +35,32 @@ func Transcode(ctx context.Context, cfg app.TranscodeConfig, sourceURL *url.URL,
 	args = append(args, media.HLSInputArgs...)
 	args = append(args,
 		"-i", sourceURL.String(),
-		// Video codec (e.g. copy, libx264)
 		"-c:v", cfg.VideoCodec,
-		// Audio codec (e.g. aac, libmp3lame)
 		"-c:a", cfg.AudioCodec,
-		// Audio sample rate in Hz
-		"-ar", strconv.Itoa(cfg.AudioSampleRate),
-		// Audio bitrate (e.g. 128k)
-		"-b:a", cfg.AudioBitrate,
-		// Container format for the output stream
-		"-f", cfg.OutputFormat,
-		// Write output to stdout for pipe consumption
-		"pipe:1",
 	)
+
+	if cfg.AudioCodec != "copy" {
+		args = append(args,
+			"-ar", strconv.Itoa(cfg.AudioSampleRate),
+			"-b:a", cfg.AudioBitrate,
+		)
+	}
+
+	// mpegts: resend PAT/PMT and zero the mux preroll so renderers can begin
+	// decoding mid-stream; h264_mp4toannexb rewrites fMP4/CMAF NAL units that
+	// Samsung renderers refuse to parse otherwise.
+	if outputFormat == "mpegts" {
+		args = append(args,
+			"-mpegts_flags", "+resend_headers+initial_discontinuity",
+			"-muxdelay", "0",
+			"-muxpreload", "0",
+		)
+		if cfg.VideoCodec == "copy" {
+			args = append(args, "-bsf:v", "h264_mp4toannexb")
+		}
+	}
+
+	args = append(args, "-f", outputFormat, "pipe:1")
 
 	cmd := exec.CommandContext(ctx, cfg.FFmpegPath, args...)
 
@@ -70,7 +78,7 @@ func Transcode(ctx context.Context, cfg app.TranscodeConfig, sourceURL *url.URL,
 		return nil, nil, fmt.Errorf("starting ffmpeg: %w", err)
 	}
 
-	slog.InfoContext(ctx, "ffmpeg process started", "source_url", sourceURL.String(), "video_codec", cfg.VideoCodec, "audio_codec", cfg.AudioCodec, "output_format", cfg.OutputFormat)
+	slog.DebugContext(ctx, "ffmpeg started", "source", sourceURL.String(), "video_codec", cfg.VideoCodec, "audio_codec", cfg.AudioCodec, "format", outputFormat)
 
 	go drainStderr(ctx, stderr)
 
@@ -84,6 +92,6 @@ func drainStderr(ctx context.Context, r io.Reader) {
 		slog.DebugContext(ctx, "ffmpeg", "line", scanner.Text())
 	}
 	if err := scanner.Err(); err != nil {
-		slog.WarnContext(ctx, "ffmpeg stderr scanner error", "err", err)
+		slog.WarnContext(ctx, "ffmpeg stderr scanner error", "error", err)
 	}
 }

@@ -19,10 +19,10 @@ type Config struct {
 	Device    DeviceConfig    `koanf:"device" validate:"required"`
 	Network   NetworkConfig   `koanf:"network" validate:"required"`
 	Browser   BrowserConfig   `koanf:"browser" validate:"required"`
-	Resolver  ResolverConfig  `koanf:"resolver" validate:"required"`
 	Capture   CaptureConfig   `koanf:"capture" validate:"required"`
 	Actions   ActionConfig    `koanf:"actions" validate:"required"`
 	Sources   []SourceConfig  `koanf:"sources" validate:"dive"`
+	Resolver  ResolverConfig  `koanf:"resolver" validate:"required"`
 	Transcode TranscodeConfig `koanf:"transcode" validate:"required"`
 }
 
@@ -40,9 +40,9 @@ type NetworkConfig struct {
 
 // ResolverConfig holds URL resolution settings.
 type ResolverConfig struct {
+	HLSTimeout          time.Duration `koanf:"hls_timeout" validate:"required"`
 	FFprobePath         string        `koanf:"ffprobe_path" validate:"required"`
 	ProbeTimeout        time.Duration `koanf:"probe_timeout" validate:"required"`
-	HLSTimeout          time.Duration `koanf:"hls_timeout" validate:"required"`
 	ProbeMaxConcurrency int           `koanf:"probe_max_concurrency" validate:"required,min=1"`
 }
 
@@ -69,33 +69,32 @@ type TemplateConfig struct {
 
 // TranscodeConfig holds ffmpeg transcode settings.
 type TranscodeConfig struct {
-	FFmpegPath           string        `koanf:"ffmpeg_path" validate:"required"`
 	ReadRate             int           `koanf:"read_rate" validate:"required"`
-	ReadRateBurst        int           `koanf:"read_rate_burst" validate:"required"`
 	RWTimeout            time.Duration `koanf:"rw_timeout" validate:"required"`
 	VideoCodec           string        `koanf:"video_codec" validate:"required"`
 	AudioCodec           string        `koanf:"audio_codec" validate:"required"`
-	AudioSampleRate      int           `koanf:"audio_sample_rate" validate:"required"`
+	FFmpegPath           string        `koanf:"ffmpeg_path" validate:"required"`
 	AudioBitrate         string        `koanf:"audio_bitrate" validate:"required"`
-	OutputFormat         string        `koanf:"output_format" validate:"required"`
+	ReadRateBurst        int           `koanf:"read_rate_burst" validate:"required"`
+	AudioSampleRate      int           `koanf:"audio_sample_rate" validate:"required"`
 	InitialDataThreshold int           `koanf:"initial_data_threshold" validate:"required"`
 }
 
 // CaptureConfig holds patterns for intercepting stream URLs.
 type CaptureConfig struct {
 	Patterns          []string      `koanf:"patterns" validate:"required,min=1"`
+	MaxCandidates     int           `koanf:"max_candidates" validate:"required,min=1"`
+	MaxConcurrency    int           `koanf:"max_concurrency" validate:"required,min=1"`
 	CollectionWindow  time.Duration `koanf:"collection_window" validate:"required"`
 	GraceAfterActions time.Duration `koanf:"grace_after_actions" validate:"required"`
-	MaxConcurrency    int           `koanf:"max_concurrency" validate:"required,min=1"`
-	MaxCandidates     int           `koanf:"max_candidates" validate:"required,min=1"`
 }
 
 // ActionConfig holds timeouts for browser automation actions.
 type ActionConfig struct {
+	TurnstileRetryTimeout  time.Duration `koanf:"turnstile_retry_timeout" validate:"required"`
 	NavigateIframeTimeout  time.Duration `koanf:"navigate_iframe_timeout" validate:"required"`
 	NavigateIframeMaxDepth int           `koanf:"navigate_iframe_max_depth" validate:"required,min=1"`
 	BypassTurnstileTimeout time.Duration `koanf:"bypass_turnstile_timeout" validate:"required"`
-	TurnstileRetryTimeout  time.Duration `koanf:"turnstile_retry_timeout" validate:"required"`
 }
 
 // MovieURLs expands the movie template across all proxies for a source.

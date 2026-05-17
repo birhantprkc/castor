@@ -38,7 +38,7 @@ func newSession(ctx context.Context, e *Extractor, targetURL string) (*session, 
 
 	taskCtx, taskCancel := chromedp.NewContext(allocCtx)
 
-	collector := newCollector(e.patterns, e.capture.MaxCandidates)
+	collector := newCollector(taskCtx, e.patterns, e.capture.MaxCandidates)
 
 	chromedp.ListenTarget(taskCtx, collector.Listen)
 
@@ -93,28 +93,28 @@ func (s *session) RunActions(actionCfg app.ActionConfig) {
 
 	if !s.collector.HasHits() {
 		if err := action.Click(s.ctx, s.centerX, s.centerY); err != nil {
-			slog.DebugContext(s.ctx, "pipeline: click center failed", "error", err)
+			slog.DebugContext(s.ctx, "click center failed", "error", err)
 		}
 		snapshot(s.ctx, s.snapshotDir, "step_0")
 	}
 
 	if !s.collector.HasHits() {
 		if err := action.NavigateIframe(s.ctx, actionCfg.NavigateIframeTimeout, actionCfg.NavigateIframeMaxDepth); err != nil {
-			slog.DebugContext(s.ctx, "pipeline: navigate iframe failed", "error", err)
+			slog.DebugContext(s.ctx, "navigate iframe failed", "error", err)
 		}
 		snapshot(s.ctx, s.snapshotDir, "step_1")
 	}
 
 	if !s.collector.HasHits() {
 		if err := action.BypassTurnstile(s.ctx, actionCfg.BypassTurnstileTimeout, actionCfg.TurnstileRetryTimeout); err != nil {
-			slog.DebugContext(s.ctx, "pipeline: bypass turnstile failed", "error", err)
+			slog.DebugContext(s.ctx, "bypass turnstile failed", "error", err)
 		}
 		snapshot(s.ctx, s.snapshotDir, "step_2")
 	}
 
 	if !s.collector.HasHits() {
 		if err := action.Click(s.ctx, s.centerX, s.centerY); err != nil {
-			slog.DebugContext(s.ctx, "pipeline: click center failed", "error", err)
+			slog.DebugContext(s.ctx, "click center failed", "error", err)
 		}
 		snapshot(s.ctx, s.snapshotDir, "step_3")
 	}

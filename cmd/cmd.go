@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/urfave/cli/v3"
@@ -36,6 +37,7 @@ func Root() *cli.Command {
 			if err != nil {
 				return ctx, err
 			}
+			slog.InfoContext(ctx, "config loaded", "path", configPath)
 			cmd.Metadata["config"] = cfg
 			return ctx, nil
 		},
@@ -46,11 +48,9 @@ func Root() *cli.Command {
 				Name:  "info",
 				Usage: "Print build information",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
-					slog.Info("build",
-						"version", version.Version,
-						"commit", version.Commit,
-						"build_time", version.BuildTime,
-					)
+					fmt.Printf("version    %s\n", version.Version)
+					fmt.Printf("commit     %s\n", version.Commit)
+					fmt.Printf("build time %s\n", version.BuildTime)
 					return nil
 				},
 			},

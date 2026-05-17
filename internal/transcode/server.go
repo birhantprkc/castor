@@ -6,14 +6,12 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"sync/atomic"
 )
 
 // StreamServer serves an io.Reader over HTTP. The consumer's read
 // pace drives the producer through OS pipe backpressure.
 type StreamServer struct {
 	reader      io.Reader
-	active      atomic.Bool
 	contentType string
 	extension   string
 	headers     map[string]string
@@ -85,36 +83,28 @@ func (s *StreamServer) handleStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !s.active.CompareAndSwap(false, true) {
-		http.Error(w, "stream already active", http.StatusServiceUnavailable)
-		return
-	}
-	defer s.active.Store(false)
-
 	w.WriteHeader(http.StatusOK)
-	if f, ok := w.(http.Flusher); ok {
-		f.Flush()
+	flusher, _ := w.(http.Flusher)
+	if flusher != nil {
+		flusher.Flush()
 	}
 
 	buf := make([]byte, 32*1024)
-	readerDone := false
 	for {
 		n, err := s.reader.Read(buf)
 		if n > 0 {
 			if _, we := w.Write(buf[:n]); we != nil {
-				break // TV disconnected — keep server alive
+				return // TV disconnected — keep server alive for a retry GET
 			}
-			if f, ok := w.(http.Flusher); ok {
-				f.Flush()
+			if flusher != nil {
+				flusher.Flush()
 			}
 		}
 		if err != nil {
-			readerDone = true
-			break
+			// Reader is drained; shut down so Wait() unblocks.
+			// Goroutine avoids handler deadlock against server.Close.
+			go s.server.Close()
+			return
 		}
-	}
-	if readerDone {
-		// Shut down so Wait() unblocks. Goroutine avoids handler deadlock.
-		go s.server.Close()
 	}
 }

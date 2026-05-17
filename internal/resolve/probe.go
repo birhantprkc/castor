@@ -38,7 +38,7 @@ func probeStream(ctx context.Context, ffprobePath string, probeTimeout time.Dura
 	args = append(args, media.HLSInputArgs...)
 	args = append(args, streamURL.String())
 
-	slog.DebugContext(ctx, "ffprobe starting", "url", streamURL.String(), "header_count", len(headers))
+	slog.DebugContext(ctx, "running ffprobe", "url", streamURL.String(), "header_count", len(headers))
 
 	cmd := exec.CommandContext(ctx, ffprobePath, args...)
 
@@ -74,7 +74,7 @@ func probeStream(ctx context.Context, ffprobePath string, probeTimeout time.Dura
 	if result.Format.BitRate != "" {
 		bitRate, err = strconv.ParseInt(result.Format.BitRate, 10, 64)
 		if err != nil {
-			slog.Warn("ffprobe returned non-numeric bit_rate, defaulting to 0", "bit_rate", result.Format.BitRate)
+			slog.WarnContext(ctx, "ffprobe returned non-numeric bit_rate, defaulting to 0", "bit_rate", result.Format.BitRate)
 		}
 	}
 

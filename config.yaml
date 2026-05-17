@@ -8,13 +8,6 @@ network:
   # Run `castor scan` to find the right interface name (e.g. en0 on macOS, eth0 on Linux).
   interface: "en0"
 
-resolver:
-  hls_timeout: 30s
-  # Use a bare binary name to rely on PATH, or provide an absolute path.
-  ffprobe_path: "ffprobe"
-  probe_timeout: 30s
-  probe_max_concurrency: 8
-
 browser:
   timeout: 30s
   headless: true
@@ -22,6 +15,13 @@ browser:
   # Leave empty to let castor find Chrome automatically, or set an absolute path.
   # e.g. "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" on macOS
   chrome_path: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
+resolver:
+  hls_timeout: 30s
+  # Use a bare binary name to rely on PATH, or provide an absolute path.
+  ffprobe_path: "ffprobe"
+  probe_timeout: 30s
+  probe_max_concurrency: 8
 
 capture:
   patterns: ['\.m3u8', 'master\.m3u8', 'index\.m3u8', '/playlist/']
@@ -39,46 +39,26 @@ actions:
 transcode:
   # Use a bare binary name to rely on PATH, or provide an absolute path.
   ffmpeg_path: "ffmpeg"
-  read_rate: 2
+  read_rate: 1
   read_rate_burst: 5
   rw_timeout: 30s
   video_codec: "copy"
   audio_codec: "aac"
-  audio_bitrate: "320k"
+  audio_bitrate: "256k"
   audio_sample_rate: 48000
-  output_format: "mpegts"
   initial_data_threshold: 65536
 
-# Define your streaming sources here. Each source maps an embed service to URL templates.
-# sources:
-#   - name: "example"
-#     proxies:
-#       - "https://example.com"
-#     templates:
-#       movie: "/embed/movie/{itemID}"
-#       episode: "/embed/tv/{itemID}/{season}/{episode}"
-
 sources:
-  - name: "godriveplayer"
-    proxies:
-      - "https://godriveplayer.com"
-    templates:
-      movie: "/player.php?imdb={itemID}"
-      episode: "/player.php?type=series&tmdb={itemID}&season={season}&episode={episode}"
-
-  - name: "autoembed"
-    proxies:
-      - "https://player.autoembed.cc"
-    templates:
-      movie: "/embed/movie/{itemID}"
-      episode: "/embed/tv/{itemID}/{season}/{episode}"
-
   - name: "vidsrc"
     proxies:
-      - "https://vidsrc.icu"
-      - "https://vidsrcme.ru"
-      - "https://vidsrcme.su"
-      - "https://vidsrc-me.ru"
+      - "https://vidsrc-embed.ru"
+    templates:
+      movie: "/embed/movie/{itemID}"
+      episode: "/embed/tv/{itemID}/{season}-{episode}"
+
+  - name: "vidcloud"
+    proxies:
+      - "https://www.vidking.net"
     templates:
       movie: "/embed/movie/{itemID}"
       episode: "/embed/tv/{itemID}/{season}/{episode}"

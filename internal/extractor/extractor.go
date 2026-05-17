@@ -60,18 +60,18 @@ func (e *Extractor) Extract(ctx context.Context, targetURL string) ([]*media.Str
 	for _, entry := range entries {
 		u, err := url.Parse(entry.RawURL)
 		if err != nil {
-			slog.DebugContext(ctx, "skipping entry: invalid URL", "raw_url", entry.RawURL, "error", err)
-		} else {
-			ct := media.DetectFromExtension(u)
-			if ct == "" {
-				ct = media.DetectFromMIME(entry.MimeType)
-			}
-			if ct == "" {
-				slog.DebugContext(ctx, "skipping entry: unknown type", "url", u.String())
-				continue
-			}
-			streams = append(streams, &media.Stream{URL: u, Headers: entry.Headers, ContentType: ct})
+			slog.DebugContext(ctx, "skipping entry, invalid URL", "raw_url", entry.RawURL, "error", err)
+			continue
 		}
+		ct := media.DetectFromExtension(u)
+		if ct == "" {
+			ct = media.DetectFromMIME(entry.MimeType)
+		}
+		if ct == "" {
+			slog.DebugContext(ctx, "skipping entry, unknown content type", "url", u.String())
+			continue
+		}
+		streams = append(streams, &media.Stream{URL: u, Headers: entry.Headers, ContentType: ct})
 	}
 
 	if len(streams) == 0 {
@@ -84,6 +84,8 @@ func (e *Extractor) Extract(ctx context.Context, targetURL string) ([]*media.Str
 // ExtractAll runs Extract concurrently on all given URLs (bounded by the
 // extractor's MaxConcurrency) and returns deduplicated streams.
 func ExtractAll(ctx context.Context, e *Extractor, urls []string) ([]*media.Stream, error) {
+	slog.InfoContext(ctx, "extracting streams", "urls", len(urls))
+
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, e.capture.MaxConcurrency)
 
@@ -97,16 +99,16 @@ func ExtractAll(ctx context.Context, e *Extractor, urls []string) ([]*media.Stre
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			slog.DebugContext(ctx, "extract: starting", "url", targetURL, "index", i+1, "total", len(urls))
+			slog.DebugContext(ctx, "extracting", "url", targetURL, "index", i+1, "total", len(urls))
 
 			streams, err := e.Extract(ctx, targetURL)
 			if err != nil {
-				slog.WarnContext(ctx, "extract: failed", "url", targetURL, "error", err)
+				slog.WarnContext(ctx, "extraction failed", "url", targetURL, "error", err)
 				return
 			}
 
 			results[i] = streams
-			slog.DebugContext(ctx, "extract: found streams", "url", targetURL, "count", len(streams))
+			slog.DebugContext(ctx, "extracted", "url", targetURL, "count", len(streams))
 		}()
 	}
 
@@ -119,9 +121,10 @@ func ExtractAll(ctx context.Context, e *Extractor, urls []string) ([]*media.Stre
 		}
 	}
 
-	slog.InfoContext(ctx, "extract: complete", "total", len(urls), "streams", len(allStreams))
+	deduped := deduplicateStreams(allStreams)
+	slog.InfoContext(ctx, "extraction complete", "urls", len(urls), "streams", len(deduped))
 
-	return deduplicateStreams(allStreams), nil
+	return deduped, nil
 }
 
 // deduplicateStreams removes duplicate streams by URL string.

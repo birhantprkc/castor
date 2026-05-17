@@ -12,9 +12,11 @@ import (
 )
 
 func main() {
+	level := slog.LevelInfo
 	if slices.Contains(os.Args, "--debug") {
-		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
+		level = slog.LevelDebug
 	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -24,9 +26,9 @@ func main() {
 	if err := root.Run(ctx, os.Args); err != nil {
 		if cause := context.Cause(ctx); cause != nil {
 			slog.InfoContext(ctx, "shutting down", "cause", cause)
-		} else {
-			slog.Error("application error", "error", err)
-			os.Exit(1)
+			return
 		}
+		slog.ErrorContext(ctx, "application error", "error", err)
+		os.Exit(1)
 	}
 }

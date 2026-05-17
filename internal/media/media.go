@@ -62,10 +62,16 @@ var formatRegistry = map[string]FormatInfo{
 	"webm":     {ContentType: WebM, Extension: ".webm"},
 }
 
-// LookupFormat returns format info for an ffmpeg output format name.
-func LookupFormat(name string) (FormatInfo, bool) {
-	fi, ok := formatRegistry[name]
-	return fi, ok
+// FormatForContentType returns the ffmpeg output format name and info for a
+// content type, or ok=false if no producible format matches. Caller controls
+// preference by iterating its own candidate list.
+func FormatForContentType(ct string) (string, FormatInfo, bool) {
+	for name, info := range formatRegistry {
+		if info.ContentType == ct {
+			return name, info, true
+		}
+	}
+	return "", FormatInfo{}, false
 }
 
 // DetectFromExtension returns a content type based on the URL's file extension,

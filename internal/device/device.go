@@ -59,7 +59,7 @@ func Discover(ctx context.Context, timeout time.Duration) ([]Info, error) {
 
 	dlnaDevices, err := discoverDLNA(ctx)
 	if err != nil {
-		slog.Warn("DLNA discovery error", "error", err)
+		slog.WarnContext(ctx, "DLNA discovery error", "error", err)
 	}
 	devices = append(devices, dlnaDevices...)
 

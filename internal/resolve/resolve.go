@@ -40,6 +40,8 @@ func Resolve(ctx context.Context, cfg app.ResolverConfig, stream *media.Stream) 
 // highest bandwidth. Failed probes are logged and skipped. Returns an error
 // only if ALL streams fail probing.
 func RankStreams(ctx context.Context, cfg app.ResolverConfig, streams []*media.Stream) (*media.Stream, error) {
+	slog.InfoContext(ctx, "ranking streams", "count", len(streams))
+
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, cfg.ProbeMaxConcurrency)
 
@@ -53,11 +55,11 @@ func RankStreams(ctx context.Context, cfg app.ResolverConfig, streams []*media.S
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			slog.DebugContext(ctx, "rank: probing", "url", s.URL, "index", i+1, "total", len(streams))
+			slog.DebugContext(ctx, "probing stream", "url", s.URL, "index", i+1, "total", len(streams))
 
 			info, err := probeStream(ctx, cfg.FFprobePath, cfg.ProbeTimeout, s.URL, s.Headers)
 			if err != nil {
-				slog.WarnContext(ctx, "rank: probe failed", "url", s.URL, "error", err)
+				slog.WarnContext(ctx, "probe failed", "url", s.URL, "error", err)
 				return
 			}
 
@@ -67,7 +69,7 @@ func RankStreams(ctx context.Context, cfg app.ResolverConfig, streams []*media.S
 				ContentType: s.ContentType,
 				Bandwidth:   max(info.BitRate, 1),
 			}
-			slog.DebugContext(ctx, "rank: probed", "url", s.URL, "bitrate", info.BitRate)
+			slog.DebugContext(ctx, "probed stream", "url", s.URL, "bitrate", info.BitRate)
 		}()
 	}
 
@@ -82,11 +84,11 @@ func RankStreams(ctx context.Context, cfg app.ResolverConfig, streams []*media.S
 		}
 	}
 
-	slog.InfoContext(ctx, "rank: complete", "total", len(streams))
-
 	if best == nil {
 		return nil, fmt.Errorf("all %d streams failed probing", len(streams))
 	}
+
+	slog.InfoContext(ctx, "best stream selected", "url", best.URL.String(), "bitrate", best.Bandwidth)
 
 	return best, nil
 }
@@ -105,13 +107,13 @@ func ListStreams(ctx context.Context, cfg app.ResolverConfig, streams []*media.S
 		if s.ContentType == media.HLS {
 			variants, err := resolveAllVariants(ctx, cfg.HLSTimeout, s.URL, s.Headers)
 			if err != nil {
-				slog.Warn("hls variant resolution failed", "url", s.URL, "error", err)
+				slog.WarnContext(ctx, "HLS variant resolution failed", "url", s.URL, "error", err)
 				continue
 			}
 			for _, v := range variants {
 				info, err := probeStream(ctx, cfg.FFprobePath, cfg.ProbeTimeout, v.URL, s.Headers)
 				if err != nil {
-					slog.Warn("probe failed", "url", v.URL, "error", err)
+					slog.WarnContext(ctx, "probe failed", "url", v.URL, "error", err)
 					continue
 				}
 				details = append(details, StreamDetail{URL: v.URL.String(), BitRate: info.BitRate})
@@ -119,7 +121,7 @@ func ListStreams(ctx context.Context, cfg app.ResolverConfig, streams []*media.S
 		} else {
 			info, err := probeStream(ctx, cfg.FFprobePath, cfg.ProbeTimeout, s.URL, s.Headers)
 			if err != nil {
-				slog.Warn("probe failed", "url", s.URL, "error", err)
+				slog.WarnContext(ctx, "probe failed", "url", s.URL, "error", err)
 				continue
 			}
 			details = append(details, StreamDetail{URL: s.URL.String(), BitRate: info.BitRate})
@@ -131,7 +133,7 @@ func ListStreams(ctx context.Context, cfg app.ResolverConfig, streams []*media.S
 func resolveHLSVariant(ctx context.Context, cfg app.ResolverConfig, u *url.URL, headers map[string]string) *url.URL {
 	variants, err := resolveAllVariants(ctx, cfg.HLSTimeout, u, headers)
 	if err != nil {
-		slog.Warn("hls: variant resolution failed, using original", "error", err)
+		slog.WarnContext(ctx, "HLS variant resolution failed, using original", "error", err)
 		return u
 	}
 	best := slices.MaxFunc(variants, func(a, b hlsVariant) int {
