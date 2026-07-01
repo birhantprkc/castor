@@ -16,7 +16,6 @@ import (
 	"github.com/stupside/castor/internal/source/resolve"
 )
 
-// Config is the full application configuration, loaded by Load.
 type Config struct {
 	Device    cast.DeviceConfig     `yaml:"device" validate:"required"`
 	Network   cast.NetworkConfig    `yaml:"network" validate:"required"`
@@ -37,7 +36,6 @@ type TMDB struct {
 	APIKey string `yaml:"api_key"`
 }
 
-// Cast bundles the sections the cast pipeline needs.
 func (c *Config) Cast() cast.Config {
 	return cast.Config{
 		Device:    c.Device,
@@ -48,7 +46,6 @@ func (c *Config) Cast() cast.Config {
 	}
 }
 
-// Extractor bundles the sections the stream extractor needs.
 func (c *Config) Extractor() extract.Config {
 	return extract.Config{
 		Browser: c.Browser,
@@ -57,7 +54,6 @@ func (c *Config) Extractor() extract.Config {
 	}
 }
 
-// Source returns the Source with the given name, or an error if not found.
 func (c *Config) Source(name string) (*Source, error) {
 	i := slices.IndexFunc(c.Sources, func(s Source) bool { return s.Name == name })
 	if i < 0 {
@@ -74,18 +70,15 @@ type Source struct {
 	Templates Templates `yaml:"templates" validate:"required"`
 }
 
-// Templates holds URL templates for movies and episodes.
 type Templates struct {
 	Movie   string `yaml:"movie" validate:"required"`
 	Episode string `yaml:"episode" validate:"required"`
 }
 
-// MovieURLs expands the movie template across all proxies for a source.
 func (s *Source) MovieURLs(itemID string) []string {
 	return s.expandTemplate(s.Templates.Movie, "{itemID}", itemID)
 }
 
-// EpisodeURLs expands the episode template across all proxies for a source.
 func (s *Source) EpisodeURLs(itemID string, season, episode uint) []string {
 	return s.expandTemplate(s.Templates.Episode,
 		"{itemID}", itemID,

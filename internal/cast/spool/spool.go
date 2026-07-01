@@ -28,7 +28,6 @@ type Spool struct {
 	err    error // terminal write-side error, if any
 }
 
-// New creates the backing file at path.
 func New(path string) (*Spool, error) {
 	f, err := os.Create(path)
 	if err != nil {
@@ -61,7 +60,6 @@ func (s *Spool) CloseWrite(err error) {
 	_ = s.w.Close()
 }
 
-// Size returns the number of bytes spooled so far.
 func (s *Spool) Size() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()

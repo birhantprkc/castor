@@ -15,7 +15,6 @@ import (
 	"github.com/huin/goupnp"
 )
 
-// Type identifies the kind of casting device.
 type Type string
 
 const (
@@ -23,7 +22,6 @@ const (
 	TypeChromecast Type = "chromecast"
 )
 
-// Info holds discovery information about a device.
 type Info struct {
 	Name    string
 	Type    Type
@@ -44,11 +42,9 @@ type Device interface {
 	// protocol needs none.
 	StreamHeaders(contentType string) map[string]string
 
-	// Close releases the connection to the renderer.
 	Close() error
 }
 
-// Connect establishes a control connection to the device described by info.
 func Connect(ctx context.Context, info Info) (Device, error) {
 	switch info.Type {
 	case TypeDLNA:
@@ -59,7 +55,6 @@ func Connect(ctx context.Context, info Info) (Device, error) {
 	return nil, fmt.Errorf("unknown device type: %q", info.Type)
 }
 
-// FindInfo discovers a specific device by type and name on the network.
 func FindInfo(ctx context.Context, timeout time.Duration, dtype Type, name string) (Info, error) {
 	devices, err := Discover(ctx, timeout)
 	if err != nil {

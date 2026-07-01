@@ -36,7 +36,6 @@ func (a *app) config() (*config.Config, error) {
 	return a.cfg, a.err
 }
 
-// Root returns the root CLI command.
 func Root() *cli.Command {
 	a := &app{}
 

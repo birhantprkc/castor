@@ -12,7 +12,6 @@ import (
 
 const chromecastPort = 8009
 
-// chromecastDevice implements Device for Google Chromecast devices.
 type chromecastDevice struct {
 	app *application.Application
 }

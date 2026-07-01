@@ -12,7 +12,6 @@ import (
 	"github.com/stupside/castor/internal/source/resolve"
 )
 
-// castCommand returns the "cast" CLI subcommand.
 func (a *app) castCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "cast",

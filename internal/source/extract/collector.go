@@ -16,7 +16,6 @@ import (
 	"github.com/chromedp/cdproto/runtime"
 )
 
-// streamMIMETypes are MIME types that indicate a streaming response.
 var streamMIMETypes = map[string]bool{
 	"audio/mpegurl":                 true,
 	"audio/x-mpegurl":               true,
@@ -30,14 +29,12 @@ var streamMIMETypes = map[string]bool{
 // hlsURLPattern matches HTTP(S) URLs containing .m3u8 in console output.
 var hlsURLPattern = regexp.MustCompile(`https?://[^\s"'<>]+\.m3u8[^\s"'<>]*`)
 
-// capturedStream holds a captured URL and the HTTP headers from its request.
 type capturedStream struct {
 	RawURL   string
 	Headers  map[string]string
 	MimeType string // confirmed by server; empty if only URL-pattern matched
 }
 
-// candidate is a captured stream URL with a score for ranking.
 type candidate struct {
 	rawURL   string
 	headers  map[string]string
@@ -55,7 +52,6 @@ type collector struct {
 	notify        chan struct{} // closed on first capture
 }
 
-// newCollector creates a collector for the given capture patterns.
 func newCollector(ctx context.Context, patterns []*regexp.Regexp, maxCandidates int) *collector {
 	return &collector{
 		ctx:           ctx,
@@ -122,7 +118,6 @@ func (c *collector) Entries() []capturedStream {
 	return sortedEntries(c.candidates)
 }
 
-// HasHits returns true if any candidates have been captured.
 func (c *collector) HasHits() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -216,7 +211,6 @@ func responseRequestHeaders(r *network.Response) network.Headers {
 	return r.Headers
 }
 
-// networkHeadersToMap converts chromedp network.Headers (map[string]any) to map[string]string.
 func networkHeadersToMap(h network.Headers) map[string]string {
 	if len(h) == 0 {
 		return nil
@@ -282,7 +276,6 @@ func rankURL(rawURL string) int {
 	return score
 }
 
-// sortedEntries sorts candidates by score descending and returns CapturedStream entries.
 func sortedEntries(candidates []candidate) []capturedStream {
 	sorted := slices.SortedFunc(slices.Values(candidates), func(a, b candidate) int {
 		return cmp.Compare(b.score, a.score)

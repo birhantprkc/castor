@@ -121,7 +121,6 @@ func newDeviceFuture() *deviceFuture {
 	return &deviceFuture{ch: make(chan device.Device, 1)}
 }
 
-// connect starts resolving the future in g.
 func (f *deviceFuture) connect(ctx context.Context, g *errgroup.Group, connect deviceConnector) {
 	g.Go(func() error {
 		dev, err := connect(ctx)

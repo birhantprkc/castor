@@ -18,13 +18,11 @@ type Config struct {
 	Resolver  resolve.Config
 }
 
-// DeviceConfig selects the renderer to cast to.
 type DeviceConfig struct {
 	Name string      `yaml:"name" validate:"required"`
 	Type device.Type `yaml:"type" validate:"required"`
 }
 
-// NetworkConfig holds discovery and local-interface settings.
 type NetworkConfig struct {
 	Timeout time.Duration `yaml:"timeout" validate:"required"`
 	// Interface pins the local stream server to a specific interface.

@@ -12,16 +12,12 @@ import (
 	"github.com/stupside/castor/internal/media"
 )
 
-// dlnaSupportedContentTypes lists the content types DLNA renderers support.
 var dlnaSupportedContentTypes = []string{"video/mp2t", media.MP4}
 
-// dlnaDevice implements Device for UPnP/DLNA media renderers.
 type dlnaDevice struct {
 	transport *av1.AVTransport1
 }
 
-// connectDLNA fetches the renderer's description and binds its AVTransport
-// service.
 func connectDLNA(ctx context.Context, info Info) (Device, error) {
 	u, err := url.Parse(info.Address)
 	if err != nil {

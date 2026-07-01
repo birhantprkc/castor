@@ -115,7 +115,6 @@ func (s *session) RunActions(actionCfg ActionConfig) {
 	}
 }
 
-// Close tears down the browser and allocator.
 func (s *session) Close() {
 	s.cancel()
 	s.allocCancel()

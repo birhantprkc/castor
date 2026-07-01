@@ -38,7 +38,6 @@ type startConfig struct {
 	extraPipe bool
 }
 
-// StartOption configures Start.
 type StartOption func(*startConfig)
 
 // WithStdin feeds r to ffmpeg's stdin (pipe:0 input).

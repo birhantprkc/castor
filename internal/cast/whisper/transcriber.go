@@ -94,7 +94,6 @@ func (t *Transcriber) LatestEnd() float64 {
 	return t.latestEnd
 }
 
-// cueCount returns how many cues have been committed so far.
 func (t *Transcriber) cueCount() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()

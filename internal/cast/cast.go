@@ -81,7 +81,6 @@ func Play(ctx context.Context, cfg Config, stream *media.Stream) error {
 	return runDirect(ctx, cfg, plan, dev, localIP)
 }
 
-// logPlan emits the chosen execution plan at INFO.
 func logPlan(ctx context.Context, plan Plan) {
 	slog.InfoContext(ctx, "execution plan",
 		"transcode", plan.Transcode != nil,
@@ -115,8 +114,6 @@ func resolveSource(ctx context.Context, cfg Config, stream *media.Stream) (*medi
 // isn't needed until the playback gate opens) and so tests can supply a fake.
 type deviceConnector func(ctx context.Context) (device.Device, error)
 
-// discoverAndConnect returns a deviceConnector that finds the configured device
-// on the network and connects to it.
 func discoverAndConnect(cfg Config) deviceConnector {
 	return func(ctx context.Context) (device.Device, error) {
 		slog.InfoContext(ctx, "discovering device", "name", cfg.Device.Name, "type", string(cfg.Device.Type))

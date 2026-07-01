@@ -26,7 +26,6 @@ var HLSInputArgs = []string{
 	"-seg_format_options", "extension_picky=0",
 }
 
-// Stream represents a resolved media stream.
 type Stream struct {
 	URL         *url.URL
 	Headers     map[string]string
@@ -40,13 +39,11 @@ type StreamInfo struct {
 	ContentType string
 }
 
-// FormatInfo describes an output format.
 type FormatInfo struct {
 	ContentType string
 	Extension   string
 }
 
-// formatRegistry maps ffmpeg output format names to FormatInfo.
 var formatRegistry = map[string]FormatInfo{
 	"mpegts":   {ContentType: "video/mp2t", Extension: ".ts"},
 	"mp4":      {ContentType: MP4, Extension: ".mp4"},

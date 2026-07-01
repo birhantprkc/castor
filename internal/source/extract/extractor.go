@@ -22,7 +22,6 @@ type Extractor struct {
 	patterns []*regexp.Regexp
 }
 
-// New creates an Extractor from a Config.
 func New(cfg Config) (*Extractor, error) {
 	e := &Extractor{
 		browser: cfg.Browser,
@@ -118,7 +117,6 @@ func (e *Extractor) ExtractAll(ctx context.Context, urls []string) ([]*media.Str
 	return deduped, nil
 }
 
-// deduplicateStreams removes duplicate streams by URL string.
 func deduplicateStreams(streams []*media.Stream) []*media.Stream {
 	seen := make(map[string]struct{}, len(streams))
 	return slices.DeleteFunc(slices.Clone(streams), func(s *media.Stream) bool {
