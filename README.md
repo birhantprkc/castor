@@ -140,6 +140,10 @@ eval "$(make env)"
 go run . cast browse --source vidsrc
 ```
 
+With [direnv](https://direnv.net) installed, the checked-in `.envrc` exports
+that environment automatically on `cd` — plain `go build` / `go run .` just
+work (`direnv allow` once).
+
 ### Debug mode
 
 Add `--debug` to enable verbose logging, useful for troubleshooting extraction or casting issues:
@@ -161,6 +165,25 @@ Prints version, commit, and build time.
 ## Configuration
 
 Castor uses a YAML config file (`config.yaml` by default, override with `--config`).
+Everything except the device and the sources has a sane default, so a minimal
+config is just:
+
+```yaml
+device:
+  name: "Living Room TV" # castor scan
+  type: dlna
+
+sources:
+  - name: vidsrc
+    proxies: ["https://vidsrc-embed.ru"]
+    templates:
+      movie: "/embed/movie/{itemID}"
+      episode: "/embed/tv/{itemID}/{season}-{episode}"
+```
+
+`castor scan` works without any config at all. The network interface for the
+local stream server is auto-detected from the default route; set
+`network.interface` to pin one.
 
 ---
 
