@@ -103,6 +103,39 @@ Add `--dry-run` to any cast subcommand to print the resolved streaming URLs inst
 castor cast url --dry-run https://example.com/stream.m3u8
 ```
 
+### Subtitles
+
+Castor can generate subtitles locally via
+[whisper.cpp](https://github.com/ggml-org/whisper.cpp) by setting
+`whisper.enable: true` in `config.yaml` (or `CASTOR_WHISPER__ENABLE=true`).
+There is no CLI flag — config is the only toggle. The whisper.cpp engine is
+linked statically into the castor binary; no separate `whisper-cli` install
+is required. The default `ggml-tiny.en` model auto-downloads (once, ~75MB)
+to your user cache the first time it runs.
+
+Subtitles are burned into the video (TVs cannot be trusted to render
+DLNA-delivered caption tracks, sidecar or in-band). The pipeline reads the
+source exactly once: a single puller downloads the stream into a local
+spool while teeing the audio to whisper, and the encoder follows behind,
+stamping the live transcript onto the frames. Playback starts as soon as
+whisper has a ~30-second head start — a few seconds of wall time — and the
+transcript keeps racing ahead of the encoder for the rest of the film.
+Override `whisper.model_path` / `whisper.language` in `config.yaml` to
+customize.
+
+#### Building from source
+
+Because the whisper bindings are cgo, building castor requires a one-time
+cmake build of the linked library:
+
+```sh
+git submodule update --init --recursive   # first checkout only
+make build                                # cmake-builds libwhisper.a once (~1 min), then produces ./castor
+
+# Run without producing a binary first:
+make run ARGS="cast browse --source vidsrc"
+```
+
 ### Debug mode
 
 Add `--debug` to enable verbose logging, useful for troubleshooting extraction or casting issues:
@@ -131,7 +164,7 @@ Castor uses a YAML config file (`config.yaml` by default, override with `--confi
 
 Castor might be unstable but works for simple use cases. If you want to help make it better, feel free to open a PR.
 
-- [ ] Subtitles support
+- [x] Subtitles support (whisper.cpp auto-generation, burned in live)
 - [ ] Devtool record plugins
 - [ ] Play from a specific position
 - [ ] Seek actions on the TV (really needed)
