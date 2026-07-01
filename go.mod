@@ -52,6 +52,7 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/h2non/filetype v1.1.3 // indirect
 	github.com/knadh/koanf/maps v0.1.2 // indirect
+	github.com/knadh/koanf/providers/confmap v1.0.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
