@@ -37,8 +37,8 @@ jobs:
           for target in \
             "linux-amd64:x86_64-linux-gnu.2.17" \
             "linux-arm64:aarch64-linux-gnu.2.17" \
-            "darwin-amd64:x86_64-macos.12" \
-            "darwin-arm64:aarch64-macos.12"; do
+            "darwin-amd64:x86_64-macos.12.0.0" \
+            "darwin-arm64:aarch64-macos.12.0.0"; do
             name="${target%%:*}"; triple="${target##*:}"
             printf '#!/bin/sh\nexec zig cc  -target %s "$@"\n' "$triple" | sudo tee /usr/local/bin/zcc-"$name" > /dev/null
             printf '#!/bin/sh\nexec zig c++ -target %s "$@"\n' "$triple" | sudo tee /usr/local/bin/zxx-"$name" > /dev/null
@@ -94,7 +94,7 @@ jobs:
               mkdir -p "$dir"
               # Compile a trivial object so ar produces a valid archive.
               echo "void __${backend//-/_}_stub(void) {}" \
-                | zig cc -target "$([ "$arch" = arm64 ] && echo aarch64-macos.12 || echo x86_64-macos.12)" \
+                | zig cc -target "$([ "$arch" = arm64 ] && echo aarch64-macos.12.0.0 || echo x86_64-macos.12.0.0)" \
                   -c -x c - -o /tmp/"$backend"-"$arch".o
               ar crs "$dir/lib$backend.a" /tmp/"$backend"-"$arch".o
             done
