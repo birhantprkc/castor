@@ -10,5 +10,9 @@ config.local.yaml
 # Built castor binary (produced by `make build`)
 /castor
 
-# whisper.cpp cmake artifacts (produced by `make whisper-lib`)
+# whisper.cpp cmake artifacts (produced by `make whisper-lib` or CD pipeline)
 third_party/whisper.cpp/build_go/
+third_party/whisper.cpp/build_*/
+
+# zig cache (created by mlugg/setup-zig in CI)
+.zig-cache/
