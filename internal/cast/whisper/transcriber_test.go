@@ -7,25 +7,27 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stupside/castor/internal/cast/cue"
 )
 
 func TestAgreedPrefix(t *testing.T) {
 	prev := []word{
-		{start: 1.0, end: 1.3, text: "Hello,"},
-		{start: 1.4, end: 1.8, text: "world"},
-		{start: 1.9, end: 2.2, text: "again"},
+		{Start: 1.0, End: 1.3, Text: "Hello,"},
+		{Start: 1.4, End: 1.8, Text: "world"},
+		{Start: 1.9, End: 2.2, Text: "again"},
 	}
 	cur := []word{
-		{start: 1.1, end: 1.4, text: "hello"}, // case/punct differ, times within tolerance
-		{start: 1.5, end: 1.9, text: "world"},
-		{start: 2.0, end: 2.3, text: "against"}, // text mismatch stops the prefix
+		{Start: 1.1, End: 1.4, Text: "hello"}, // case/punct differ, times within tolerance
+		{Start: 1.5, End: 1.9, Text: "world"},
+		{Start: 2.0, End: 2.3, Text: "against"}, // text mismatch stops the prefix
 	}
 	got := agreedPrefix(prev, cur)
 	if len(got) != 2 {
 		t.Fatalf("agreedPrefix = %d words, want 2 (%v)", len(got), got)
 	}
-	if got[0].text != "hello" {
-		t.Errorf("committed word should carry the current hypothesis' surface form, got %q", got[0].text)
+	if got[0].Text != "hello" {
+		t.Errorf("committed word should carry the current hypothesis' surface form, got %q", got[0].Text)
 	}
 	if got := agreedPrefix(nil, cur); len(got) != 0 {
 		t.Errorf("first hypothesis must commit nothing, got %v", got)
@@ -33,8 +35,8 @@ func TestAgreedPrefix(t *testing.T) {
 }
 
 func TestSameWordTimeTolerance(t *testing.T) {
-	a := word{start: 1.0, end: 1.3, text: "word"}
-	b := word{start: 2.5, end: 2.8, text: "word"}
+	a := word{Start: 1.0, End: 1.3, Text: "word"}
+	b := word{Start: 2.5, End: 2.8, Text: "word"}
 	if sameWord(a, b) {
 		t.Error("words drifting past the tolerance must not agree")
 	}
@@ -42,60 +44,13 @@ func TestSameWordTimeTolerance(t *testing.T) {
 
 func TestDropCommitted(t *testing.T) {
 	words := []word{
-		{start: 0.0, end: 0.5, text: "old"},
-		{start: 0.6, end: 1.0, text: "boundary"},
-		{start: 1.2, end: 1.6, text: "new"},
+		{Start: 0.0, End: 0.5, Text: "old"},
+		{Start: 0.6, End: 1.0, Text: "boundary"},
+		{Start: 1.2, End: 1.6, Text: "new"},
 	}
 	got := dropCommitted(words, 1.0)
-	if len(got) != 1 || got[0].text != "new" {
+	if len(got) != 1 || got[0].Text != "new" {
 		t.Fatalf("dropCommitted = %v, want just the word past the frontier", got)
-	}
-}
-
-func TestCueCut(t *testing.T) {
-	sentence := []word{
-		{start: 0.0, end: 0.3, text: "Ask"},
-		{start: 0.4, end: 0.6, text: "not."},
-		{start: 0.7, end: 1.0, text: "What"},
-	}
-	if cut := cueCut(sentence); cut != 2 {
-		t.Errorf("sentence-final punctuation should close after 2 words, got %d", cut)
-	}
-
-	gap := []word{
-		{start: 0.0, end: 0.3, text: "before"},
-		{start: 2.0, end: 2.3, text: "after"},
-	}
-	if cut := cueCut(gap); cut != 1 {
-		t.Errorf("a silence gap should close before it, got %d", cut)
-	}
-
-	open := []word{{start: 0.0, end: 0.3, text: "still"}, {start: 0.4, end: 0.7, text: "going"}}
-	if cut := cueCut(open); cut != 0 {
-		t.Errorf("no closing signal should leave the cue open, got %d", cut)
-	}
-}
-
-func TestCloseCuesOrdering(t *testing.T) {
-	tr := &Transcriber{}
-	pending := []word{
-		{start: 0.0, end: 0.4, text: "First"},
-		{start: 0.5, end: 0.9, text: "line."},
-		{start: 3.0, end: 3.4, text: "Second"},
-		{start: 3.5, end: 3.9, text: "line."},
-	}
-	rest := tr.closeCues(pending, false)
-	if len(rest) != 0 {
-		t.Fatalf("both sentences should close, %d words left", len(rest))
-	}
-	if n := len(tr.cues); n != 2 {
-		t.Fatalf("want 2 cues, got %d: %v", n, tr.cues)
-	}
-	if tr.cues[0].Start > tr.cues[1].Start {
-		t.Error("cues must be appended in non-decreasing start order")
-	}
-	if tr.CueAt(3.2) != "Second line." {
-		t.Errorf("CueAt(3.2) = %q", tr.CueAt(3.2))
 	}
 }
 
@@ -103,9 +58,9 @@ func TestTrimBufferMovesTextToPrompt(t *testing.T) {
 	ctx := context.Background()
 	buf := make([]float32, 20*SampleRate) // 20s, past the soft threshold
 	history := []word{
-		{start: 2.0, end: 2.5, text: "Sentence"},
-		{start: 2.6, end: 3.0, text: "one."},
-		{start: 4.0, end: 4.5, text: "Then"},
+		{Start: 2.0, End: 2.5, Text: "Sentence"},
+		{Start: 2.6, End: 3.0, Text: "one."},
+		{Start: 4.0, End: 4.5, Text: "Then"},
 	}
 	buf, bufStart, history, prompt := trimBuffer(ctx, buf, 0, history, "", 4.5)
 	if bufStart != 3.0 {
@@ -117,15 +72,15 @@ func TestTrimBufferMovesTextToPrompt(t *testing.T) {
 	if prompt != "Sentence one." {
 		t.Errorf("prompt = %q", prompt)
 	}
-	if len(history) != 1 || history[0].text != "Then" {
+	if len(history) != 1 || history[0].Text != "Then" {
 		t.Errorf("history should keep in-buffer words, got %v", history)
 	}
 }
 
 // TestStreamingSmoke runs the full LocalAgreement loop over whisper.cpp's
-// bundled JFK sample. It needs the real models, so it skips unless the
-// default whisper model is already in the user cache (the VAD model is small
-// enough to fetch on first run).
+// bundled JFK sample into a cue.Builder. It needs the real models, so it skips
+// unless the default whisper model is already in the user cache (the VAD model
+// is small enough to fetch on first run).
 func TestStreamingSmoke(t *testing.T) {
 	if testing.Short() {
 		t.Skip("short mode")
@@ -147,16 +102,15 @@ func TestStreamingSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := tr.Run(ctx, bytes.NewReader(wav[44:])); err != nil { // 44-byte canonical WAV header
+	builder := cue.NewBuilder()
+	if err := tr.Run(ctx, bytes.NewReader(wav[44:]), builder); err != nil { // 44-byte canonical WAV header
 		t.Fatal(err)
 	}
 	if !tr.Done() {
 		t.Fatal("transcriber not done after Run")
 	}
 
-	tr.mu.Lock()
-	cues := append([]Cue(nil), tr.cues...)
-	tr.mu.Unlock()
+	cues := builder.Cues()
 	if len(cues) == 0 {
 		t.Fatal("no cues committed")
 	}

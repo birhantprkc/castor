@@ -7,13 +7,20 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/stupside/castor/internal/cast/cue"
 	"github.com/stupside/castor/internal/cast/ffmpeg"
 	"github.com/stupside/castor/internal/cast/whisper"
 )
+
+// cueSource is the render loop's view of the cue store: given a time, the line
+// to show. *cue.Builder satisfies it; the writer depends on the interface so
+// it can be exercised without a live transcriber.
+type cueSource interface {
+	CueAt(tSec float64) string
+}
 
 const (
 	// defaultSubtitleFont ships with every macOS install.
@@ -37,6 +44,7 @@ const (
 // encoder's drawtext filter via a live-swapped textfile.
 type subtitles struct {
 	tr      *whisper.Transcriber
+	builder *cue.Builder
 	cuePath string
 	font    string
 }
@@ -59,6 +67,7 @@ func newSubtitles(ctx context.Context, cfg Config, plan Plan, workDir string) *s
 	}
 	return &subtitles{
 		tr:      tr,
+		builder: cue.NewBuilder(),
 		cuePath: filepath.Join(workDir, "cue.txt"),
 		font:    font,
 	}
@@ -70,7 +79,7 @@ func newSubtitles(ctx context.Context, cfg Config, plan Plan, workDir string) *s
 func (s *subtitles) transcribe(ctx context.Context, g *errgroup.Group, pcm io.ReadCloser) {
 	g.Go(func() error {
 		defer pcm.Close()
-		if err := s.tr.Run(ctx, pcm); err != nil && ctx.Err() == nil {
+		if err := s.tr.Run(ctx, pcm, s.builder); err != nil && ctx.Err() == nil {
 			slog.WarnContext(ctx, "transcription failed; subtitles stop here", "error", err)
 			_, _ = io.Copy(io.Discard, pcm)
 		}
@@ -91,10 +100,12 @@ func (s *subtitles) attach(opts *ffmpeg.EncodeOptions) error {
 
 // follow runs the cue writer in g against the encoder's -progress feed,
 // keeping the textfile holding the line for the frame currently being
-// encoded. It returns when the feed ends (encoder exited).
+// encoded. It returns when the feed ends (encoder exited). The writer reads
+// cues through the cueSource interface and transcription progress through
+// frontier, so it never touches the recognizer directly.
 func (s *subtitles) follow(ctx context.Context, g *errgroup.Group, progress io.Reader) {
 	g.Go(func() error {
-		s.runCueWriter(ctx, progress)
+		runCueWriter(ctx, progress, s.cuePath, s.builder, s.tr.LatestEnd)
 		return nil
 	})
 }
@@ -103,16 +114,18 @@ func (s *subtitles) follow(ctx context.Context, g *errgroup.Group, progress io.R
 // holding the subtitle line for the frame currently being encoded. Updates
 // are written to a temp file in the same directory and renamed into place:
 // drawtext re-opens the path before every frame and a partially-written or
-// missing file would kill ffmpeg, so atomic replacement is mandatory.
-func (s *subtitles) runCueWriter(ctx context.Context, progress io.Reader) {
-	tmpPath := s.cuePath + ".tmp"
+// missing file would kill ffmpeg, so atomic replacement is mandatory. frontier
+// reports how far transcription has committed, logged until the first cue
+// lands so a silent gap is visible in --debug.
+func runCueWriter(ctx context.Context, progress io.Reader, cuePath string, cues cueSource, frontier func() float64) {
+	tmpPath := cuePath + ".tmp"
 	last := ""
 	calls := 0
 	wroteCue := false
 	ffmpeg.WatchProgress(progress, func(seconds float64) {
 		calls++
 		lookup := seconds + cueLeadBias
-		text := wrapCue(s.tr.CueAt(lookup), cueWrapColumns)
+		text := cue.Wrap(cues.CueAt(lookup), cueWrapColumns)
 		// Surface the encoder position against how far transcription has
 		// reached until the first cue lands, so a silent gap (encoder ahead
 		// of the commit frontier, or out_time stuck) is visible in --debug.
@@ -121,7 +134,7 @@ func (s *subtitles) runCueWriter(ctx context.Context, progress io.Reader) {
 				"calls", calls,
 				"out_time", seconds,
 				"lookup", lookup,
-				"latest_end", s.tr.LatestEnd(),
+				"latest_end", frontier(),
 				"empty", text == "",
 			)
 		}
@@ -132,7 +145,7 @@ func (s *subtitles) runCueWriter(ctx context.Context, progress io.Reader) {
 			slog.WarnContext(ctx, "writing subtitle cue", "error", err)
 			return
 		}
-		if err := os.Rename(tmpPath, s.cuePath); err != nil {
+		if err := os.Rename(tmpPath, cuePath); err != nil {
 			slog.WarnContext(ctx, "swapping subtitle cue", "error", err)
 			return
 		}
@@ -143,31 +156,4 @@ func (s *subtitles) runCueWriter(ctx context.Context, progress io.Reader) {
 		slog.DebugContext(ctx, "subtitle cue swapped", "out_time", seconds, "text", text)
 		last = text
 	})
-}
-
-// wrapCue normalizes whitespace and greedily wraps text at width columns so
-// drawtext renders broadcast-style line breaks. Words longer than width are
-// emitted as-is on their own line.
-func wrapCue(text string, width int) string {
-	// FieldsSeq iterates the whitespace-split words without allocating the
-	// intermediate slice; empty input simply yields no iterations, so the
-	// builder stays empty and we return "".
-	var b strings.Builder
-	lineLen := 0
-	for w := range strings.FieldsSeq(text) {
-		switch {
-		case lineLen == 0:
-			b.WriteString(w)
-			lineLen = len(w)
-		case lineLen+1+len(w) <= width:
-			b.WriteByte(' ')
-			b.WriteString(w)
-			lineLen += 1 + len(w)
-		default:
-			b.WriteByte('\n')
-			b.WriteString(w)
-			lineLen = len(w)
-		}
-	}
-	return b.String()
 }

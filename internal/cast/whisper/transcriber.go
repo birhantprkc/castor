@@ -1,15 +1,16 @@
-// Package whisper runs the whisper.cpp Go bindings against a PCM audio
-// stream to produce a growing list of subtitle cues. The audio arrives on an
+// Package whisper runs the whisper.cpp Go bindings against a PCM audio stream
+// to produce a stream of committed, timed words. The audio arrives on an
 // io.Reader (16kHz mono s16le — the caller owns whatever process produces it)
 // and is transcribed with the LocalAgreement-2 streaming policy (Macháček et
-// al. 2023, "Turning Whisper into a Real-Time Transcription System"): the
-// tail of the stream is re-transcribed on every step and only the word prefix
-// that two consecutive hypotheses agree on is committed. Committed words never
-// change, so cues can be burned into frames the moment they are emitted.
+// al. 2023, "Turning Whisper into a Real-Time Transcription System"): the tail
+// of the stream is re-transcribed on every step and only the word prefix that
+// two consecutive hypotheses agree on is committed. Committed words never
+// change, so they are pushed to a cue.WordSink the moment they are emitted;
+// shaping them into subtitle lines is the cue package's job, not this one's.
 // Silero VAD (built into whisper.cpp) gates the decoder: silence and music
 // never reach the model, which kills both the hallucinated "[Music]"-style
-// loops and the mistimed segments that fixed-window chunking suffers at
-// window edges.
+// loops and the mistimed segments that fixed-window chunking suffers at window
+// edges.
 package whisper
 
 import (
@@ -20,14 +21,14 @@ import (
 	"io"
 	"log/slog"
 	"math"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 	"unicode"
-	"unicode/utf8"
 
 	wcpp "github.com/ggerganov/whisper.cpp/bindings/go/pkg/whisper"
+
+	"github.com/stupside/castor/internal/cast/cue"
 )
 
 const (
@@ -54,43 +55,37 @@ const (
 	// jitter a few hundred ms between runs with different right-context.
 	agreeStartTolerance = 1.0
 
-	// Cue shaping: a cue closes before a silence gap of cueGapSeconds or a
-	// character-budget overflow, and after sentence-final punctuation or
-	// cueMaxSeconds of accumulated duration.
-	cueGapSeconds = 1.0
-	cueMaxSeconds = 6.0
-	cueMaxChars   = 84 // two 42-column broadcast lines
-
 	// promptMaxChars caps the committed-text tail passed to whisper as the
 	// initial prompt, restoring the left context that buffer trimming
 	// removed from the audio.
 	promptMaxChars = 200
 )
 
-// Cue is one subtitle line with absolute timestamps in seconds.
-type Cue struct {
-	Start float64
-	End   float64
-	Text  string
+// word is a committed, timed token. It is cue.Word — the type the sink
+// consumes — aliased for brevity inside the streaming loop.
+type word = cue.Word
+
+// WordSink consumes committed words as transcription advances. Commit is
+// called once per streaming step with the words newly confirmed that step
+// (possibly none) and settledTo — the time up to which the audio has been
+// fully decided, so a consumer can treat a gap after the last word as real
+// silence rather than pending speech. Close is called once, after the final
+// Commit, when no more words will arrive. *cue.Builder satisfies it.
+type WordSink interface {
+	Commit(words []cue.Word, settledTo float64)
+	Close()
 }
 
-// word is one whisper-emitted word with absolute timestamps in seconds.
-type word struct {
-	start, end float64
-	text       string
-}
-
-// Transcriber owns a whisper model and accumulates cues from a PCM stream.
-// It is not reusable; call New for each cast.
+// Transcriber owns a whisper model and streams committed words to a sink. It
+// is not reusable; call New for each cast.
 type Transcriber struct {
 	cfg          Config
 	modelPath    string
 	vadModelPath string
 
 	mu        sync.Mutex
-	cues      []Cue
 	latestEnd float64 // end of the last committed word, in seconds
-	done      bool    // Run has returned; no more cues are coming
+	done      bool    // Run has returned; no more words are coming
 }
 
 // New returns a configured Transcriber, resolving the transcription and VAD
@@ -126,45 +121,28 @@ func (t *Transcriber) setFrontier(sec float64) {
 	t.latestEnd = max(t.latestEnd, sec)
 }
 
-func (t *Transcriber) cueCount() int {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return len(t.cues)
-}
-
-// Done reports whether Run has returned, i.e. no further cues will appear.
+// Done reports whether Run has returned, i.e. no further words will appear.
 func (t *Transcriber) Done() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.done
 }
 
-// CueAt returns the text of the cue covering time tSec, or "" if none does.
-func (t *Transcriber) CueAt(tSec float64) string {
+func (t *Transcriber) markDone() {
 	t.mu.Lock()
-	defer t.mu.Unlock()
-	// Words commit in time order, so cues are start-ordered and overlap at
-	// most by the few ms whisper lets adjacent words share: only the last
-	// cue starting at or before tSec can cover it.
-	i := sort.Search(len(t.cues), func(i int) bool { return t.cues[i].Start > tSec })
-	if i > 0 && t.cues[i-1].End > tSec {
-		return t.cues[i-1].Text
-	}
-	return ""
+	t.done = true
+	t.mu.Unlock()
 }
 
-// Run loads the whisper model and consumes pcm (16kHz mono s16le) until EOF
-// or ctx cancellation, running the LocalAgreement-2 loop: append a step of
-// audio, re-transcribe the working buffer, commit the word prefix confirmed
-// by two consecutive hypotheses, fold committed words into cues, and trim
-// the buffer behind the commit frontier. It always marks the transcriber
-// done on return.
-func (t *Transcriber) Run(ctx context.Context, pcm io.Reader) error {
-	defer func() {
-		t.mu.Lock()
-		t.done = true
-		t.mu.Unlock()
-	}()
+// Run loads the whisper model and consumes pcm (16kHz mono s16le) until EOF or
+// ctx cancellation, running the LocalAgreement-2 loop: append a step of audio,
+// re-transcribe the working buffer, commit the word prefix confirmed by two
+// consecutive hypotheses, push those words to sink, and trim the buffer behind
+// the commit frontier. It flushes and closes the sink and marks the
+// transcriber done on return.
+func (t *Transcriber) Run(ctx context.Context, pcm io.Reader, sink WordSink) error {
+	defer t.markDone() // runs last: cues are flushed before Done() flips
+	defer sink.Close() // runs first: flush the final pending words
 
 	slog.InfoContext(ctx, "loading whisper model", "path", t.modelPath, "vad", t.vadModelPath)
 	model, err := wcpp.New(t.modelPath)
@@ -178,7 +156,6 @@ func (t *Transcriber) Run(ctx context.Context, pcm io.Reader) error {
 		buf      []float32 // working audio window
 		bufStart float64   // absolute time of buf[0], in seconds
 		prev     []word    // uncommitted tail of the previous hypothesis
-		pending  []word    // committed words not yet closed into cues
 		history  []word    // committed words still inside the buffer
 		prompt   string    // committed text already trimmed out of the buffer
 		frontier float64   // absolute end time of the last committed word
@@ -197,6 +174,7 @@ func (t *Transcriber) Run(ctx context.Context, pcm io.Reader) error {
 		}
 		buf = appendPCM(buf, step[:n])
 
+		var agreed []word
 		// whisper rejects windows under 100ms; with less than that at EOF
 		// there is nothing left to transcribe.
 		if len(buf) >= SampleRate/10 {
@@ -205,7 +183,7 @@ func (t *Transcriber) Run(ctx context.Context, pcm io.Reader) error {
 				slog.WarnContext(ctx, "whisper inference failed", "error", err)
 			} else {
 				fresh := dropCommitted(words, frontier)
-				agreed := fresh
+				agreed = fresh
 				if !atEOF {
 					// LocalAgreement-2: commit the prefix two consecutive
 					// hypotheses agree on. The final window has no successor
@@ -214,20 +192,22 @@ func (t *Transcriber) Run(ctx context.Context, pcm io.Reader) error {
 					prev = fresh[len(agreed):]
 				}
 				if len(agreed) > 0 {
-					frontier = agreed[len(agreed)-1].end
-					pending = append(pending, agreed...)
+					frontier = agreed[len(agreed)-1].End
 					history = append(history, agreed...)
 					t.setFrontier(frontier)
 				}
 			}
 		}
 
-		// A paragraph-final cue has no successor word to reveal its closing
-		// gap; once the audio has run past it by the gap with nothing new
-		// pending, the silence is confirmed and the cue must not wait.
-		silentTail := len(prev) == 0 && len(pending) > 0 &&
-			bufStart+float64(len(buf))/SampleRate-pending[len(pending)-1].end >= cueGapSeconds
-		pending = t.closeCues(pending, atEOF || silentTail)
+		// settledTo is how far the audio is decided: once the previous
+		// hypothesis has no uncommitted tail, everything up to the buffered
+		// audio is confirmed, so a gap past the last word is real silence.
+		// While a tail is still pending, only the frontier is settled.
+		settledTo := frontier
+		if len(prev) == 0 {
+			settledTo = bufStart + float64(len(buf))/SampleRate
+		}
+		sink.Commit(agreed, settledTo)
 
 		if atEOF {
 			slog.InfoContext(ctx, "transcription finished", "transcribed_seconds", int(frontier))
@@ -243,7 +223,6 @@ func (t *Transcriber) Run(ctx context.Context, pcm io.Reader) error {
 			slog.InfoContext(ctx, "transcription progress",
 				"committed_seconds", int(frontier),
 				"buffered_seconds", int(float64(len(buf))/SampleRate),
-				"cue_count", t.cueCount(),
 			)
 			lastProgress = time.Now()
 		}
@@ -301,9 +280,9 @@ func (t *Transcriber) transcribeBuffer(ctx context.Context, model wcpp.Model, sa
 			continue
 		}
 		words = append(words, word{
-			start: seg.Start.Seconds() + offset,
-			end:   seg.End.Seconds() + offset,
-			text:  seg.Text,
+			Start: seg.Start.Seconds() + offset,
+			End:   seg.End.Seconds() + offset,
+			Text:  seg.Text,
 		})
 	}
 	return words, nil
@@ -314,7 +293,7 @@ func (t *Transcriber) transcribeBuffer(ctx context.Context, model wcpp.Model, sa
 // that has been trimmed out of the buffer.
 func dropCommitted(words []word, cutoff float64) []word {
 	i := 0
-	for i < len(words) && (words[i].start+words[i].end)/2 < cutoff {
+	for i < len(words) && (words[i].Start+words[i].End)/2 < cutoff {
 		i++
 	}
 	return words[i:]
@@ -333,12 +312,12 @@ func agreedPrefix(prev, cur []word) []word {
 }
 
 func sameWord(a, b word) bool {
-	if math.Abs(a.start-b.start) > agreeStartTolerance {
+	if math.Abs(a.Start-b.Start) > agreeStartTolerance {
 		return false
 	}
-	na, nb := normalizeWord(a.text), normalizeWord(b.text)
+	na, nb := normalizeWord(a.Text), normalizeWord(b.Text)
 	if na == "" && nb == "" {
-		return a.text == b.text
+		return a.Text == b.Text
 	}
 	return na == nb
 }
@@ -360,69 +339,6 @@ func isNoise(s string) bool {
 	return s[0] == '[' || s[0] == '(' || strings.HasPrefix(s, "♪")
 }
 
-// closeCues folds committed words into display cues, appending every cue
-// that has a closing signal. When final is set the remainder is flushed
-// unconditionally. It returns the words still waiting to close.
-func (t *Transcriber) closeCues(pending []word, final bool) []word {
-	for len(pending) > 0 {
-		cut := cueCut(pending)
-		if cut == 0 {
-			if !final {
-				break
-			}
-			cut = len(pending)
-		}
-		t.appendCue(pending[:cut])
-		pending = pending[cut:]
-	}
-	return pending
-}
-
-// cueCut returns how many leading words of pending form a complete cue, or 0
-// if no closing signal has arrived yet.
-func cueCut(pending []word) int {
-	chars := 0
-	for i, w := range pending {
-		if i > 0 && w.start-pending[i-1].end >= cueGapSeconds {
-			return i
-		}
-		chars += len(w.text)
-		if i > 0 {
-			chars++ // joining space
-		}
-		if chars > cueMaxChars && i > 0 {
-			return i
-		}
-		if sentenceEnd(w.text) || w.end-pending[0].start >= cueMaxSeconds {
-			return i + 1
-		}
-	}
-	return 0
-}
-
-// sentenceEnd reports whether a word closes a sentence, ignoring trailing
-// quotes and brackets.
-func sentenceEnd(s string) bool {
-	s = strings.TrimRight(s, `"')]`+"”’")
-	r, _ := utf8.DecodeLastRuneInString(s)
-	return strings.ContainsRune(".?!…", r)
-}
-
-func (t *Transcriber) appendCue(words []word) {
-	var b strings.Builder
-	for i, w := range words {
-		if i > 0 {
-			b.WriteByte(' ')
-		}
-		b.WriteString(w.text)
-	}
-	cue := Cue{Start: words[0].start, End: words[len(words)-1].end, Text: b.String()}
-
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.cues = append(t.cues, cue)
-}
-
 // trimBuffer drops audio the streaming loop is finished with. Past
 // trimAfterSeconds the buffer is cut at the last committed sentence end, so
 // the decoder keeps seeing whole utterances; past maxBufferSeconds it is cut
@@ -437,8 +353,8 @@ func trimBuffer(ctx context.Context, buf []float32, bufStart float64, history []
 
 	var cut float64
 	for _, w := range history {
-		if sentenceEnd(w.text) {
-			cut = max(cut, w.end)
+		if cue.SentenceEnd(w.Text) {
+			cut = max(cut, w.End)
 		}
 	}
 	if dur > maxBufferSeconds {
@@ -463,11 +379,11 @@ func trimBuffer(ctx context.Context, buf []float32, bufStart float64, history []
 	var b strings.Builder
 	b.WriteString(prompt)
 	i := 0
-	for ; i < len(history) && history[i].end <= bufStart; i++ {
+	for ; i < len(history) && history[i].End <= bufStart; i++ {
 		if b.Len() > 0 {
 			b.WriteByte(' ')
 		}
-		b.WriteString(history[i].text)
+		b.WriteString(history[i].Text)
 	}
 	history = history[i:]
 	prompt = b.String()
