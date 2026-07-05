@@ -131,8 +131,7 @@ device:
   type: dlna
 
 sources:
-  - name: vidsrc
-    proxies: ["https://vidsrc-embed.ru"]
+  - proxies: ["https://vidsrc-embed.ru"]
     templates:
       movie: "/embed/movie/{itemID}"
       episode: "/embed/tv/{itemID}/{season}-{episode}"

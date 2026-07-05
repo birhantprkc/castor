@@ -8,19 +8,10 @@ import (
 
 func (a *app) castMovieCommand() *cli.Command {
 	var itemID string
-	var sourceName string
 
 	return &cli.Command{
 		Name:  "movie",
-		Usage: "Cast a movie by item ID via a source",
-		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:        "source",
-				Usage:       "Source to use",
-				Required:    true,
-				Destination: &sourceName,
-			},
-		},
+		Usage: "Cast a movie by item ID",
 		Arguments: []cli.Argument{
 			&cli.StringArg{
 				Name:        "itemID",
@@ -33,12 +24,7 @@ func (a *app) castMovieCommand() *cli.Command {
 				return err
 			}
 
-			src, err := cfg.Source(sourceName)
-			if err != nil {
-				return err
-			}
-
-			return a.extractAndCast(ctx, cmd, src.MovieURLs(itemID))
+			return a.extractAndCast(ctx, cmd, cfg.AllMovieURLs(itemID))
 		},
 	}
 }

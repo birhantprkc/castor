@@ -10,18 +10,11 @@ func (a *app) castEpisodeCommand() *cli.Command {
 	var season int
 	var episode int
 	var itemID string
-	var sourceName string
 
 	return &cli.Command{
 		Name:  "episode",
-		Usage: "Cast a series episode by item ID via a source",
+		Usage: "Cast a series episode by item ID",
 		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:        "source",
-				Usage:       "Source to use",
-				Required:    true,
-				Destination: &sourceName,
-			},
 			&cli.IntFlag{
 				Name:        "season",
 				Usage:       "Season number",
@@ -47,12 +40,7 @@ func (a *app) castEpisodeCommand() *cli.Command {
 				return err
 			}
 
-			src, err := cfg.Source(sourceName)
-			if err != nil {
-				return err
-			}
-
-			return a.extractAndCast(ctx, cmd, src.EpisodeURLs(itemID, uint(season), uint(episode)))
+			return a.extractAndCast(ctx, cmd, cfg.AllEpisodeURLs(itemID, uint(season), uint(episode)))
 		},
 	}
 }

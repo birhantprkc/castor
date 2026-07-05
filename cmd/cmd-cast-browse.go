@@ -11,26 +11,11 @@ import (
 )
 
 func (a *app) castBrowseCommand() *cli.Command {
-	var sourceName string
-
 	return &cli.Command{
 		Name:  "browse",
 		Usage: "Browse TMDB in a TUI, then cast the selection",
-		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:        "source",
-				Usage:       "Source to use (must match a name in config.yaml sources)",
-				Required:    true,
-				Destination: &sourceName,
-			},
-		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			cfg, err := a.config()
-			if err != nil {
-				return err
-			}
-
-			src, err := cfg.Source(sourceName)
 			if err != nil {
 				return err
 			}
@@ -50,9 +35,9 @@ func (a *app) castBrowseCommand() *cli.Command {
 			var urls []string
 			switch sel.Kind {
 			case browse.KindMovie:
-				urls = src.MovieURLs(sel.TMDBID)
+				urls = cfg.AllMovieURLs(sel.TMDBID)
 			case browse.KindEpisode:
-				urls = src.EpisodeURLs(sel.TMDBID, sel.Season, sel.Episode)
+				urls = cfg.AllEpisodeURLs(sel.TMDBID, sel.Season, sel.Episode)
 			}
 
 			fmt.Printf("Casting: %s\n", sel.Title)

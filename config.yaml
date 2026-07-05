@@ -10,15 +10,13 @@ device:
   type: "dlna"
 
 sources:
-  - name: "vidsrc"
-    proxies:
+  - proxies:
       - "https://vidsrc-embed.ru"
     templates:
       movie: "/embed/movie/{itemID}"
       episode: "/embed/tv/{itemID}/{season}-{episode}"
 
-  - name: "vidcloud"
-    proxies:
+  - proxies:
       - "https://www.vidking.net"
     templates:
       movie: "/embed/movie/{itemID}"

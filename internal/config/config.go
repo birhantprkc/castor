@@ -5,8 +5,6 @@
 package config
 
 import (
-	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -54,20 +52,27 @@ func (c *Config) Extractor() extract.Config {
 	}
 }
 
-func (c *Config) Source(name string) (*Source, error) {
-	i := slices.IndexFunc(c.Sources, func(s Source) bool { return s.Name == name })
-	if i < 0 {
-		return nil, fmt.Errorf("source %q not found", name)
-	}
-	return &c.Sources[i], nil
-}
-
-// Source defines a YAML-configured source: a set of proxy hosts and the URL
-// templates to reach a movie or episode page on them.
+// Source defines a set of proxy hosts and the URL templates to reach a movie
+// or episode page on them.
 type Source struct {
-	Name      string    `yaml:"name" validate:"required"`
 	Proxies   []string  `yaml:"proxies" validate:"required,min=1"`
 	Templates Templates `yaml:"templates" validate:"required"`
+}
+
+func (c *Config) AllMovieURLs(itemID string) []string {
+	var urls []string
+	for _, s := range c.Sources {
+		urls = append(urls, s.MovieURLs(itemID)...)
+	}
+	return urls
+}
+
+func (c *Config) AllEpisodeURLs(itemID string, season, episode uint) []string {
+	var urls []string
+	for _, s := range c.Sources {
+		urls = append(urls, s.EpisodeURLs(itemID, season, episode)...)
+	}
+	return urls
 }
 
 type Templates struct {
