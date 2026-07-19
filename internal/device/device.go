@@ -7,12 +7,11 @@ package device
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/url"
+	"slices"
 	"strings"
+	"sync"
 	"time"
-
-	"github.com/huin/goupnp"
 )
 
 type Type string
@@ -68,29 +67,19 @@ func FindInfo(ctx context.Context, timeout time.Duration, dtype Type, name strin
 	return Info{}, fmt.Errorf("device %q (type %s) not found", name, dtype)
 }
 
-// Discover scans the local network for DLNA renderers. (Chromecast discovery
-// requires mDNS which the current dependency set doesn't ship; callers
-// connect to known Chromecast addresses directly.)
+// Discover scans the local network for renderers: DLNA via SSDP and Chromecast
+// via mDNS (_googlecast._tcp). Both scans run in parallel and share the same
+// timeout window; a protocol that fails contributes no devices rather than
+// failing the whole scan.
 func Discover(ctx context.Context, timeout time.Duration) ([]Info, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	results, err := goupnp.DiscoverDevicesCtx(ctx, "urn:schemas-upnp-org:device:MediaRenderer:1")
-	if err != nil {
-		slog.WarnContext(ctx, "DLNA discovery error", "error", err)
-		return nil, nil
-	}
+	var dlna, chromecast []Info
+	var wg sync.WaitGroup
+	wg.Go(func() { dlna = discoverDLNA(ctx) })
+	wg.Go(func() { chromecast = discoverChromecast(ctx) })
+	wg.Wait()
 
-	devices := make([]Info, 0, len(results))
-	for _, r := range results {
-		if r.Root == nil {
-			continue
-		}
-		devices = append(devices, Info{
-			Name:    r.Root.Device.FriendlyName,
-			Type:    TypeDLNA,
-			Address: r.Location.String(),
-		})
-	}
-	return devices, nil
+	return slices.Concat(dlna, chromecast), nil
 }
