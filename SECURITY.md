@@ -20,7 +20,7 @@ Never put real keys in `config.yaml`. If you accidentally commit one, revoke it 
 
 ## TMDB API key
 
-The TMDB key is only used by `castor cast browse` to query the TMDB API. It is never sent anywhere else. A free key has a generous rate limit and no billing exposure, but it is still a credential tied to your account.
+The TMDB key is only used by the interactive `castor cast` browser to query the TMDB API. It is never sent anywhere else. A free key has a generous rate limit and no billing exposure, but it is still a credential tied to your account.
 
 Get or revoke keys at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api).
 
@@ -40,7 +40,7 @@ Castor launches Chrome to extract streams. The browser process:
 
 - Runs headless with a randomized fingerprint
 - Has no access to your default Chrome profile, cookies, or saved passwords
-- Makes outbound requests only to the target streaming site
+- Only visits the page you point it at (plus whatever that page itself loads); it never sends data back to Castor or its author
 
 ## Reporting a vulnerability
 

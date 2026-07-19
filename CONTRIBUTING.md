@@ -15,7 +15,7 @@ To run without producing a binary, export the build environment once per shell a
 
 ```sh
 eval "$(make env)"
-go run . cast browse --source vidsrc
+go run . scan          # discover devices, a quick check that the build runs
 go test ./...
 go vet ./...
 ```
