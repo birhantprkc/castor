@@ -83,11 +83,22 @@ type EncodeOptions struct {
 }
 
 // EncodeReadrateBurstSeconds is how much of the stream the subtitle-burning
-// encoder may race through at full speed before -readrate pins it to
-// realtime. Exported because the playback gate's transcription lead must
+// encoder may race through at full speed before -readrate pins it to its
+// steady pace. Exported because the playback gate's transcription lead must
 // cover it: frames encoded during the burst need their cues committed before
 // the encode starts.
 const EncodeReadrateBurstSeconds = 10
+
+// EncodeReadrate paces the subtitle-burning encoder just above realtime. It
+// must not be exactly 1.0: at dead-even playback speed the renderer's buffer
+// has no steady-state headroom, so any encode or network jitter permanently
+// erodes the initial preroll, and because the encoder never runs ahead it can
+// never rebuild it — the TV rebuffers minutes in. A slight margin lets the
+// encoder's output spool accumulate, so the send pacer's own headroom actually
+// reaches the device instead of being starved by an upstream fixed at 1.0x.
+// Stays well under the puller's 2x, so the encode never overtakes whisper's
+// committed frontier (the gate guarantees a lead before playback opens).
+const EncodeReadrate = "1.15"
 
 // containerInputArgs returns the ffmpeg input flags a source container needs.
 // HLS (and DASH) playlists require the extension checks relaxed; those flags
@@ -131,15 +142,15 @@ func EncodeArgs(opts EncodeOptions) []string {
 
 	if opts.PipeFormat != "" {
 		if opts.SubtitleTextFile != "" {
-			// The cue writer swaps drawtext's textfile on wall-clock ticks
-			// (-progress + -stats_period), so text lands on the right frames
-			// only if encoding advances at wall-clock speed. Unpaced, the
-			// encoder rips through the spool at CPU speed: every tick then
-			// covers seconds of video (cues smear or are skipped outright)
-			// and the encode overtakes the transcriber's commit frontier,
-			// after which every cue lookup misses and subtitles stop.
+			// Pace the encode to just above realtime. It must stay near
+			// wall-clock speed: the cue writer swaps drawtext's textfile as
+			// -progress ticks arrive, and unpaced the encoder rips through the
+			// spool at CPU speed (every tick covering seconds of video, so cues
+			// smear or skip) and overtakes the transcriber's commit frontier,
+			// after which every cue lookup misses and subtitles stop. It must
+			// not be exactly realtime either — see EncodeReadrate.
 			args = append(args,
-				"-readrate", "1.0",
+				"-readrate", EncodeReadrate,
 				"-readrate_initial_burst", strconv.Itoa(EncodeReadrateBurstSeconds),
 			)
 		}
