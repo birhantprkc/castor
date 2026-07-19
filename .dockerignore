@@ -1,0 +1,12 @@
+# Keep host-built artifacts out of the build context. The whisper.cpp cgo build
+# is arch-specific: a macOS libwhisper.a copied into a linux builder links with
+# "undefined reference to whisper_*". Let the build compile it fresh instead.
+/castor
+
+# Ignore build artifacts from the whisper.cpp submodule. The build artifacts are
+third_party/whisper.cpp/build_go/
+third_party/whisper.cpp/build_*/
+
+# .git isn't needed to build; excluding it shrinks the context and makes
+# go build's -buildvcs=auto cleanly skip VCS stamping.
+.git/
