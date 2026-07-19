@@ -33,7 +33,7 @@ Castor is a CLI that extracts video streams from websites, handles format compat
 <p align="center">
   <img src=".github/images/screen-selection.png" alt="Browsing TMDB titles in the castor TUI" width="640"/>
   <br/>
-  <sub><em>Run <code>castor cast</code> to browse trending titles, search TMDB, inspect posters and metadata, then cast — without leaving the terminal.</em></sub>
+  <sub><em>Run <code>castor cast</code> to browse trending titles, search TMDB, inspect posters and metadata, then cast, without leaving the terminal.</em></sub>
 </p>
 
 > [!NOTE]
@@ -46,7 +46,7 @@ Castor is a CLI that extracts video streams from websites, handles format compat
 
 ## Installation
 
-Homebrew and source build a **native binary** that needs **Chrome/Chromium** (headless extraction), **ffmpeg** (transcoding), and **ffprobe** (format detection) on your `PATH`. The **Docker** image bundles all three, so there you only supply a config.
+The recommended way to run Castor is the **native binary**. It runs directly on your machine, so it shares your TV's network, which device discovery needs. It requires **Chrome/Chromium** (headless extraction), **ffmpeg** (transcoding), and **ffprobe** (format detection) on your `PATH`. [Docker](#docker-optional) is an optional alternative that bundles all three, but only works from a Linux host.
 
 ### Homebrew (macOS)
 
@@ -54,9 +54,30 @@ Homebrew and source build a **native binary** that needs **Chrome/Chromium** (he
 brew install --cask stupside/tap/castor
 ```
 
-### Docker
+See [Quick start](#quick-start) to create the one-time `config.yaml` (which TV, which sources). After that, casting is a single command, no URL, just an IMDB/TMDB id:
 
-`ghcr.io/stupside/castor` ships with Chrome, ffmpeg and ffprobe baked in.
+```sh
+castor cast movie tt12300742
+```
+
+### From source
+
+Needs Go 1.26+ and cmake (the whisper.cpp bindings are cgo and link a locally built `libwhisper.a`):
+
+```sh
+git clone --recurse-submodules https://github.com/stupside/castor.git
+cd castor
+make          # builds libwhisper.a, then the castor binary
+```
+
+`go install` won't work: the vendored whisper.cpp bindings come in through a local `replace` and need that prebuilt static lib.
+
+### Docker (optional)
+
+> [!WARNING]
+> **Docker can only reach your TV from a Linux host on the same LAN.** Discovery is SSDP multicast and the TV streams back from Castor's replay server, and neither survives Docker's bridge network, so `--network host` is required. But on **Docker Desktop (macOS/Windows)** `--network host` is a silent no-op: the container lands on Docker Desktop's internal VM subnet (e.g. `192.168.65.x`), never your real LAN, so `scan` finds nothing and `cast` fails with `device "…" (type dlna) not found` even though the TV is up. **No `docker run` flag fixes this.** On macOS/Windows, run the [native binary](#homebrew-macos) instead. Or point Docker at a Linux VM bridged onto your LAN (e.g. Lima + `socket_vmnet`), which is the only way a container gets a real address on your network.
+
+On a Linux box or NAS on the same network as the TV, the prebuilt `ghcr.io/stupside/castor` image bundles Chrome, ffmpeg and ffprobe so you don't install them by hand:
 
 ```sh
 # Discover devices (no config required)
@@ -70,27 +91,7 @@ docker run --rm --network host \
   cast movie tt12300742
 ```
 
-The `-v "$PWD/config.yaml:/config.yaml"` mount is what makes this work: Castor reads your device and sources from [`config.yaml`](config.yaml), which the container looks for at `/config.yaml`. `cast movie tt12300742` builds the player URL from the `sources` proxies in that file — no URL on the command line — so run every command from the directory holding your `config.yaml`.
-
-> [!WARNING]
-> **Streaming sites are volatile.** `cast movie` resolves the id against the `sources` proxies in your [`config.yaml`](config.yaml) — here `https://1embed.cc`. Those point at third-party streaming sites that can go offline, change domains, or start blocking at any time. When one stops resolving, rotate it: swap in a working mirror/domain in the `sources` proxies list in your [`config.yaml`](config.yaml).
-
-> [!IMPORTANT]
-> `--network host` is required: device discovery is SSDP multicast and the TV streams back from Castor's replay server — neither survives Docker's bridge network. Host networking is only real on **Linux**; on Docker Desktop (macOS/Windows) it won't reach your TV, so run the binary natively there instead.
-
-The `castor-cache` volume keeps the auto-downloaded whisper models (~75 MB) between runs. Swap `:v1.4.0` for `:latest` to track the newest build, or for any other tag to pin a release.
-
-### From source
-
-Needs Go 1.26+ and cmake (the whisper.cpp bindings are cgo and link a locally built `libwhisper.a`):
-
-```sh
-git clone --recurse-submodules https://github.com/stupside/castor.git
-cd castor
-make          # builds libwhisper.a, then the castor binary
-```
-
-`go install` won't work: the vendored whisper.cpp bindings come in through a local `replace` and need that prebuilt static lib.
+The `-v "$PWD/config.yaml:/config.yaml"` mount is what makes this work: the container reads your device and sources from [`config.yaml`](config.yaml) at `/config.yaml`, so run every command from the directory holding it. The `castor-cache` volume keeps the auto-downloaded whisper models (~75 MB) between runs; swap `:latest` for any release tag to pin a version.
 
 
 ## Supported devices
@@ -109,7 +110,7 @@ Run `castor scan` to discover devices on your network.
 
 ## Quick start
 
-Castor **requires a `config.yaml`** in the current directory (or pass `--config`). Everything mechanical ships with working defaults, so the file only has to say **which device to cast to**, **which sources to cast from**, and a free [TMDB API key](https://www.themoviedb.org/settings/api) for the browser.
+Castor **requires a `config.yaml`** in the current directory (or pass `--config`). Everything mechanical ships with working defaults, so a minimal file only has to say **which device to cast to** and **which sources to cast from**. A [TMDB API key](https://www.themoviedb.org/settings/api) is optional, needed only for the interactive browser.
 
 ```sh
 # 1. Find your TV's exact name
@@ -129,25 +130,27 @@ sources:
       movie: "/embed/movie/{itemID}"
       episode: "/embed/tv/{itemID}/{season}-{episode}"
 
-tmdb:
-  api_key: "<YOUR_TMDB_API_KEY>"   # free from https://www.themoviedb.org/settings/api
+# tmdb:
+#   api_key: "<KEY>"   # optional, only for the `castor cast` browser; free from https://www.themoviedb.org/settings/api
 ```
+
+That's all you need to cast by id, the quickest path with no TMDB key:
 
 ```sh
-# 2. Browse and cast from an interactive TUI
-castor cast
+# 2. Cast a movie straight from an IMDB/TMDB id, resolved through your sources
+castor cast movie tt12300742
 ```
 
-`castor cast` first asks which device to cast to — every DLNA/UPnP renderer on your network, discovered on the fly and with your configured device pre-selected:
+> [!WARNING]
+> **Streaming sites are volatile.** `cast movie` resolves the id against the `sources` proxies in your [`config.yaml`](config.yaml), here `https://vidsrc-embed.ru`. Those point at third-party streaming sites that can go offline, change domains, or start blocking at any time. When one stops resolving, rotate it: swap in a working mirror/domain in the `sources` proxies list.
+
+Prefer to browse? Add a `tmdb.api_key` and run `castor cast` for an interactive TUI. It first asks which device to cast to: every DLNA/UPnP renderer on your network, discovered on the fly and with your configured device pre-selected:
 
 <p align="center">
   <img src=".github/images/screen-devices.png" alt="Selecting a cast target in the castor TUI" width="640"/>
 </p>
 
-Then it opens a TMDB-backed browser — filter by genre, search, inspect posters and metadata, drill into a series' episodes, and cast the one you pick.
-
-> [!TIP]
-> No TMDB key? You can skip the browser and cast a title straight from its id — `castor cast movie tt33028778` — using the sources in your config. See [Usage](#usage).
+Then it opens a TMDB-backed browser: filter by genre, search, inspect posters and metadata, drill into a series' episodes, and cast the one you pick.
 
 
 ## Usage
