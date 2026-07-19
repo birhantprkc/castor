@@ -2,6 +2,7 @@ package ffmpeg
 
 import (
 	"fmt"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -25,7 +26,7 @@ type EncodeOptions struct {
 
 	// SourceHeaders are HTTP headers ffmpeg sends when fetching SourceURL
 	// (Referer, User-Agent, Cookie, etc. — needed for HLS behind proxies).
-	SourceHeaders map[string]string
+	SourceHeaders http.Header
 
 	// SourceContentType is the MIME type of SourceURL. It selects the
 	// container-specific input flags (see containerInputArgs). Only consulted
@@ -101,6 +102,24 @@ func containerInputArgs(contentType string) []string {
 	}
 }
 
+// headerArgs renders h as the ffmpeg -headers flag pair, or nil when h is empty.
+// ffmpeg wants every request header in one CRLF-joined blob ("Key: Value\r\n…").
+func headerArgs(h http.Header) []string {
+	if len(h) == 0 {
+		return nil
+	}
+	var b strings.Builder
+	for key, values := range h {
+		for _, v := range values {
+			b.WriteString(key)
+			b.WriteString(": ")
+			b.WriteString(v)
+			b.WriteString("\r\n")
+		}
+	}
+	return []string{"-headers", b.String()}
+}
+
 // EncodeArgs assembles the encode command line. No "magic" flags: every
 // argument is either part of the standard input/output setup or comes
 // straight from a field in EncodeOptions.
@@ -132,9 +151,7 @@ func EncodeArgs(opts EncodeOptions) []string {
 			"-reconnect_streamed", "1",
 			"-reconnect_delay_max", "5",
 		)
-		if h := media.FormatHTTPHeaders(opts.SourceHeaders); h != "" {
-			args = append(args, "-headers", h)
-		}
+		args = append(args, headerArgs(opts.SourceHeaders)...)
 		args = append(args, containerInputArgs(opts.SourceContentType)...)
 		args = append(args, "-i", opts.SourceURL.String())
 	}
@@ -221,7 +238,7 @@ func EncodeArgs(opts EncodeOptions) []string {
 // PullOptions configures the single upstream reader's command line.
 type PullOptions struct {
 	SourceURL         *url.URL
-	SourceHeaders     map[string]string
+	SourceHeaders     http.Header
 	SourceContentType string // MIME type of SourceURL; selects container-specific input flags
 	RWTimeoutMicros   int64
 
@@ -266,9 +283,7 @@ func PullArgs(opts PullOptions) []string {
 		"-readrate", "2.0",
 		"-readrate_initial_burst", "90",
 	}
-	if h := media.FormatHTTPHeaders(opts.SourceHeaders); h != "" {
-		args = append(args, "-headers", h)
-	}
+	args = append(args, headerArgs(opts.SourceHeaders)...)
 	args = append(args, containerInputArgs(opts.SourceContentType)...)
 	args = append(args, "-i", opts.SourceURL.String())
 

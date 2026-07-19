@@ -1,6 +1,7 @@
 package cast
 
 import (
+	"net/http"
 	"net/url"
 	"slices"
 	"strconv"
@@ -23,7 +24,7 @@ type Plan struct {
 
 	// SourceHeaders are the HTTP headers ffmpeg needs to fetch SourceURL when
 	// the source is HLS behind a proxy/CDN that requires them.
-	SourceHeaders map[string]string
+	SourceHeaders http.Header
 
 	// SourceContentType is the resolved MIME type of SourceURL. The puller
 	// applies HLS-only ffmpeg input flags solely to HLS sources.
@@ -78,7 +79,7 @@ type PlanInput struct {
 	SupportedContentTypes []string
 
 	SourceURL         *url.URL
-	SourceHeaders     map[string]string
+	SourceHeaders     http.Header
 	SourceContentType string
 	SourceBitRate     int64 // 0 if unknown
 

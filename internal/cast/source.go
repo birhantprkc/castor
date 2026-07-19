@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/stupside/castor/internal/cast/ffmpeg"
@@ -54,8 +56,9 @@ func startPull(ctx context.Context, cfg TranscodeConfig, plan Plan, sp *spool.Sp
 	}
 
 	slog.InfoContext(ctx, "upstream pull started",
-		"source", plan.SourceURL.String(),
 		"pcm", wantPCM,
+		"source", plan.SourceURL.String(),
+		"header_keys", slices.Sorted(maps.Keys(plan.SourceHeaders)),
 	)
 	// Full invocation at debug so the pull can be reproduced by hand
 	// (ffmpeg <args>) to isolate source/network from the rest of the pipeline.

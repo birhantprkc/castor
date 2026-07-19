@@ -4,14 +4,13 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/stupside/castor/internal/media"
 )
 
 var bandwidthRe = regexp.MustCompile(`BANDWIDTH=(\d+)`)
@@ -26,12 +25,12 @@ type hlsVariant struct {
 // playlist is a media playlist (no #EXT-X-STREAM-INF tags) it returns a
 // single variant pointing at the original URL with zero bandwidth — the
 // caller can treat that uniformly.
-func parsePlaylist(ctx context.Context, hlsTimeout time.Duration, masterURL *url.URL, headers map[string]string) ([]hlsVariant, error) {
+func parsePlaylist(ctx context.Context, hlsTimeout time.Duration, masterURL *url.URL, headers http.Header) ([]hlsVariant, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, masterURL.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
-	media.ApplyHTTPHeaders(req, headers)
+	maps.Copy(req.Header, headers)
 
 	client := &http.Client{Timeout: hlsTimeout}
 	resp, err := client.Do(req)

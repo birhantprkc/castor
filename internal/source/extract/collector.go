@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"regexp"
 	"slices"
@@ -37,15 +38,15 @@ var hlsURLPattern = regexp.MustCompile(`https?://[^\s"'<>]+\.m3u8[^\s"'<>]*`)
 
 type capturedStream struct {
 	RawURL   string
-	Headers  map[string]string
+	Headers  http.Header
 	MimeType string // confirmed by server; empty if only URL-pattern matched
 }
 
 type candidate struct {
-	rawURL   string
-	headers  map[string]string
-	mimeType string
 	score    int
+	reqID    network.RequestID
+	rawURL   string
+	mimeType string
 }
 
 // collector captures and deduplicates stream URLs from browser events.
@@ -55,8 +56,8 @@ type collector struct {
 	maxCandidates  int
 	mu             sync.Mutex
 	candidates     []candidate
-	requestHeaders map[network.RequestID]map[string]string // outgoing headers, keyed by request ID
-	notify         chan struct{}                           // closed on first capture
+	requestHeaders map[network.RequestID]http.Header
+	notify         chan struct{} // closed on first capture
 }
 
 func newCollector(ctx context.Context, patterns []*regexp.Regexp, maxCandidates int) *collector {
@@ -64,50 +65,51 @@ func newCollector(ctx context.Context, patterns []*regexp.Regexp, maxCandidates 
 		ctx:            ctx,
 		patterns:       patterns,
 		maxCandidates:  maxCandidates,
-		requestHeaders: make(map[network.RequestID]map[string]string),
+		requestHeaders: make(map[network.RequestID]http.Header),
 		notify:         make(chan struct{}),
 	}
 }
 
-// Add records a URL if it matches capture patterns, is not a duplicate,
-// and the candidate list is not full.
-func (c *collector) Add(u string, headers map[string]string) {
+// addByPattern records a URL if it matches capture patterns.
+func (c *collector) addByPattern(u string, reqID network.RequestID) {
 	if !matchesPattern(u, c.patterns) {
 		return
 	}
-	c.add(u, headers, "")
+	c.add(u, reqID, "")
 }
 
-// AddByMIME records a URL when the server has confirmed the MIME type is a
+// addByMIME records a URL when the server has confirmed the MIME type is a
 // stream type. Pattern matching is skipped — the confirmed MIME takes precedence.
-func (c *collector) AddByMIME(u string, mime string, headers map[string]string) {
+func (c *collector) addByMIME(u string, reqID network.RequestID, mime string) {
 	if !streamMIMETypes[strings.ToLower(mime)] {
 		return
 	}
-	c.add(u, headers, strings.ToLower(mime))
+	c.add(u, reqID, strings.ToLower(mime))
 }
 
-// add deduplicates and appends a URL without pattern checking.
-func (c *collector) add(u string, headers map[string]string, mimeType string) {
+// add deduplicates and appends a URL. On a duplicate it enriches the existing
+// candidate in place rather than adding a second row.
+func (c *collector) add(u string, reqID network.RequestID, mimeType string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if len(c.candidates) >= c.maxCandidates {
-		slog.DebugContext(c.ctx, "max candidates reached, skipping URL", "url", u)
+	if i := slices.IndexFunc(c.candidates, func(cand candidate) bool { return cand.rawURL == u }); i >= 0 {
+		// Already captured. A console-first URL has no request ID (so no
+		// headers); adopting a later network sighting's ID gives hotlink-
+		// protected hosts the Referer/Origin they need instead of a 403. Fill in
+		// a MIME confirmed later the same way.
+		if c.candidates[i].reqID == "" && reqID != "" {
+			c.candidates[i].reqID = reqID
+			slog.DebugContext(c.ctx, "attached request headers to captured URL", "url", u)
+		}
+		if c.candidates[i].mimeType == "" && mimeType != "" {
+			c.candidates[i].mimeType = mimeType
+		}
 		return
 	}
 
-	if i := slices.IndexFunc(c.candidates, func(cand candidate) bool { return cand.rawURL == u }); i >= 0 {
-		// Already captured. A URL first seen in console output carries no request
-		// headers; a later network sighting of the same URL does. Upgrade so
-		// hotlink-protected hosts get the Referer/User-Agent they require instead
-		// of a header-less 403.
-		if len(c.candidates[i].headers) == 0 && len(headers) > 0 {
-			c.candidates[i].headers = headers
-			slog.DebugContext(c.ctx, "upgraded headers for captured URL", "url", u)
-		} else {
-			slog.DebugContext(c.ctx, "duplicate URL, skipping", "url", u)
-		}
+	if len(c.candidates) >= c.maxCandidates {
+		slog.DebugContext(c.ctx, "max candidates reached, skipping URL", "url", u)
 		return
 	}
 
@@ -115,7 +117,7 @@ func (c *collector) add(u string, headers map[string]string, mimeType string) {
 
 	c.candidates = append(c.candidates, candidate{
 		rawURL:   u,
-		headers:  headers,
+		reqID:    reqID,
 		mimeType: mimeType,
 		score:    rankURL(u),
 	})
@@ -128,11 +130,24 @@ func (c *collector) add(u string, headers map[string]string, mimeType string) {
 	}
 }
 
-// Entries returns captured streams sorted by score (descending).
+// Entries returns captured streams sorted by score (descending), each with its
+// outgoing headers resolved from the merged per-request header set.
 func (c *collector) Entries() []capturedStream {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return sortedEntries(c.candidates)
+
+	sorted := slices.SortedFunc(slices.Values(c.candidates), func(a, b candidate) int {
+		return cmp.Compare(b.score, a.score)
+	})
+	entries := make([]capturedStream, len(sorted))
+	for i, cand := range sorted {
+		entries[i] = capturedStream{
+			RawURL:   cand.rawURL,
+			Headers:  c.requestHeaders[cand.reqID], // nil reqID → nil headers (console-only)
+			MimeType: cand.mimeType,
+		}
+	}
+	return entries
 }
 
 func (c *collector) HasHits() bool {
@@ -204,55 +219,64 @@ func (c *collector) Wait(ctx context.Context, graceAfterActions, collectionWindo
 func (c *collector) Listen(ev any) {
 	switch e := ev.(type) {
 	case *network.EventRequestWillBeSent:
-		// Only requestWillBeSent carries the real outgoing headers (Referer,
-		// User-Agent, sec-ch-*). Keep them by request ID so a stream later
-		// confirmed by MIME on responseReceived is fetched with the same headers.
-		// Proxy and CDN hosts enforce hotlink protection and return 403 without
-		// the browser's Referer, and responseReceived's own RequestHeaders come
-		// back empty.
-		headers := networkHeadersToMap(e.Request.Headers)
-		c.storeHeaders(e.RequestID, headers)
-		c.Add(e.Request.URL, headers)
+		// Page-set headers only. The browser-added Referer/Origin/Cookie that
+		// hotlinked CDNs check arrive separately, in the ExtraInfo event below;
+		// both merge by request ID.
+		c.mergeHeaders(e.RequestID, toHTTPHeader(e.Request.Headers))
+		c.addByPattern(e.Request.URL, e.RequestID)
+
+	case *network.EventRequestWillBeSentExtraInfo:
+		// The real on-the-wire headers (Referer, Origin, Cookie, sec-ch-*).
+		c.mergeHeaders(e.RequestID, toHTTPHeader(e.Headers))
 
 	case *network.EventResponseReceived:
-		c.AddByMIME(e.Response.URL, e.Response.MimeType, c.loadHeaders(e.RequestID))
+		c.addByMIME(e.Response.URL, e.RequestID, e.Response.MimeType)
 
 	case *runtime.EventConsoleAPICalled:
 		for _, arg := range e.Args {
 			val := strings.Trim(string(arg.Value), `"`)
 			for _, m := range hlsURLPattern.FindAllString(val, -1) {
-				c.Add(m, nil)
+				c.addByPattern(m, "")
 			}
 		}
 	}
 }
 
-// storeHeaders records the outgoing request headers for a request ID.
-func (c *collector) storeHeaders(id network.RequestID, headers map[string]string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.requestHeaders[id] = headers
-}
-
-// loadHeaders returns the outgoing request headers recorded for a request ID,
-// or nil if the request carried none.
-func (c *collector) loadHeaders(id network.RequestID) map[string]string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.requestHeaders[id]
-}
-
-func networkHeadersToMap(h network.Headers) map[string]string {
-	if len(h) == 0 {
-		return nil
+// mergeHeaders folds outgoing headers into the set recorded for a request ID.
+// requestWillBeSent and ExtraInfo each call it once, in either order; non-empty
+// values win so neither clobbers the other's contribution.
+func (c *collector) mergeHeaders(id network.RequestID, headers http.Header) {
+	if id == "" || len(headers) == 0 {
+		return
 	}
-	m := make(map[string]string, len(h))
-	for k, v := range h {
-		if s, ok := v.(string); ok {
-			m[k] = s
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	existing := c.requestHeaders[id]
+	if existing == nil {
+		existing = make(http.Header, len(headers))
+		c.requestHeaders[id] = existing
+	}
+	for k, vs := range headers {
+		if len(vs) > 0 && vs[0] != "" {
+			existing[k] = vs
 		}
 	}
-	return m
+}
+
+// toHTTPHeader converts CDP headers into an http.Header (canonical keys),
+// skipping HTTP/2 pseudo-headers (":authority", ":method", …) that an outgoing
+// request can't carry. Nil when nothing usable remains.
+func toHTTPHeader(h network.Headers) http.Header {
+	out := make(http.Header, len(h))
+	for k, v := range h {
+		if s, ok := v.(string); ok && !strings.HasPrefix(k, ":") {
+			out.Set(k, s)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // matchesPattern checks if a URL matches any of the capture patterns.
@@ -305,19 +329,4 @@ func rankURL(rawURL string) int {
 	}
 
 	return score
-}
-
-func sortedEntries(candidates []candidate) []capturedStream {
-	sorted := slices.SortedFunc(slices.Values(candidates), func(a, b candidate) int {
-		return cmp.Compare(b.score, a.score)
-	})
-	entries := make([]capturedStream, len(sorted))
-	for i, c := range sorted {
-		entries[i] = capturedStream{
-			RawURL:   c.rawURL,
-			Headers:  c.headers,
-			MimeType: c.mimeType,
-		}
-	}
-	return entries
 }

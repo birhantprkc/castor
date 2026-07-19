@@ -29,7 +29,7 @@ var HLSInputArgs = []string{
 
 type Stream struct {
 	URL         *url.URL
-	Headers     map[string]string
+	Headers     http.Header
 	Bandwidth   int64
 	ContentType string
 }
@@ -102,38 +102,39 @@ func DetectFromMIME(mime string) string {
 	return mimeContentTypes[strings.ToLower(mime)]
 }
 
-// FormatHTTPHeaders renders headers as ffmpeg's -headers flag value
-// ("Key: Value\r\n…"), skipping HTTP/2 pseudo-headers that ffmpeg's HTTP
-// stack won't accept.
-func FormatHTTPHeaders(headers map[string]string) string {
-	if len(headers) == 0 {
+// NormalizeStreamHeaders returns a copy of browser-captured headers ready to
+// replay to the puller. It drops headers that break a re-issued fetch and, when
+// a Referer is present without an Origin, derives the Origin from it: a
+// cross-origin browser GET sends only a Referer, but CDNs commonly gate segment
+// delivery on Origin too, and the derived pair is what a site's own player proxy
+// sends. The input is not mutated.
+func NormalizeStreamHeaders(h http.Header) http.Header {
+	out := h.Clone()
+	if out == nil {
+		return nil
+	}
+	// A stale Range fetches a byte slice instead of the whole resource; a
+	// br/zstd Accept-Encoding yields a body ffmpeg can't decode ("Invalid data
+	// found when processing input").
+	out.Del("Range")
+	out.Del("Accept-Encoding")
+	if out.Get("Origin") == "" {
+		if origin := originOf(out.Get("Referer")); origin != "" {
+			out.Set("Origin", origin)
+		}
+	}
+	return out
+}
+
+// originOf returns the scheme://host origin of an absolute URL, or "" if s is
+// not one.
+func originOf(s string) string {
+	u, err := url.Parse(s)
+	if err != nil || u.Scheme == "" || u.Host == "" {
 		return ""
 	}
-	var b strings.Builder
-	for k, v := range headers {
-		if isPseudoHeader(k) {
-			continue
-		}
-		b.WriteString(k)
-		b.WriteString(": ")
-		b.WriteString(v)
-		b.WriteString("\r\n")
-	}
-	return b.String()
+	return (&url.URL{Scheme: u.Scheme, Host: u.Host}).String()
 }
-
-// ApplyHTTPHeaders copies headers onto req, skipping HTTP/2 pseudo-headers
-// (:method, :path, …) which net/http won't accept.
-func ApplyHTTPHeaders(req *http.Request, headers map[string]string) {
-	for k, v := range headers {
-		if isPseudoHeader(k) {
-			continue
-		}
-		req.Header.Set(k, v)
-	}
-}
-
-func isPseudoHeader(name string) bool { return strings.HasPrefix(name, ":") }
 
 // FormatToContentType maps an ffprobe format_name to a content type.
 func FormatToContentType(format string) (string, error) {

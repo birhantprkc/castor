@@ -75,7 +75,7 @@ func (e *Extractor) Extract(ctx context.Context, targetURL string) ([]*media.Str
 			slog.DebugContext(ctx, "skipping entry, unknown content type", "url", u.String())
 			continue
 		}
-		streams = append(streams, &media.Stream{URL: u, Headers: entry.Headers, ContentType: ct})
+		streams = append(streams, &media.Stream{URL: u, Headers: media.NormalizeStreamHeaders(entry.Headers), ContentType: ct})
 	}
 
 	if len(streams) == 0 {
