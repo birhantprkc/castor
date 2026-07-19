@@ -62,18 +62,23 @@ brew install --cask stupside/tap/castor
 # Discover devices (no config required)
 docker run --rm --network host ghcr.io/stupside/castor:latest scan
 
-# Cast, mounting config.yaml and a persistent model cache
+# Cast a movie by id, mounting config.yaml and a persistent model cache
 docker run --rm --network host \
   -v "$PWD/config.yaml:/config.yaml" \
   -v castor-cache:/root/.cache \
-  ghcr.io/stupside/castor:latest \
-  cast player https://www.fmovies.gd/watch/movie/1315303
+  ghcr.io/stupside/castor:v1.4.0 \
+  cast movie tt12300742
 ```
+
+The `-v "$PWD/config.yaml:/config.yaml"` mount is what makes this work: Castor reads your device and sources from [`config.yaml`](config.yaml), which the container looks for at `/config.yaml`. `cast movie tt12300742` builds the player URL from the `sources` proxies in that file — no URL on the command line — so run every command from the directory holding your `config.yaml`.
+
+> [!WARNING]
+> **Streaming sites are volatile.** `cast movie` resolves the id against the `sources` proxies in your [`config.yaml`](config.yaml) — here `https://1embed.cc`. Those point at third-party streaming sites that can go offline, change domains, or start blocking at any time. When one stops resolving, rotate it: swap in a working mirror/domain in the `sources` proxies list in your [`config.yaml`](config.yaml).
 
 > [!IMPORTANT]
 > `--network host` is required: device discovery is SSDP multicast and the TV streams back from Castor's replay server — neither survives Docker's bridge network. Host networking is only real on **Linux**; on Docker Desktop (macOS/Windows) it won't reach your TV, so run the binary natively there instead.
 
-The `castor-cache` volume keeps the auto-downloaded whisper models (~75 MB) between runs. Swap `:latest` for `:v1.0.0` to pin a release.
+The `castor-cache` volume keeps the auto-downloaded whisper models (~75 MB) between runs. Swap `:v1.4.0` for `:latest` to track the newest build, or for any other tag to pin a release.
 
 ### From source
 
@@ -152,7 +157,7 @@ Then it opens a TMDB-backed browser — filter by genre, search, inspect posters
 castor cast
 
 # Cast from a streaming site's player page
-castor cast player https://www.fmovies.gd/watch/movie/1315303
+castor cast player https://1embed.cc/embed/movie/tt12300742
 
 # Cast by IMDB/TMDB id, using the sources in your config
 castor cast movie   tt33028778
