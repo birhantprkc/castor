@@ -43,7 +43,7 @@ whisper:
   enable: false
 
 tmdb:
-  # Used by `castor cast browse`. Get a free key at https://www.themoviedb.org/settings/api
+  # Used by the interactive `castor cast`. Get a free key at https://www.themoviedb.org/settings/api
   # Put the real key in git-ignored config.local.yaml (overlays this file),
   # or set CASTOR_TMDB__API_KEY in the environment.
   api_key: "<YOUR_TMDB_API_KEY>"

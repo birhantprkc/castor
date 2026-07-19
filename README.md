@@ -30,6 +30,12 @@ Imagine buying a very nice TV and figuring out it doesn't allow casting from ran
 
 Castor is a CLI that extracts video streams from websites, handles format compatibility, and casts to your TV in real time, with optional auto-generated subtitles burned directly into the video.
 
+<p align="center">
+  <img src=".github/images/screen-selection.png" alt="Browsing TMDB titles in the castor TUI" width="640"/>
+  <br/>
+  <sub><em>Run <code>castor cast</code> to browse trending titles, search TMDB, inspect posters and metadata, then cast — without leaving the terminal.</em></sub>
+</p>
+
 > [!NOTE]
 > **How does extraction work?**
 >
@@ -87,43 +93,14 @@ The `castor-cache` volume keeps the auto-downloaded whisper models (~75 MB) betw
 
 ## Quick start
 
+Castor **requires a `config.yaml`** in the current directory (or pass `--config`). Everything mechanical ships with working defaults, so the file only has to say **which device to cast to**, **which sources to cast from**, and a free [TMDB API key](https://www.themoviedb.org/settings/api) for the browser.
+
 ```sh
-# 1. Find your TV's name
+# 1. Find your TV's exact name
 castor scan
-
-# 2. Set it in config.yaml, then browse and cast
-castor cast browse --source vidsrc
 ```
 
-`cast browse` opens a TUI backed by TMDB. Browse trending titles, search, pick a movie or episode, and cast. Requires a free [TMDB API key](https://www.themoviedb.org/settings/api).
-
-
-## Usage
-
-```sh
-# Browse TMDB and cast from a TUI
-castor cast browse --source vidsrc
-
-# Cast from a streaming site
-castor cast player https://www.fmovies.gd/watch/movie/1315303
-
-# Cast by IMDB ID
-castor cast movie   --source vidsrc tt33028778
-castor cast episode --source vidsrc tt2699128 --season 1 --episode 3
-
-# Cast a raw stream URL directly
-castor cast url https://example.com/stream.m3u8
-
-# Useful flags
-castor cast movie --dry-run --source vidsrc tt33028778  # print URLs without casting
-castor --debug cast player https://...                  # verbose logging
-castor info                                             # version / build info
-```
-
-
-## Configuration
-
-`config.yaml` (override with `--config`). A sibling `config.local.yaml` overlays it and is git-ignored; put API keys there.
+Create `config.yaml` with that name:
 
 ```yaml
 device:
@@ -136,13 +113,62 @@ sources:
       movie: "/embed/movie/{itemID}"
       episode: "/embed/tv/{itemID}/{season}-{episode}"
 
+tmdb:
+  api_key: "<YOUR_TMDB_API_KEY>"   # free from https://www.themoviedb.org/settings/api
+```
+
+```sh
+# 2. Browse and cast from an interactive TUI
+castor cast
+```
+
+`castor cast` first asks which device to cast to — every DLNA/UPnP renderer on your network, discovered on the fly and with your configured device pre-selected:
+
+<p align="center">
+  <img src=".github/images/screen-devices.png" alt="Selecting a cast target in the castor TUI" width="640"/>
+</p>
+
+Then it opens a TMDB-backed browser — filter by genre, search, inspect posters and metadata, drill into a series' episodes, and cast the one you pick.
+
+> [!TIP]
+> No TMDB key? You can skip the browser and cast a title straight from its id — `castor cast movie tt33028778` — using the sources in your config. See [Usage](#usage).
+
+
+## Usage
+
+```sh
+# Interactive TMDB browser: search, pick a movie/episode, cast (needs tmdb.api_key)
+castor cast
+
+# Cast from a streaming site's player page
+castor cast player https://www.fmovies.gd/watch/movie/1315303
+
+# Cast by IMDB/TMDB id, using the sources in your config
+castor cast movie   tt33028778
+castor cast episode tt2699128 --season 1 --episode 3
+
+# Cast a raw stream URL directly
+castor cast url https://example.com/stream.m3u8
+
+# Useful flags
+castor cast movie --dry-run tt33028778   # print found URLs without casting
+castor --debug cast player https://...   # verbose logging
+castor scan                              # discover devices on the network
+castor info                              # version / build info
+```
+
+
+## Configuration
+
+[Quick start](#quick-start) covers the required keys. Beyond those, everything mechanical (timeouts, probing, capture, transcoding, Chrome discovery) ships with working defaults. Override any of it in `config.yaml`, point at a different file with `--config`, drop secrets like your TMDB key into a git-ignored sibling `config.local.yaml` (it overlays `config.yaml`), or set `CASTOR_SECTION__FIELD` environment variables.
+
+The one opt-in worth calling out is auto-generated subtitles, burned into the video:
+
+```yaml
 whisper:
-  enable: true             # auto-generated subtitles, burned into the video
+  enable: true             # off by default
   # language: "fr"         # default: English
   # model_path: ""         # default: ggml-tiny.en (~75 MB, auto-downloaded)
-
-tmdb:
-  api_key: "<YOUR_TMDB_API_KEY>"   # required for `cast browse`
 ```
 
 
