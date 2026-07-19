@@ -116,6 +116,18 @@ func (s *session) RunActions(actionCfg ActionConfig) {
 }
 
 func (s *session) Close() {
+	// Cancelling these only *signals* teardown; chromedp kills the Chrome
+	// process and reaps it in a background goroutine (see ExecAllocator).
 	s.cancel()
 	s.allocCancel()
+
+	// Block until that goroutine has actually reaped the process. Without this
+	// wait, an abrupt exit — e.g. Ctrl-C mid-extraction, when main returns as
+	// soon as the root context is cancelled — can outrun the async kill and
+	// orphan the headless browser to launchd, where it keeps autoplaying the
+	// stream's audio with no window. Waiting also lets chromedp delete the
+	// temporary user-data-dir it created for the session.
+	if c := chromedp.FromContext(s.ctx); c != nil && c.Allocator != nil {
+		c.Allocator.Wait()
+	}
 }
