@@ -35,12 +35,13 @@ type pull struct {
 // optional PCM output is exposed as pull.pcm.
 func startPull(ctx context.Context, cfg TranscodeConfig, plan Plan, sp *spool.Spool, wantPCM bool) (*pull, error) {
 	args := ffmpeg.PullArgs(ffmpeg.PullOptions{
-		SourceURL:       plan.SourceURL,
-		SourceHeaders:   plan.SourceHeaders,
-		RWTimeoutMicros: cfg.RWTimeout.Microseconds(),
-		Verbose:         slog.Default().Enabled(ctx, slog.LevelDebug),
-		PCM:             wantPCM,
-		PCMSampleRate:   whisper.SampleRate,
+		SourceURL:         plan.SourceURL,
+		SourceHeaders:     plan.SourceHeaders,
+		SourceContentType: plan.SourceContentType,
+		RWTimeoutMicros:   cfg.RWTimeout.Microseconds(),
+		Verbose:           slog.Default().Enabled(ctx, slog.LevelDebug),
+		PCM:               wantPCM,
+		PCMSampleRate:     whisper.SampleRate,
 	})
 
 	var opts []ffmpeg.StartOption

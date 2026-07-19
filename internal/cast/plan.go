@@ -25,6 +25,10 @@ type Plan struct {
 	// the source is HLS behind a proxy/CDN that requires them.
 	SourceHeaders map[string]string
 
+	// SourceContentType is the resolved MIME type of SourceURL. The puller
+	// applies HLS-only ffmpeg input flags solely to HLS sources.
+	SourceContentType string
+
 	// OutputContentType is the MIME type advertised to the device (e.g.
 	// "video/mp2t" for mpegts).
 	OutputContentType string
@@ -101,6 +105,7 @@ func BuildPlan(in PlanInput) Plan {
 	return Plan{
 		SourceURL:         in.SourceURL,
 		SourceHeaders:     in.SourceHeaders,
+		SourceContentType: in.SourceContentType,
 		OutputContentType: in.SourceContentType,
 	}
 }
@@ -131,6 +136,7 @@ func planDLNA(in PlanInput) Plan {
 	p := Plan{
 		SourceURL:         in.SourceURL,
 		SourceHeaders:     in.SourceHeaders,
+		SourceContentType: in.SourceContentType,
 		OutputContentType: "video/mp2t",
 		SendRate:          int64(encodedBitsPerSec * (100 + dlnaPaceHeadroomPct) / 100 / 8),
 		SendBurst:         int64(encodedBitsPerSec * dlnaPrerollSeconds / 8),
@@ -164,6 +170,7 @@ func planChromecast(in PlanInput) Plan {
 		return Plan{
 			SourceURL:         in.SourceURL,
 			SourceHeaders:     in.SourceHeaders,
+			SourceContentType: in.SourceContentType,
 			OutputContentType: in.SourceContentType,
 		}
 	}
@@ -171,14 +178,16 @@ func planChromecast(in PlanInput) Plan {
 	return Plan{
 		SourceURL:         in.SourceURL,
 		SourceHeaders:     in.SourceHeaders,
+		SourceContentType: in.SourceContentType,
 		OutputContentType: media.MP4,
 		Transcode: &ffmpeg.EncodeOptions{
-			OutputFormat:    "mp4",
-			VideoCodec:      "copy",
-			AudioCodec:      "aac",
-			AudioBitrate:    "256k",
-			AudioSampleRate: 48000,
-			AudioChannels:   2,
+			OutputFormat:      "mp4",
+			SourceContentType: in.SourceContentType,
+			VideoCodec:        "copy",
+			AudioCodec:        "aac",
+			AudioBitrate:      "256k",
+			AudioSampleRate:   48000,
+			AudioChannels:     2,
 		},
 	}
 }

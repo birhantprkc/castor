@@ -27,6 +27,11 @@ type EncodeOptions struct {
 	// (Referer, User-Agent, Cookie, etc. — needed for HLS behind proxies).
 	SourceHeaders map[string]string
 
+	// SourceContentType is the MIME type of SourceURL. It selects the
+	// container-specific input flags (see containerInputArgs). Only consulted
+	// for a network source (PipeFormat empty).
+	SourceContentType string
+
 	// RWTimeoutMicros is the upstream I/O timeout in microseconds, passed to
 	// ffmpeg's -rw_timeout for HTTP(S) input. Ignored for stdin input.
 	RWTimeoutMicros int64
@@ -83,6 +88,19 @@ type EncodeOptions struct {
 // the encode starts.
 const EncodeReadrateBurstSeconds = 10
 
+// containerInputArgs returns the ffmpeg input flags a source container needs.
+// HLS (and DASH) playlists require the extension checks relaxed; those flags
+// are options on the HLS demuxer, so ffmpeg aborts a plain-file input (MP4,
+// MKV) with "Option not found" when they are present. Direct files need none.
+func containerInputArgs(contentType string) []string {
+	switch contentType {
+	case media.HLS:
+		return media.HLSInputArgs
+	default:
+		return nil
+	}
+}
+
 // EncodeArgs assembles the encode command line. No "magic" flags: every
 // argument is either part of the standard input/output setup or comes
 // straight from a field in EncodeOptions.
@@ -117,7 +135,7 @@ func EncodeArgs(opts EncodeOptions) []string {
 		if h := media.FormatHTTPHeaders(opts.SourceHeaders); h != "" {
 			args = append(args, "-headers", h)
 		}
-		args = append(args, media.HLSInputArgs...)
+		args = append(args, containerInputArgs(opts.SourceContentType)...)
 		args = append(args, "-i", opts.SourceURL.String())
 	}
 
@@ -202,9 +220,10 @@ func EncodeArgs(opts EncodeOptions) []string {
 
 // PullOptions configures the single upstream reader's command line.
 type PullOptions struct {
-	SourceURL       *url.URL
-	SourceHeaders   map[string]string
-	RWTimeoutMicros int64
+	SourceURL         *url.URL
+	SourceHeaders     map[string]string
+	SourceContentType string // MIME type of SourceURL; selects container-specific input flags
+	RWTimeoutMicros   int64
 
 	// Verbose selects -loglevel verbose (playlist/segment URLs, connection
 	// lines) instead of the default warning level.
@@ -250,7 +269,7 @@ func PullArgs(opts PullOptions) []string {
 	if h := media.FormatHTTPHeaders(opts.SourceHeaders); h != "" {
 		args = append(args, "-headers", h)
 	}
-	args = append(args, media.HLSInputArgs...)
+	args = append(args, containerInputArgs(opts.SourceContentType)...)
 	args = append(args, "-i", opts.SourceURL.String())
 
 	// Output 1: codec-copy remux to MPEG-TS on stdout → spool. mpegts is the
