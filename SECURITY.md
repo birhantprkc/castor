@@ -1,5 +1,7 @@
 # Security
 
+How Castor handles secrets, your local network, and the headless browser it launches. Castor collects no telemetry and sends nothing to its author.
+
 ## Keeping secrets out of git
 
 Castor uses two config files: `config.yaml` (committed) and `config.local.yaml` (git-ignored). **Put all secrets in `config.local.yaml`**: it overlays the main config and is never tracked.
@@ -38,9 +40,9 @@ This is intentional: DLNA renderers cannot authenticate. Keep Castor on a truste
 
 Castor launches Chrome to extract streams. The browser process:
 
-- Runs headless with a randomized fingerprint
-- Has no access to your default Chrome profile, cookies, or saved passwords
-- Only visits the page you point it at (plus whatever that page itself loads); it never sends data back to Castor or its author
+- Runs fully headless and isolated from your real browser: no access to your default Chrome profile, cookies, or saved passwords
+- Uses a fresh, randomized browser fingerprint per extraction run, not derived from or linked to your real browser or identity
+- Only visits the page you point it at (plus whatever that page itself loads)
 
 ## Reporting a vulnerability
 

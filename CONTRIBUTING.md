@@ -2,6 +2,19 @@
 
 Bug reports, tested device reports, and pull requests are all welcome.
 
+## Scope
+
+Castor is a general-purpose caster and a proof of concept. To keep it that way,
+some contributions are out of scope and will be declined:
+
+- Bundled or default source lists (Castor ships none by design)
+- Adapters or scrapers targeting a specific streaming site
+- Anything whose main purpose is to access content you have no right to, such as
+  defeating DRM, paywalls, or geo-restrictions
+
+Welcome: bug fixes, new device support, transcoding and subtitle improvements,
+and general robustness of the extraction pipeline.
+
 ## Building from source
 
 The whisper bindings use cgo, so building requires a one-time cmake build of the linked library:

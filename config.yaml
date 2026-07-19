@@ -10,27 +10,22 @@ device:
   type: "dlna"
 
 sources:
+  # Castor ships no sources of its own. You bring your own, the same way a media
+  # server points at libraries you provide. Each entry is a site whose embedded
+  # player Castor can extract a stream from: `proxies` are base URLs (tried in
+  # order, so list mirrors of the same site together), and `templates` map an
+  # IMDB/TMDB id to that site's movie and episode paths. Replace the placeholders
+  # below with a source you are authorized to use.
   - proxies:
-      - "https://vidsrc-embed.ru"
+      - "https://your-source.example"
     templates:
       movie: "/embed/movie/{itemID}"
       episode: "/embed/tv/{itemID}/{season}-{episode}"
 
+  # Sources can also pass their parameters as a query string; use whichever
+  # shape matches the site you are pointing at.
   - proxies:
-      - "https://1embed.cc"
-      - "https://www.vidking.net"
-    templates:
-      movie: "/embed/movie/{itemID}"
-      episode: "/embed/tv/{itemID}/{season}/{episode}"
-
-  - proxies:
-      - "https://www.rivestream.app"
-    templates:
-      movie: "/embed/torrent?type=movie&id={itemID}"
-      episode: "/embed/torrent?type=tv&id={itemID}&season={season}&episode={episode}"
-
-  - proxies:
-      - "https://www.rivestream.app"
+      - "https://another-source.example"
     templates:
       movie: "/embed?type=movie&id={itemID}"
       episode: "/embed?type=tv&id={itemID}&season={season}&episode={episode}"
