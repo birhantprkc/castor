@@ -1,6 +1,7 @@
 package device
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -16,6 +17,49 @@ var dlnaSupportedContentTypes = []string{"video/mp2t", media.MP4}
 
 type dlnaDevice struct {
 	transport *av1.AVTransport1
+}
+
+// discoverDLNA browses SSDP for UPnP MediaRenderer devices until ctx expires.
+func discoverDLNA(ctx context.Context) []Info {
+	results, err := goupnp.DiscoverDevicesCtx(ctx, "urn:schemas-upnp-org:device:MediaRenderer:1")
+	if err != nil {
+		slog.WarnContext(ctx, "dlna discovery error", "error", err)
+		return nil
+	}
+
+	var devices []Info
+	seen := make(map[string]struct{})
+	for _, result := range results {
+		info, ok := dlnaInfo(result)
+		if !ok {
+			continue
+		}
+
+		// SSDP re-announces the same device; dedupe by USN, falling back
+		// to the resolved address when the announcement carries no USN.
+		key := cmp.Or(result.USN, info.Address)
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+
+		devices = append(devices, info)
+	}
+	return devices
+}
+
+// dlnaInfo maps a discovered UPnP root device to a device Info, reporting false
+// when the announcement carries no reachable device to name.
+func dlnaInfo(result goupnp.MaybeRootDevice) (Info, bool) {
+	if result.Root == nil || result.Location == nil {
+		return Info{}, false
+	}
+
+	return Info{
+		Name:    result.Root.Device.FriendlyName,
+		Type:    TypeDLNA,
+		Address: result.Location.String(),
+	}, true
 }
 
 func connectDLNA(ctx context.Context, info Info) (Device, error) {

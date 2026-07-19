@@ -7,13 +7,10 @@ package device
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/huin/goupnp"
 )
 
 type Type string
@@ -99,26 +96,4 @@ func Discover(ctx context.Context, timeout time.Duration) ([]Info, error) {
 	wg.Wait()
 
 	return devices, nil
-}
-
-// discoverDLNA scans for UPnP MediaRenderer devices via SSDP.
-func discoverDLNA(ctx context.Context) []Info {
-	results, err := goupnp.DiscoverDevicesCtx(ctx, "urn:schemas-upnp-org:device:MediaRenderer:1")
-	if err != nil {
-		slog.WarnContext(ctx, "DLNA discovery error", "error", err)
-		return nil
-	}
-
-	devices := make([]Info, 0, len(results))
-	for _, r := range results {
-		if r.Root == nil {
-			continue
-		}
-		devices = append(devices, Info{
-			Name:    r.Root.Device.FriendlyName,
-			Type:    TypeDLNA,
-			Address: r.Location.String(),
-		})
-	}
-	return devices
 }
