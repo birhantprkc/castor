@@ -32,6 +32,7 @@ type Stream struct {
 	Headers     http.Header
 	Bandwidth   int64
 	ContentType string
+	Live        bool
 }
 
 // StreamInfo holds metadata returned by ffprobe for a stream.
@@ -51,6 +52,12 @@ type StreamInfo struct {
 // track plus audio. Decoy playlists (an image-only "video" track, or no audio)
 // probe cleanly but cannot be remuxed, so they are not playable.
 func (s StreamInfo) Playable() bool { return s.HasVideo && s.HasAudio }
+
+// Live reports whether ffprobe could determine no duration — genuinely live
+// sources have none (no endlist), and unparseable duration is safest treated
+// the same: pacing such sources at realtime costs nothing on VOD while 2x
+// with a wire-speed burst trips rate limits on proxy CDNs.
+func (s StreamInfo) Live() bool { return s.Duration == 0 }
 
 type FormatInfo struct {
 	ContentType string

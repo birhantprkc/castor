@@ -44,6 +44,9 @@ type Plan struct {
 
 	// SubtitleDelivery says how subtitles reach the renderer, if at all.
 	SubtitleDelivery SubtitleDelivery
+
+	// Live marks a live-edge source; the puller paces at realtime.
+	Live bool
 }
 
 // SubtitleDelivery is how the planner intends to get subtitles on screen.
@@ -70,6 +73,7 @@ type PlanInput struct {
 	SourceHeaders     http.Header
 	SourceContentType string
 	SourceBitRate     int64 // 0 if unknown
+	SourceLive        bool
 
 	// MaxHeight caps the re-encode output height (the user's cast resolution
 	// preference); 0 keeps the source height.
@@ -102,6 +106,7 @@ func BuildPlan(in PlanInput) Plan {
 		SourceHeaders:     in.SourceHeaders,
 		SourceContentType: in.SourceContentType,
 		OutputContentType: in.SourceContentType,
+		Live:              in.SourceLive,
 	}
 }
 
@@ -134,6 +139,7 @@ func planDLNA(in PlanInput) Plan {
 		SourceContentType: in.SourceContentType,
 		OutputContentType: "video/mp2t",
 		Spool:             true,
+		Live:              in.SourceLive,
 		// Transcode carries the codec-independent output targets (container,
 		// audio, height, GOP). VideoEncoder and the video bitrate are left unset:
 		// copy-vs-encode and the codec need the source's actual codec/profile
@@ -169,6 +175,7 @@ func planChromecast(in PlanInput) Plan {
 			SourceHeaders:     in.SourceHeaders,
 			SourceContentType: in.SourceContentType,
 			OutputContentType: in.SourceContentType,
+			Live:              in.SourceLive,
 		}
 	}
 
@@ -177,6 +184,7 @@ func planChromecast(in PlanInput) Plan {
 		SourceHeaders:     in.SourceHeaders,
 		SourceContentType: in.SourceContentType,
 		OutputContentType: media.MP4,
+		Live:              in.SourceLive,
 		Transcode: &ffmpeg.EncodeOptions{
 			OutputFormat:      "mp4",
 			SourceContentType: in.SourceContentType,

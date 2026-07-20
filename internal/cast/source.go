@@ -44,6 +44,7 @@ func startPull(ctx context.Context, cfg TranscodeConfig, plan Plan, sp *spool.Sp
 		Verbose:           slog.Default().Enabled(ctx, slog.LevelDebug),
 		PCM:               wantPCM,
 		PCMSampleRate:     whisper.SampleRate,
+		Live:              plan.Live,
 	})
 
 	var opts []ffmpeg.StartOption

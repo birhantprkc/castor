@@ -281,6 +281,15 @@ func EncodeArgs(opts EncodeOptions) []string {
 	return args
 }
 
+// Pull pacing per source nature. VOD bursts at wire speed then 2x
+// realtime. Live can't be outrun — the same burst trips rate limits.
+const (
+	pullReadrateVOD       = "2.0"
+	pullReadrateBurstVOD  = "90"
+	pullReadrateLive      = "1.0"
+	pullReadrateBurstLive = "0"
+)
+
 // PullOptions configures the single upstream reader's command line.
 type PullOptions struct {
 	SourceURL         *url.URL
@@ -297,6 +306,9 @@ type PullOptions struct {
 	PCM bool
 	// PCMSampleRate is the audio sample rate for the PCM output.
 	PCMSampleRate int
+
+	// Live selects live pacing (see pullReadrate constants) instead of VOD.
+	Live bool
 }
 
 // PullArgs assembles the upstream download command line: a codec-copy remux
@@ -327,14 +339,14 @@ func PullArgs(opts PullOptions) []string {
 		// speed and keeping the IP tarpitted.
 		"-reconnect_delay_max", "60",
 		"-reconnect_on_http_error", "429",
-		// Pace the download like a buffering player: an initial burst at
-		// full speed (fills the transcription lead so the playback gate
-		// opens in seconds) then 2x realtime. An unpaced pull rips the
-		// whole movie at wire speed, which streaming CDNs flag as a bot —
-		// observed as an IP-level tarpit that breaks subsequent casts.
-		"-readrate", "2.0",
-		"-readrate_initial_burst", "90",
 	}
+
+	readrate, burst := pullReadrateVOD, pullReadrateBurstVOD
+	if opts.Live {
+		readrate, burst = pullReadrateLive, pullReadrateBurstLive
+	}
+	args = append(args, "-readrate", readrate, "-readrate_initial_burst", burst)
+
 	args = append(args, headerArgs(opts.SourceHeaders)...)
 	args = append(args, containerInputArgs(opts.SourceContentType)...)
 	args = append(args, "-i", opts.SourceURL.String())

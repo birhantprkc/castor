@@ -48,8 +48,14 @@ func fetchPlaylist(ctx context.Context, hlsTimeout time.Duration, url *url.URL, 
 // parsePlaylist parses an HLS playlist body and returns its variants.
 // For a media playlist (no #EXT-X-STREAM-INF) it returns a single variant
 // with the base URL and zero bandwidth — the caller can treat that uniformly.
-func parsePlaylist(body string, baseURL *url.URL) ([]hlsVariant, error) {
+//
+// The live result reports whether the document is a media playlist with no
+// #EXT-X-ENDLIST, i.e. a live edge. It is always false for a master
+// playlist: the master carries no endlist signal of its own, so callers
+// must not read false as "VOD" in that case.
+func parsePlaylist(body string, baseURL *url.URL) ([]hlsVariant, bool) {
 	var (
+		endlist       bool
 		variants      []hlsVariant
 		nextIsURL     bool
 		currentBW     int64
@@ -71,6 +77,11 @@ func parsePlaylist(body string, baseURL *url.URL) ([]hlsVariant, error) {
 				continue
 			}
 			variants = append(variants, hlsVariant{URL: variantURL, Bandwidth: currentBW, Height: currentHeight})
+			continue
+		}
+
+		if line == "#EXT-X-ENDLIST" {
+			endlist = true
 			continue
 		}
 
@@ -97,7 +108,7 @@ func parsePlaylist(body string, baseURL *url.URL) ([]hlsVariant, error) {
 	}
 
 	if len(variants) == 0 {
-		return []hlsVariant{{URL: baseURL, Bandwidth: 0}}, nil
+		return []hlsVariant{{URL: baseURL, Bandwidth: 0}}, !endlist
 	}
-	return variants, nil
+	return variants, false
 }

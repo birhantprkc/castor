@@ -15,29 +15,29 @@ import (
 // Resolve determines the final URL and content type for a stream. When the
 // source is an HLS playlist with multiple variants, it picks the highest-
 // bandwidth one no taller than cfg.MaxHeight. Only the fields resolution
-// establishes are rewritten; everything else on the stream passes through.
+// establishes are rewritten; everything else is preserved.
 func Resolve(ctx context.Context, cfg Config, stream *media.Stream) (*media.Stream, error) {
-	resolved := *stream
-
-	if resolved.ContentType == "" {
-		info, err := probeStream(ctx, cfg.FFprobePath, cfg.ProbeTimeout, resolved.URL, resolved.Headers)
+	if stream.ContentType == "" {
+		info, err := probeStream(ctx, cfg.FFprobePath, cfg.ProbeTimeout, stream.URL, stream.Headers)
 		if err != nil {
 			return nil, fmt.Errorf("probing stream: %w", err)
 		}
-		resolved.ContentType = info.ContentType
+		stream.ContentType = info.ContentType
+		stream.Live = info.Live()
 	}
 
-	if resolved.ContentType == media.HLS {
-		body, err := fetchPlaylist(ctx, cfg.HLSTimeout, resolved.URL, resolved.Headers)
+	if stream.ContentType == media.HLS {
+		body, err := fetchPlaylist(ctx, cfg.HLSTimeout, stream.URL, stream.Headers)
 		if err != nil {
 			slog.WarnContext(ctx, "HLS playlist resolution failed, using original", "error", err)
 		} else {
-			variants, _ := parsePlaylist(body, resolved.URL)
-			resolved.URL = pickVariant(variants, cfg.MaxHeight).URL
+			variants, live := parsePlaylist(body, stream.URL)
+			stream.URL = pickVariant(variants, cfg.MaxHeight).URL
+			stream.Live = stream.Live || live
 		}
 	}
 
-	return &resolved, nil
+	return stream, nil
 }
 
 // pickVariant chooses which HLS variant to pull: the highest-bandwidth one no
@@ -154,7 +154,13 @@ func RankStreams(ctx context.Context, cfg Config, streams []*media.Stream) (*med
 
 			slog.DebugContext(ctx, "probing stream", "url", s.URL, "index", i+1, "total", len(streams))
 			info, err := probeStream(ctx, cfg.FFprobePath, cfg.ProbeTimeout, s.URL, s.Headers)
-			out := *s // copy the candidate; the probe only rewrites Bandwidth/Live
+			out := &media.Stream{
+				URL:         s.URL,
+				Headers:     s.Headers,
+				ContentType: s.ContentType,
+				Bandwidth:   s.Bandwidth,
+				Live:        s.Live,
+			}
 			switch {
 			case err != nil:
 				// Transient failure (403/timeout/reset): keep as a zero-bandwidth fallback.
@@ -163,20 +169,21 @@ func RankStreams(ctx context.Context, cfg Config, streams []*media.Stream) (*med
 				// Probed cleanly but no castable video+audio → decoy, drop hard.
 				slog.WarnContext(ctx, "stream rejected: no castable video+audio",
 					"url", s.URL, "has_video", info.HasVideo, "has_audio", info.HasAudio)
-				cands[i] = candidate{stream: &out, decoy: true}
+				cands[i] = candidate{stream: out, decoy: true}
 				return
 			case info.Duration > 0 && info.Duration < minContentDuration:
 				// Too short to be a feature/episode → spliced-in ad, drop hard so it
 				// can't win over the real title on bandwidth.
 				slog.WarnContext(ctx, "stream rejected: too short to be feature content, treating as ad",
 					"url", s.URL, "duration", info.Duration)
-				cands[i] = candidate{stream: &out, decoy: true}
+				cands[i] = candidate{stream: out, decoy: true}
 				return
 			default:
 				out.Bandwidth = max(info.BitRate, 1)
-				slog.DebugContext(ctx, "probed stream", "url", s.URL, "bitrate", info.BitRate, "height", info.VideoHeight)
+				out.Live = info.Live()
+				slog.DebugContext(ctx, "probed stream", "url", s.URL, "bitrate", info.BitRate, "height", info.VideoHeight, "live", out.Live)
 			}
-			cands[i] = candidate{stream: &out}
+			cands[i] = candidate{stream: out}
 			if info != nil {
 				cands[i].height = info.VideoHeight
 			}

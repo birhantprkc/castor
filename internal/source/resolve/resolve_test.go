@@ -56,9 +56,9 @@ func TestParsePlaylist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	variants, err := parsePlaylist(body, u)
-	if err != nil {
-		t.Fatal(err)
+	variants, live := parsePlaylist(body, u)
+	if live {
+		t.Error("master playlist should not report live")
 	}
 	want := []int{480, 1080, 2160}
 	if len(variants) != len(want) {
