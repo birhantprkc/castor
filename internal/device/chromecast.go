@@ -115,9 +115,17 @@ func (c *chromecastDevice) Close() error {
 	return c.app.Close(false)
 }
 
-func (c *chromecastDevice) SupportedContentTypes() []string {
-	return []string{media.HLS, media.MP4, media.MKV, media.WebM}
+// chromecastCapabilities: Chromecast decides pass-through purely on the
+// container (it never re-encodes video, so it carries no video envelope),
+// accepting these MIME types directly.
+var chromecastCapabilities = media.Renderer{
+	Containers: []string{media.HLS, media.MP4, media.MKV, media.WebM},
 }
+
+// Capabilities reports Chromecast's known receiver profile. There is no runtime
+// query as there is for DLNA, so this is the documented Cast media support,
+// resolved from the device itself for interface parity with the DLNA path.
+func (c *chromecastDevice) Capabilities() media.Renderer { return chromecastCapabilities }
 
 // StreamHeaders returns nil: Chromecast needs no protocol-specific headers on
 // the local stream server's responses.

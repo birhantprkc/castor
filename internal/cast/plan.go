@@ -3,7 +3,6 @@ package cast
 import (
 	"net/http"
 	"net/url"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -75,27 +74,33 @@ func (d SubtitleDelivery) String() string {
 
 // PlanInput is everything the planner needs to make decisions.
 type PlanInput struct {
-	DeviceType            device.Type
-	SupportedContentTypes []string
+	DeviceType device.Type
+	Renderer   media.Renderer
 
 	SourceURL         *url.URL
 	SourceHeaders     http.Header
 	SourceContentType string
 	SourceBitRate     int64 // 0 if unknown
 
+	// MaxHeight caps the re-encode output height (the user's cast resolution
+	// preference); 0 keeps the source height.
+	MaxHeight    int
 	HasSubtitles bool
 }
 
 // BuildPlan turns PlanInput into a Plan. Per-device rules:
 //
-//   - DLNA: always spool (read-once pipeline) and re-encode video and audio
-//     to a known target bitrate. Pacing is computed from that target (not
-//     from source) because we know exactly what we'll emit. Subtitles are
-//     burned in (drawtext) when enabled: Samsung renderers can't be trusted
-//     to display DLNA-delivered caption tracks, sidecar or in-band.
+//   - DLNA: always spool (read-once pipeline) and remux to MPEG-TS. The video
+//     is stream-copied when the source is an envelope the renderer decodes
+//     natively, else re-encoded (a hardware encoder if one works on this host,
+//     else libx264); the pipeline decides from a local spool probe. Audio is
+//     always re-encoded to AAC. Subtitles are burned in (drawtext) when enabled:
+//     Samsung renderers can't be trusted to display DLNA-delivered caption
+//     tracks, sidecar or in-band.
 //
-//   - Chromecast: pass HLS through when the device accepts it; otherwise
-//     re-mux. Cast's own buffering handles pacing so we don't impose any.
+//   - Chromecast: pass the source through when the device accepts its container;
+//     otherwise remux (video copied, audio to AAC). Cast's own buffering handles
+//     pacing so we don't impose any.
 func BuildPlan(in PlanInput) Plan {
 	switch in.DeviceType {
 	case device.TypeDLNA:
@@ -112,52 +117,85 @@ func BuildPlan(in PlanInput) Plan {
 }
 
 const (
-	// dlnaVideoBitrate is the libx264 target. Kept modest so a 1080p stream
-	// fits comfortably in most TV media buffers without overflowing.
-	dlnaVideoBitrate = "4M"
+	// dlnaKeyframeSeconds caps the encoded GOP so a renderer joining mid-stream
+	// resyncs within a couple seconds.
+	dlnaKeyframeSeconds = 2
 	// dlnaAudioBitrate is the AAC re-encode target.
 	dlnaAudioBitrate = "256k"
 	// dlnaPrerollSeconds is how much of the encoded output the renderer is
-	// allowed to gulp before the token bucket engages. Just enough to leave
-	// the "loading" state — going higher only lets the TV buffer ahead of
+	// allowed to gulp before the token bucket engages: just enough to leave the
+	// "loading" state, since going higher only lets the TV buffer ahead of
 	// playback rate, which is exactly what overflows its internal ring.
 	dlnaPrerollSeconds = 4
-	// dlnaPaceHeadroomPct is how much faster than the encoded rate we send
-	// in steady state. Slightly above playback so the renderer's buffer
-	// stays full but doesn't grow.
+	// dlnaPaceHeadroomPct is how much faster than the encoded rate we send in
+	// steady state, slightly above playback so the renderer's buffer stays full
+	// but doesn't grow.
 	dlnaPaceHeadroomPct = 5
-	// dlnaVideoPreset trades a little compression efficiency for a large
-	// encode-speed margin — the live pipeline must never fall behind
-	// realtime, even with the drawtext filter in the chain.
-	dlnaVideoPreset = "veryfast"
 )
 
+// videoTarget is a VBV-capped bitrate: the average, the peak cap, and the buffer
+// window the cap applies over.
+type videoTarget struct{ bitrate, maxrate, bufsize string }
+
+// dlnaVideoTargets is the encode target per codec. HEVC needs about half of
+// H.264 for the same quality, which halves what the pacer moves and shrinks the
+// renderer's buffering-headroom problem. maxrate == bitrate makes the cap a real
+// ceiling the constant-rate pacer can rely on; bufsize is ~2s, so the preroll
+// covers a full VBV excursion. Adding a codec the pipeline encodes to is one
+// entry here.
+var dlnaVideoTargets = map[media.Codec]videoTarget{
+	media.CodecH264: {bitrate: "4M", maxrate: "4M", bufsize: "8M"},
+	media.CodecHEVC: {bitrate: "2M", maxrate: "2M", bufsize: "4M"},
+}
+
+// dlnaPacingFor sizes the HTTP send pacing for a codec's encode target, off its
+// peak (maxrate) so the pacer's fixed rate is a true ceiling, not an average the
+// encoder overshoots.
+func dlnaPacingFor(codec media.Codec) (sendRate, sendBurst int64) {
+	t := dlnaVideoTargets[codec]
+	return dlnaPacing(encodedBitrateBPS(t.maxrate, dlnaAudioBitrate))
+}
+
 func planDLNA(in PlanInput) Plan {
-	encodedBitsPerSec := encodedBitrateBPS(dlnaVideoBitrate, dlnaAudioBitrate)
+	// Pacing here is a sane default for the initial log; the pipeline recomputes
+	// it once the codec is chosen from the renderer's advertised capabilities.
+	sendRate, sendBurst := dlnaPacingFor(media.CodecH264)
 	p := Plan{
 		SourceURL:         in.SourceURL,
 		SourceHeaders:     in.SourceHeaders,
 		SourceContentType: in.SourceContentType,
 		OutputContentType: "video/mp2t",
-		SendRate:          int64(encodedBitsPerSec * (100 + dlnaPaceHeadroomPct) / 100 / 8),
-		SendBurst:         int64(encodedBitsPerSec * dlnaPrerollSeconds / 8),
+		SendRate:          sendRate,
+		SendBurst:         sendBurst,
 		Spool:             true,
+		// Transcode carries the codec-independent output targets (container,
+		// audio, height, GOP). VideoEncoder and the video bitrate are left unset:
+		// copy-vs-encode and the codec need the source's actual codec/profile
+		// (known only after the spool has bytes to probe, since probing the
+		// upstream signed URL would burn a short-lived token) and the renderer's
+		// capabilities, so the pipeline resolves them from a local spool probe.
 		Transcode: &ffmpeg.EncodeOptions{
-			OutputFormat:    "mpegts",
-			VideoCodec:      "libx264",
-			VideoPreset:     dlnaVideoPreset,
-			VideoBitrate:    dlnaVideoBitrate,
-			VideoMaxHeight:  1080,
-			AudioCodec:      "aac",
-			AudioBitrate:    dlnaAudioBitrate,
-			AudioSampleRate: 48000,
-			AudioChannels:   2,
+			OutputFormat:        "mpegts",
+			VideoMaxHeight:      in.MaxHeight,
+			KeyframeIntervalSec: dlnaKeyframeSeconds,
+			AudioCodec:          "aac",
+			AudioBitrate:        dlnaAudioBitrate,
+			AudioSampleRate:     48000,
+			AudioChannels:       2,
 		},
 	}
 	if in.HasSubtitles {
 		p.SubtitleDelivery = SubtitleHardsub
 	}
 	return p
+}
+
+// dlnaPacing turns the output bit rate into the HTTP server's token-bucket
+// settings: a steady send rate slightly above playback, and an initial burst
+// sized to leave the renderer's "loading" state without over-filling its ring.
+func dlnaPacing(encodedBitsPerSec int64) (sendRate, sendBurst int64) {
+	return encodedBitsPerSec * (100 + dlnaPaceHeadroomPct) / 100 / 8,
+		encodedBitsPerSec * dlnaPrerollSeconds / 8
 }
 
 func planChromecast(in PlanInput) Plan {
@@ -167,7 +205,7 @@ func planChromecast(in PlanInput) Plan {
 	// LoadMediaCommand. Until that's resolved the Chromecast path ships
 	// without subtitles; the planner leaves SubtitleDelivery at None.
 
-	if slices.Contains(in.SupportedContentTypes, in.SourceContentType) {
+	if in.Renderer.AcceptsContainer(in.SourceContentType) {
 		return Plan{
 			SourceURL:         in.SourceURL,
 			SourceHeaders:     in.SourceHeaders,
@@ -184,11 +222,12 @@ func planChromecast(in PlanInput) Plan {
 		Transcode: &ffmpeg.EncodeOptions{
 			OutputFormat:      "mp4",
 			SourceContentType: in.SourceContentType,
-			VideoCodec:        "copy",
-			AudioCodec:        "aac",
-			AudioBitrate:      "256k",
-			AudioSampleRate:   48000,
-			AudioChannels:     2,
+			// VideoEncoder unset (nil) stream-copies the video: Chromecast
+			// decodes the source codec, only the container changes to mp4.
+			AudioCodec:      "aac",
+			AudioBitrate:    "256k",
+			AudioSampleRate: 48000,
+			AudioChannels:   2,
 		},
 	}
 }

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/stupside/castor/internal/media"
 )
 
 type Type string
@@ -32,9 +34,13 @@ type Device interface {
 	// Play points the renderer at streamURL, advertised as contentType.
 	Play(ctx context.Context, streamURL *url.URL, contentType string) error
 
-	// SupportedContentTypes lists MIME types the renderer accepts directly
-	// (pass-through without transcoding).
-	SupportedContentTypes() []string
+	// Capabilities reports what this renderer can play: the containers it
+	// accepts as-is and the video envelopes it decodes natively. Each device
+	// resolves this from itself at connect time (DLNA negotiates it over
+	// GetProtocolInfo; Chromecast reports its known receiver profile), so the
+	// copy-vs-encode decision follows what the renderer advertises rather than
+	// an assumption baked in per device type.
+	Capabilities() media.Renderer
 
 	// StreamHeaders returns protocol-specific HTTP headers the local stream
 	// server must send when this renderer fetches contentType. Nil when the

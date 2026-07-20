@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"strings"
+	"time"
 
 	"github.com/huin/goupnp"
 	"github.com/huin/goupnp/dcps/av1"
@@ -13,11 +15,19 @@ import (
 	"github.com/stupside/castor/internal/media"
 )
 
-var dlnaSupportedContentTypes = []string{"video/mp2t", media.MP4}
+// capsTimeout bounds the GetProtocolInfo round-trip: a slow or unresponsive
+// ConnectionManager degrades to conservative capabilities instead of stalling
+// the cast, since this negotiation now gates the copy-vs-encode decision.
+const capsTimeout = 3 * time.Second
 
+// dlnaDevice is a connected UPnP AVTransport renderer. caps is negotiated once
+// at connect (see negotiateCaps) and reported verbatim thereafter.
 type dlnaDevice struct {
 	transport *av1.AVTransport1
+	caps      media.Renderer
 }
+
+func (d *dlnaDevice) Capabilities() media.Renderer { return d.caps }
 
 var _ Device = (*dlnaDevice)(nil)
 
@@ -82,7 +92,145 @@ func connectDLNA(ctx context.Context, info Info) (Device, error) {
 	if len(transports) == 0 {
 		return nil, fmt.Errorf("no AVTransport service found on device")
 	}
-	return &dlnaDevice{transport: transports[0]}, nil
+	return &dlnaDevice{transport: transports[0], caps: negotiateCaps(ctx, loc, u)}, nil
+}
+
+// negotiateCaps asks the renderer what it accepts, over ConnectionManager
+// GetProtocolInfo, and maps its advertised Sink into a media.Renderer. It is
+// best-effort: any failure, or a renderer that advertises no codec we know,
+// degrades to fallbackCaps so playback still works (just conservatively).
+func negotiateCaps(ctx context.Context, loc *goupnp.RootDevice, u *url.URL) media.Renderer {
+	managers, err := av1.NewConnectionManager1ClientsFromRootDevice(loc, u)
+	if err != nil || len(managers) == 0 {
+		slog.WarnContext(ctx, "no ConnectionManager service; using conservative capabilities", "error", err)
+		return fallbackCaps()
+	}
+	ctx, cancel := context.WithTimeout(ctx, capsTimeout)
+	defer cancel()
+	_, sink, err := managers[0].GetProtocolInfoCtx(ctx)
+	if err != nil {
+		slog.WarnContext(ctx, "GetProtocolInfo failed; using conservative capabilities", "error", err)
+		return fallbackCaps()
+	}
+	caps := parseSinkProtocolInfo(sink)
+	if len(caps.Video) == 0 {
+		slog.WarnContext(ctx, "renderer advertised no known video codec; using conservative capabilities")
+		return fallbackCaps()
+	}
+	slog.InfoContext(ctx, "negotiated renderer capabilities", "codecs", codecNames(caps.Video), "containers", caps.Containers)
+	return caps
+}
+
+// codecEnvelope is the codec-fixed part of a stream-copy envelope: the profiles
+// and bit depths that black-screen or mis-tone a renderer that can't handle them
+// (10-bit H.264 is the rare High 10 profile; HDR needs a TV that engages it).
+// Adding a codec the pipeline can encode to is one entry here.
+type codecEnvelope struct {
+	profiles  []string
+	bitDepths []int // nil == 8-bit only
+}
+
+var codecEnvelopes = map[media.Codec]codecEnvelope{
+	media.CodecH264: {profiles: []string{"Constrained Baseline", "Baseline", "Main", "High"}},
+	media.CodecHEVC: {profiles: []string{"Main", "Main 10"}, bitDepths: []int{8, 10}},
+}
+
+// videoSupportFor builds the copy envelope for a codec: its decode-safety
+// profile and bit-depth constraints.
+func videoSupportFor(codec media.Codec) media.VideoSupport {
+	env := codecEnvelopes[codec]
+	return media.VideoSupport{
+		Codec:     codec,
+		Profiles:  env.profiles,
+		BitDepths: env.bitDepths,
+	}
+}
+
+// discoverableCodecs is the fixed order capabilities are reported in, so a given
+// Sink always yields the same Renderer (and the same is testable).
+var discoverableCodecs = []media.Codec{media.CodecH264, media.CodecHEVC}
+
+// fallbackCaps is the conservative envelope used when negotiation yields nothing
+// usable: H.264 in MPEG-TS, which every DLNA renderer we target decodes. This is
+// the one assumption we keep, and only as a floor.
+func fallbackCaps() media.Renderer {
+	return media.Renderer{
+		Containers: []string{"video/mp2t"},
+		Video:      []media.VideoSupport{videoSupportFor(media.CodecH264)},
+	}
+}
+
+// parseSinkProtocolInfo maps a ConnectionManager Sink protocolInfo CSV into a
+// Renderer. Each entry is "protocol:network:mime:additionalInfo"; the codec is
+// read from the DLNA.ORG_PN token (AVC/HEVC) and the MIME, and paired with its
+// copy envelope. It is deliberately lenient: the lists renderers return are huge
+// and vendor-specific, so anything unrecognised is skipped rather than rejected.
+func parseSinkProtocolInfo(sink string) media.Renderer {
+	present := map[media.Codec]bool{}
+	containers := map[string]bool{}
+	for entry := range strings.SplitSeq(sink, ",") {
+		fields := strings.SplitN(strings.TrimSpace(entry), ":", 4)
+		if len(fields) < 3 || !strings.EqualFold(fields[0], "http-get") {
+			continue
+		}
+		mime := strings.ToLower(fields[2])
+		info := ""
+		if len(fields) == 4 {
+			info = strings.ToUpper(fields[3])
+		}
+		if c, ok := codecFromProfile(mime, info); ok {
+			present[c] = true
+		}
+		if ct, ok := containerFromMIME(mime); ok {
+			containers[ct] = true
+		}
+	}
+
+	var r media.Renderer
+	for _, c := range discoverableCodecs {
+		if present[c] {
+			r.Video = append(r.Video, videoSupportFor(c))
+		}
+	}
+	for _, ct := range []string{"video/mp2t", media.MP4} {
+		if containers[ct] {
+			r.Containers = append(r.Containers, ct)
+		}
+	}
+	return r
+}
+
+// codecFromProfile identifies the video codec of a Sink entry from its DLNA.ORG_PN
+// token (already upper-cased) or, failing that, its MIME type.
+func codecFromProfile(mime, pn string) (media.Codec, bool) {
+	switch {
+	case strings.Contains(pn, "HEVC") || strings.Contains(pn, "H265") || strings.Contains(mime, "hevc") || strings.Contains(mime, "h265"):
+		return media.CodecHEVC, true
+	case strings.Contains(pn, "AVC") || strings.Contains(pn, "H264") || strings.Contains(mime, "avc") || strings.Contains(mime, "h264"):
+		return media.CodecH264, true
+	}
+	return "", false
+}
+
+// containerFromMIME normalises the DLNA MIME spellings we care about to the
+// content types the pipeline speaks.
+func containerFromMIME(mime string) (string, bool) {
+	switch mime {
+	case "video/mp2t", "video/mpeg", "video/vnd.dlna.mpeg-tts", "video/x-mpegts":
+		return "video/mp2t", true
+	case media.MP4:
+		return media.MP4, true
+	}
+	return "", false
+}
+
+// codecNames renders a video-support set as its codec names, for logging.
+func codecNames(vs []media.VideoSupport) []string {
+	names := make([]string, len(vs))
+	for i, v := range vs {
+		names[i] = string(v.Codec)
+	}
+	return names
 }
 
 // Play sets the AV transport URI and tells the renderer to begin playback.
@@ -106,10 +254,6 @@ func (d *dlnaDevice) Play(ctx context.Context, streamURL *url.URL, contentType s
 
 func (d *dlnaDevice) Close() error {
 	return nil
-}
-
-func (d *dlnaDevice) SupportedContentTypes() []string {
-	return dlnaSupportedContentTypes
 }
 
 // StreamHeaders returns the HTTP headers a DLNA renderer expects on a stream

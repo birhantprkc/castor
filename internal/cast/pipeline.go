@@ -3,6 +3,7 @@ package cast
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/stupside/castor/internal/cast/spool"
 	"github.com/stupside/castor/internal/cast/whisper"
 	"github.com/stupside/castor/internal/device"
+	"github.com/stupside/castor/internal/media"
 )
 
 // runSpooled is the read-once cast: puller → spool (+ PCM → whisper) → tail
@@ -68,7 +70,65 @@ func runSpooled(parentCtx context.Context, cfg Config, plan Plan, localIP string
 		return err
 	}
 
+	// The renderer is needed now: its negotiated capabilities drive the
+	// copy-vs-encode decision below. Discovery and connect have been running
+	// since the top and overlap the whole pull+gate window, so this await almost
+	// never blocks; if connect failed, ctx carries the cause.
+	d, err := dev.await(ctx)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+
+	// The spool now holds real bytes. Probe it locally (no upstream round-trip)
+	// to decide whether the source video can be stream-copied into MPEG-TS or
+	// must be re-encoded. A failed or partial probe leaves srcInfo zero, which
+	// CanCopyVideo rejects, i.e. it falls back to a transcode.
+	srcInfo, err := ffmpeg.Probe(ctx, cfg.Resolver.FFprobePath, sp.Path())
+	if err != nil {
+		slog.WarnContext(ctx, "spool probe failed; will re-encode video", "error", err)
+	}
+
 	opts := *plan.Transcode
+	hasSubs := subs != nil
+	caps := d.Capabilities()
+	if !hasSubs && withinMaxHeight(srcInfo, cfg.Resolver.MaxHeight) && caps.CanCopyVideo(srcInfo) {
+		// Copy path: leave the video bitstream untouched (near-zero CPU); audio
+		// is still re-encoded to AAC (the template sets that) so Samsung accepts
+		// it. Pace from the source's own bit rate.
+		opts.VideoEncoder = nil
+		bitsPerSec := srcInfo.BitRate
+		if bitsPerSec <= 0 {
+			t := dlnaVideoTargets[media.CodecH264]
+			bitsPerSec = encodedBitrateBPS(t.maxrate, dlnaAudioBitrate)
+		}
+		plan.SendRate, plan.SendBurst = dlnaPacing(bitsPerSec)
+	} else {
+		// Re-encode. Pick the most efficient codec the renderer advertises and
+		// this host can encode in hardware (HEVC at half the bitrate, else
+		// H.264), then apply that codec's bitrate target and pacing.
+		enc := selectVideoEncoder(caps, func(c media.Codec) (ffmpeg.Encoder, bool) {
+			return ffmpeg.SelectEncoder(ctx, cfg.Transcode.FFmpegPath, c)
+		})
+		opts.VideoEncoder = &enc
+		t := dlnaVideoTargets[enc.Codec]
+		opts.VideoBitrate, opts.VideoMaxrate, opts.VideoBufsize = t.bitrate, t.maxrate, t.bufsize
+		plan.SendRate, plan.SendBurst = dlnaPacingFor(enc.Codec)
+	}
+
+	videoCodec := "copy"
+	if opts.VideoEncoder != nil {
+		videoCodec = opts.VideoEncoder.Name
+	}
+	slog.InfoContext(ctx, "dlna encode decision",
+		"video_codec", videoCodec,
+		"source_codec", string(srcInfo.VideoCodec),
+		"source_profile", srcInfo.VideoProfile,
+		"source_level", srcInfo.VideoLevel,
+		"source_height", srcInfo.VideoHeight,
+		"subtitles", hasSubs,
+	)
+
 	opts.PipeFormat = "mpegts"
 	if subs != nil {
 		if err := subs.attach(&opts); err != nil {
@@ -96,16 +156,42 @@ func runSpooled(parentCtx context.Context, cfg Config, plan Plan, localIP string
 		subs.follow(ctx, g, proc.Extra)
 	}
 
-	// The renderer is needed now. By the time the gate has opened, the
-	// concurrent discovery has almost always finished; if it failed, ctx is
-	// cancelled with that error as the cause.
-	d, err := dev.await(ctx)
-	if err != nil {
-		return err
-	}
-	defer d.Close()
-
 	return serveToDevice(ctx, plan, d, localIP, proc.Stdout, workDir)
+}
+
+// codecPreference ranks re-encode target codecs by efficiency, most efficient
+// first. selectVideoEncoder picks the first one the renderer decodes and this
+// host can hardware-encode; H.264 is last and always resolves to at least a
+// software baseline, so selection never fails. Adding a codec is one entry here.
+var codecPreference = []media.Codec{media.CodecHEVC, media.CodecH264}
+
+// selectVideoEncoder chooses the encoder for a re-encode: the most efficient
+// codec both the renderer advertises and this host can produce. A codec above
+// H.264 is taken only when a hardware encoder backs it, since software HEVC
+// cannot hold realtime at 1080p; H.264 is the floor and accepts its software
+// baseline. selectEncoder resolves an encoder for a codec (ffmpeg.SelectEncoder
+// in production, a fake in tests); its ok is false for a codec with no encoder.
+func selectVideoEncoder(caps media.Renderer, selectEncoder func(media.Codec) (ffmpeg.Encoder, bool)) ffmpeg.Encoder {
+	for _, codec := range codecPreference {
+		if !caps.SupportsCodec(codec) {
+			continue
+		}
+		if enc, ok := selectEncoder(codec); ok && (enc.Hardware || codec == media.CodecH264) {
+			return enc
+		}
+	}
+	// The renderer advertised nothing we can encode to (or only a non-H.264
+	// codec with no hardware here); fall back to the universal H.264 baseline.
+	enc, _ := selectEncoder(media.CodecH264)
+	return enc
+}
+
+// withinMaxHeight reports whether a probed source fits under the configured cast
+// height ceiling. An unknown height (0) passes: the source is trusted rather
+// than force-transcoded on missing metadata. A source above the cap is not
+// copy-eligible, so it falls through to a transcode that scales it down.
+func withinMaxHeight(src media.ProbeInfo, maxHeight int) bool {
+	return src.VideoHeight == 0 || src.VideoHeight <= maxHeight
 }
 
 // deviceFuture is the async renderer connection. The connect goroutine runs
