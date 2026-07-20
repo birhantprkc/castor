@@ -315,12 +315,18 @@ func PullArgs(opts PullOptions) []string {
 	if opts.Verbose {
 		logLevel = "verbose"
 	}
+
 	args := []string{
 		"-loglevel", logLevel,
 		"-rw_timeout", strconv.FormatInt(opts.RWTimeoutMicros, 10),
 		"-reconnect", "1",
 		"-reconnect_streamed", "1",
-		"-reconnect_delay_max", "5",
+		// Treat HTTP 429 as a reconnect trigger so ffmpeg's exponential
+		// backoff (capped at 60 s) absorbs rate limiting instead of the
+		// HLS demuxer spinning through failed segment numbers at wire
+		// speed and keeping the IP tarpitted.
+		"-reconnect_delay_max", "60",
+		"-reconnect_on_http_error", "429",
 		// Pace the download like a buffering player: an initial burst at
 		// full speed (fills the transcription lead so the playback gate
 		// opens in seconds) then 2x realtime. An unpaced pull rips the
