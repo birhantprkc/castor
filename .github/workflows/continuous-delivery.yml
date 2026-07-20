@@ -24,22 +24,14 @@ jobs:
       contents: write
       pull-requests: write
     outputs:
+      version: ${{ steps.release.outputs.tag_name }}
       released: ${{ steps.release.outputs.releases_created }}
-      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-
-      # The merged Release PR already bumped the manifest to the tagged version.
-      - name: Read released version
-        id: version
-        if: steps.release.outputs.releases_created == 'true'
-        run: |
-          version=$(echo '${{ steps.release.outputs.release }}' | jq -r '.tag_name')
-          echo "version=$version" >> "$GITHUB_OUTPUT"
 
   delivery:
     needs: please

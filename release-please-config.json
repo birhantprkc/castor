@@ -11,11 +11,11 @@
         { "type": "perf", "section": "Performance" },
         { "type": "refactor", "section": "Refactors" },
         { "type": "docs", "section": "Documentation" },
-        { "type": "ci", "section": "Continuous Integration", "hidden": true },
-        { "type": "chore", "section": "Chores", "hidden": true },
+        { "type": "build", "section": "Build System" },
+        { "type": "ci", "section": "Continuous Integration" },
         { "type": "test", "section": "Tests", "hidden": true },
         { "type": "style", "section": "Styles", "hidden": true },
-        { "type": "build", "section": "Build System", "hidden": true }
+        { "type": "chore", "section": "Chores", "hidden": true }
       ]
     }
   }
