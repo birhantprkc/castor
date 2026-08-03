@@ -12,41 +12,60 @@ import (
 	"github.com/stupside/castor/internal/media"
 )
 
-// Resolve determines the final URL and content type for a stream. When the
-// source is an HLS playlist with multiple variants, it picks the highest-
-// bandwidth one no taller than cfg.MaxHeight. Only the fields resolution
-// establishes are rewritten; everything else is preserved.
+// Resolve establishes the facts a cast needs about its source, in the order they
+// depend on each other: what the source is, and which of its renditions to read.
+// Only the fields resolution establishes are rewritten; everything else is
+// preserved.
 func Resolve(ctx context.Context, cfg Config, stream *media.Stream) (*media.Stream, error) {
-	if stream.ContentType == "" {
-		info, err := probeStream(ctx, cfg.FFprobePath, cfg.ProbeTimeout, stream.URL, stream.Headers)
-		if err != nil {
-			return nil, fmt.Errorf("probing stream: %w", err)
-		}
-		stream.ContentType = info.ContentType
-		stream.Live = info.Live()
+	if err := identify(ctx, cfg, stream); err != nil {
+		return nil, err
 	}
-
+	// Renditions are HLS's alone: it is the only container that publishes one
+	// program across several documents.
 	if stream.ContentType == media.HLS {
-		master, err := readPlaylist(ctx, cfg, stream)
-		if err != nil {
-			slog.WarnContext(ctx, "HLS playlist resolution failed, using original", "error", err)
-		} else {
-			variant := pickVariant(master.Variants, cfg.MaxHeight)
-			stream.URL = variant.URL
-			// A master that publishes audio as its own rendition leaves the chosen
-			// variant carrying video only. Narrowing to that variant and stopping
-			// there is how a cast ends up silent, or dies mapping an audio track
-			// that isn't there, so the rendition travels with it.
-			stream.AudioURL = master.AudioFor(variant)
-			stream.Live = stream.Live || master.Live
-			if stream.AudioURL != nil {
-				slog.InfoContext(ctx, "source publishes audio separately; both renditions will be read",
-					"video", stream.URL.String(), "audio", stream.AudioURL.String())
-			}
-		}
+		selectRendition(ctx, cfg, stream)
+	}
+	return stream, nil
+}
+
+// identify fills in what the source is when the caller could not say: its
+// container, and whether it is a live edge. A caller that already knew (a .m3u8
+// URL, a ranked candidate) spends no probe here.
+func identify(ctx context.Context, cfg Config, stream *media.Stream) error {
+	if stream.ContentType != "" {
+		return nil
+	}
+	info, err := probeStream(ctx, cfg.FFprobePath, cfg.ProbeTimeout, stream.URL, stream.Headers)
+	if err != nil {
+		return fmt.Errorf("probing stream: %w", err)
+	}
+	stream.ContentType = info.ContentType
+	stream.Live = info.Live()
+	return nil
+}
+
+// selectRendition narrows an HLS master to the single variant to read, and keeps
+// the audio rendition that variant plays with. A master that publishes audio
+// separately leaves the chosen variant carrying video only, so narrowing to it
+// and stopping there is how a cast ends up silent, or dies mapping an audio
+// track the variant never had. A master castor cannot read leaves the stream as
+// it was, to be attempted whole.
+func selectRendition(ctx context.Context, cfg Config, stream *media.Stream) {
+	master, err := readPlaylist(ctx, cfg, stream)
+	if err != nil {
+		slog.WarnContext(ctx, "HLS playlist resolution failed, using original", "error", err)
+		return
 	}
 
-	return stream, nil
+	variant := pickVariant(master.Variants, cfg.MaxHeight)
+	stream.URL = variant.URL
+	stream.AudioURL = master.AudioFor(variant)
+	stream.Live = stream.Live || master.Live
+
+	if stream.Demuxed() {
+		slog.InfoContext(ctx, "source publishes audio separately; both renditions will be read",
+			"video", stream.URL.String(), "audio", stream.AudioURL.String())
+	}
 }
 
 // readPlaylist fetches an HLS document and reduces it to the variants and audio
