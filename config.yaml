@@ -20,12 +20,13 @@ device:
 
 cast:
   # How the device gets the bytes. On "auto" (the default) Castor hands a smart
-  # device the source URL when it can fetch it, and relays through this machine
-  # when it can't (a source that only answers with the headers Castor captured).
-  # Set "serve" to always relay: some sources look fetchable but are refused by
-  # the device anyway, typically an HLS playlist whose segments are served under
-  # a disguised extension (.jpg with image/jpeg). Relaying spends this machine's
-  # bandwidth and CPU on every cast, so it stays opt-in.
+  # device the source URL only when it has checked the device can fetch it: not
+  # when the source answers only with the headers Castor captured, publishes its
+  # audio as a separate rendition, or opens only under relaxed reader checks
+  # (segments served under a disguised extension). Anything else is relayed.
+  # Set "serve" to relay always, for a source a device refuses for some reason
+  # Castor cannot see. Relaying spends this machine's bandwidth and CPU on every
+  # cast, so it stays opt-in.
   # delivery: serve
 
 sources:

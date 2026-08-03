@@ -48,6 +48,12 @@ type Stream struct {
 	// together as one program. nil is the ordinary case, audio muxed into URL.
 	AudioURL *url.URL
 
+	// NeedsLeniency marks a source castor could only open by relaxing its
+	// reader's default checks, e.g. an HLS playlist whose MPEG-TS segments are
+	// served under an image extension. Nothing about the URL says so; it is
+	// measured (see resolve.opensWithoutLeniency).
+	NeedsLeniency bool
+
 	Headers     http.Header
 	Bandwidth   int64
 	ContentType string
@@ -68,13 +74,18 @@ func (s *Stream) Demuxed() bool { return s.AudioURL != nil }
 //     fetched with headers is not proven fetchable without them.
 //   - a demuxed program. One URL is one rendition, so the renderer would play
 //     the video and none of the audio.
+//   - a source only a lenient reader opens. A renderer fetching for itself
+//     applies its own defaults, and refuses what castor had to relax a check to
+//     read at all.
 //
 // Either way the device fails where castor succeeds, and silently: it accepts the
 // load and then sits idle, or plays in silence. Such a source is served locally
 // instead, castor reading what it needs and giving the renderer a single LAN URL.
 // A header-free, self-contained source (the direct URL a user casts by hand)
 // passes through.
-func (s *Stream) SelfFetchable() bool { return len(s.Headers) == 0 && !s.Demuxed() }
+func (s *Stream) SelfFetchable() bool {
+	return len(s.Headers) == 0 && !s.Demuxed() && !s.NeedsLeniency
+}
 
 // StreamInfo holds metadata returned by ffprobe for a stream.
 type StreamInfo struct {

@@ -13,17 +13,19 @@ import (
 )
 
 // Resolve establishes the facts a cast needs about its source, in the order they
-// depend on each other: what the source is, and which of its renditions to read.
-// Only the fields resolution establishes are rewritten; everything else is
-// preserved.
+// depend on each other: what the source is, which of its renditions to read, and
+// whether a renderer could fetch it unaided. Only the fields resolution
+// establishes are rewritten; everything else is preserved.
 func Resolve(ctx context.Context, cfg Config, stream *media.Stream) (*media.Stream, error) {
 	if err := identify(ctx, cfg, stream); err != nil {
 		return nil, err
 	}
-	// Renditions are HLS's alone: it is the only container that publishes one
-	// program across several documents.
+	// The remaining two facts are HLS's alone: it is the only container that
+	// publishes one program across renditions, and the only one castor opens with
+	// relaxed checks.
 	if stream.ContentType == media.HLS {
 		selectRendition(ctx, cfg, stream)
+		verifyRendererCanFetch(ctx, cfg, stream)
 	}
 	return stream, nil
 }
@@ -66,6 +68,25 @@ func selectRendition(ctx context.Context, cfg Config, stream *media.Stream) {
 		slog.InfoContext(ctx, "source publishes audio separately; both renditions will be read",
 			"video", stream.URL.String(), "audio", stream.AudioURL.String())
 	}
+}
+
+// verifyRendererCanFetch settles the one claim castor would otherwise take on
+// trust: that a device handed this URL can read it. Castor opens every HLS input
+// with relaxed segment checks (media.HLSInputArgs), which is precisely what lets
+// a disguised source through unnoticed, so the source is opened once more under
+// default checks. What fails that, no reader applying its own defaults will take
+// either, and a renderer is nothing but such a reader.
+//
+// It runs only while pass-through is still on the table: a source already ruled
+// out, header-gated or demuxed just above, is served whatever this would say, so
+// the probe is never spent to confirm a decision already made.
+func verifyRendererCanFetch(ctx context.Context, cfg Config, stream *media.Stream) {
+	if !stream.SelfFetchable() || opensWithoutLeniency(ctx, cfg.FFprobePath, cfg.ProbeTimeout, stream.URL, stream.Headers) {
+		return
+	}
+	stream.NeedsLeniency = true
+	slog.InfoContext(ctx, "source opens only under relaxed reader checks; it will be served, not handed to the device",
+		"url", stream.URL.String())
 }
 
 // readPlaylist fetches an HLS document and reduces it to the variants and audio

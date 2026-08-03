@@ -155,7 +155,7 @@ sources:
 <details>
 <summary><b>Cast</b>: force a local relay with <code>delivery</code></summary>
 
-Castor decides per source whether the device fetches the stream itself or Castor relays it: a source that only answers with the headers Castor captured is always relayed, since a device is handed the URL and none of those headers. A few sources look fetchable and are refused anyway, typically an HLS playlist whose segments are served under a disguised extension (`.jpg` with `image/jpeg`), which Castor reads fine but a Chromecast rejects, showing the idle Cast icon. Nothing in the stream reveals this, so `delivery: serve` is how you say it.
+Castor decides per source whether the device fetches the stream itself or Castor relays it. It hands over the URL only when it has checked the device can actually fetch it, and relays otherwise: when the source answers only with the headers Castor captured, when it publishes its audio as a separate rendition (one URL is one rendition, so the device would play in silence), or when it opens only under relaxed reader checks, which is what an HLS playlist whose segments are served under a disguised extension (`.jpg` with `image/jpeg`) needs. `delivery: serve` relays always, for a source a device refuses for some reason Castor cannot see.
 
 ```yaml
 cast:

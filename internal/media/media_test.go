@@ -63,6 +63,9 @@ func TestStreamSelfFetchable(t *testing.T) {
 		// One URL is one rendition: hand that over and the device plays the
 		// picture in silence.
 		{"demuxed: the program does not fit in one URL", Stream{AudioURL: audio}, false},
+		// A renderer applies its own checks, and refuses what castor had to
+		// relax one to read.
+		{"lenient-only: no other reader will open it", Stream{NeedsLeniency: true}, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
