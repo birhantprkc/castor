@@ -13,6 +13,8 @@ import (
 	"github.com/stupside/castor/internal/device"
 	"github.com/stupside/castor/internal/source/extract"
 	"github.com/stupside/castor/internal/source/resolve"
+	"github.com/stupside/castor/internal/source/resolve/ffprobe"
+	"github.com/stupside/castor/internal/source/resolve/httpfetch"
 )
 
 type Config struct {
@@ -38,7 +40,7 @@ type TMDB struct {
 
 // CastConfig is the cast-behaviour section: the decisions castor cannot infer
 // and so leaves to the operator. It holds exactly one axis today, and the bar for
-// a second is high — every other decision the pipeline makes is derived from a
+// a second is high: every other decision the pipeline makes is derived from a
 // probe or from advertised capabilities, where a knob would bury a bug rather
 // than fix it.
 type CastConfig struct {
@@ -89,10 +91,23 @@ func (c *Config) Playback() cast.Config {
 			Network:   c.Network,
 			Transcode: c.Transcode,
 			Resolver:  c.Resolver,
+			Source:    c.Source(),
 			Whisper:   c.Whisper,
 			Delivery:  c.Cast.Delivery,
 		},
 	}
+}
+
+// Source builds the source resolver with its two adapters bound: measurement to
+// the ffprobe binary, playlist reads to net/http. This is the only place in the
+// process that decides what those adapters are, which is the point: resolve
+// declares both as ports so the judgements it makes are exercisable over fakes,
+// and a port bound anywhere but the composition root would give that up again.
+func (c *Config) Source() *resolve.Resolver {
+	return resolve.New(c.Resolver,
+		ffprobe.New(c.Resolver.FFprobePath, c.Resolver.ProbeTimeout),
+		httpfetch.New(c.Resolver.HLSTimeout),
+	)
 }
 
 func (c *Config) Extractor() extract.Config {

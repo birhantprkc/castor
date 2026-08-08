@@ -241,6 +241,23 @@ func TestParseSinkProtocolInfo(t *testing.T) {
 	if !fallbackCaps().SupportsCodec(media.CodecH264) {
 		t.Error("fallbackCaps must at least support H.264")
 	}
+
+	// Every DLNA cast is served, so every DLNA capability record has to say what it
+	// wants to be served, however the negotiation went. The executor takes the
+	// container it produces from this field, and a renderer that declares none is
+	// one castor has nothing to mux for.
+	for _, tt := range []struct {
+		name string
+		caps media.Renderer
+	}{
+		{"negotiated", caps},
+		{"degraded", parseSinkProtocolInfo("garbage")},
+		{"fallback", fallbackCaps()},
+	} {
+		if got := tt.caps.ServedContainer; got != media.MPEGTS {
+			t.Errorf("%s caps declare ServedContainer %q, want %q", tt.name, got, media.MPEGTS)
+		}
+	}
 }
 
 // transportLockedFault builds a SOAP fault carrying the given UPnP error code,

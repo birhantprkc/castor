@@ -41,9 +41,9 @@ func navigateIframe(ctx context.Context, timeout time.Duration, maxDepth int) er
 
 		if err != nil {
 			if depth == 0 {
-				return err // No iframe found at all — real error
+				return err // No iframe found at all, a real error
 			}
-			return nil // Reached leaf — no more iframes, that's fine
+			return nil // Reached leaf: no more iframes, that's fine
 		}
 	}
 

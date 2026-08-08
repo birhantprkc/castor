@@ -117,7 +117,7 @@ func (in *inspector) loadDetails(r tmdb.SearchResult) tea.Cmd {
 //
 // The poster string is either a stream of per-cell true-color ANSI half-block
 // escapes (pixterm fallback) or a single Kitty/iTerm/Sixel image escape
-// sequence padded to posterRows lines — in BOTH cases we deliberately do NOT
+// sequence padded to posterRows lines. In BOTH cases we deliberately do NOT
 // pass it through lipgloss's Width/Height/Render path: lipgloss rewrites ANSI
 // runs and would strip per-pixel colour codes from pixterm, and it would
 // (worse) split the inline-image control sequence and corrupt it.

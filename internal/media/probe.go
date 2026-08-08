@@ -21,4 +21,10 @@ type ProbeInfo struct {
 
 	AudioCodec    Codec // e.g. CodecAAC, CodecAC3
 	AudioChannels int   // channel count (2 = stereo, 6 = 5.1, 8 = 7.1), 0 if unknown
+
 }
+
+// A count of unreadable ("data") streams is deliberately not a field here. A
+// refused track is detected by its ABSENCE from the artifact, not by the
+// presence of something else: a container with no stream type for a codec writes
+// it as private data, but so do containers carrying genuine timed metadata, and

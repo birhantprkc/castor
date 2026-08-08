@@ -3,6 +3,7 @@ package tmdb
 import (
 	"slices"
 	"testing"
+	"time"
 )
 
 func TestSortBy(t *testing.T) {
@@ -94,14 +95,62 @@ func TestSearchResultTitleAndYear(t *testing.T) {
 	}
 }
 
-func TestCastableFiltersPeople(t *testing.T) {
-	in := []SearchResult{
-		{ID: 1, MediaType: MediaMovie},
-		{ID: 2, MediaType: "person"},
-		{ID: 3, MediaType: MediaTV},
+// yesterday and tomorrow bracket today, so a row's air state is stated relative
+// to the run rather than pinned to a date that goes stale.
+func yesterday() string { return time.Now().UTC().AddDate(0, 0, -1).Format(time.DateOnly) }
+func tomorrow() string  { return time.Now().UTC().AddDate(0, 0, 1).Format(time.DateOnly) }
+
+// TestInterleaveKeepsEachRankingIntact is what replaced the old people filter.
+// Search and trending now ask two type-scoped endpoints instead of one mixed one,
+// so the merge is what decides the order the user reads, and each half must keep
+// the rank TMDB gave it.
+func TestInterleaveKeepsEachRankingIntact(t *testing.T) {
+	movies := []SearchResult{{ID: 1}, {ID: 3}, {ID: 5}}
+	shows := []SearchResult{{ID: 2}, {ID: 4}}
+	for _, tt := range []struct {
+		name          string
+		movies, shows []SearchResult
+		want          []int
+	}{
+		{"equal-length halves alternate", movies[:2], shows, []int{1, 2, 3, 4}},
+		{"the longer half runs on at the end", movies, shows, []int{1, 2, 3, 4, 5}},
+		{"a search that only matched shows", nil, shows, []int{2, 4}},
+		{"a search that only matched movies", movies, nil, []int{1, 3, 5}},
+		{"a search that matched nothing", nil, nil, nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := interleave(tt.movies, tt.shows)
+			ids := make([]int, len(got))
+			for i, r := range got {
+				ids[i] = r.ID
+			}
+			if !slices.Equal(ids, tt.want) {
+				t.Errorf("interleave = %v, want %v", ids, tt.want)
+			}
+		})
 	}
-	got := castable(in)
-	if len(got) != 2 || got[0].ID != 1 || got[1].ID != 3 {
-		t.Errorf("castable dropped wrong rows: %+v", got)
+}
+
+// TestUnairedKeepsUndatedRows pins the deliberate asymmetry with showable. A
+// season or episode reached by drilling into a show is not an announcement the
+// way a browse row is, so only what is positively dated ahead is hidden.
+func TestUnairedKeepsUndatedRows(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		date    string
+		unaired bool
+	}{
+		{"dated in the future", tomorrow(), true},
+		{"dated in the past", yesterday(), false},
+		{"no date, which TMDB leaves off often enough to matter", "", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := (Season{AirDate: tt.date}).Unaired(); got != tt.unaired {
+				t.Errorf("Season.Unaired() = %v, want %v", got, tt.unaired)
+			}
+			if got := (Episode{AirDate: tt.date}).Unaired(); got != tt.unaired {
+				t.Errorf("Episode.Unaired() = %v, want %v", got, tt.unaired)
+			}
+		})
 	}
 }

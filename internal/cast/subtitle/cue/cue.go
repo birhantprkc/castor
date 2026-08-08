@@ -1,5 +1,5 @@
 // Package cue is the subtitle presentation model. It turns a stream of
-// committed, immutable timed words — whatever a speech backend produces — into
+// committed, immutable timed words (whatever a speech backend produces) into
 // display cues: grouping words into readable lines, coalescing staccato
 // sentences, cutting at natural boundaries when a line would overrun, and
 // trimming each cue's edges to hug the audio. It answers "what line is on
@@ -21,8 +21,8 @@ import (
 const (
 	// Cue shaping: a cue closes at a silence gap of cueGapSeconds, after
 	// sentence-final punctuation once it has been on screen at least
-	// cueMinSeconds, or — when it would otherwise overrun the cueMaxChars or
-	// cueMaxSeconds budget — at the most recent natural boundary so the line
+	// cueMinSeconds, or (when it would otherwise overrun the cueMaxChars or
+	// cueMaxSeconds budget) at the most recent natural boundary so the line
 	// never splits mid-phrase. The cueMinSeconds floor also coalesces staccato
 	// one-word sentences ("Yeah." "OK.") that would each otherwise flash for a
 	// few frames, which reads as a burst.
@@ -168,7 +168,7 @@ func cueCut(pending []Word) int {
 				return i + 1
 			}
 			// Fall back to the last boundary already passed; failing that,
-			// split at the limit — the char cap before the overflowing word,
+			// split at the limit: the char cap before the overflowing word,
 			// the duration cap after the word that tripped it.
 			if lastBreak > 0 {
 				return lastBreak
@@ -214,8 +214,8 @@ func SentenceEnd(s string) bool {
 	return strings.ContainsRune(".?!…", r)
 }
 
-// clauseEnd reports whether a word ends a clause — sentence-final punctuation
-// or a comma, semicolon, colon, or dash — ignoring trailing quotes and
+// clauseEnd reports whether a word ends a clause (sentence-final punctuation
+// or a comma, semicolon, colon, or dash), ignoring trailing quotes and
 // brackets. It marks the soft break points a budget-forced cue cut prefers.
 func clauseEnd(s string) bool {
 	s = strings.TrimRight(s, `"')]`+"”’")

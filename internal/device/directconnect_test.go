@@ -72,7 +72,7 @@ func TestLocate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			info, err := Locate(context.Background(), tt.dtype, tt.devName, tt.address)
+			info, err := Locate(t.Context(), tt.dtype, tt.devName, tt.address)
 			if err != nil {
 				t.Fatalf("Locate() error = %v", err)
 			}
@@ -90,7 +90,7 @@ func TestLocate(t *testing.T) {
 }
 
 func TestLocateUnknownType(t *testing.T) {
-	if _, err := Locate(context.Background(), Type("beam"), "", "192.168.0.9"); err == nil {
+	if _, err := Locate(t.Context(), Type("beam"), "", "192.168.0.9"); err == nil {
 		t.Fatal("Locate() with unknown type: want error, got nil")
 	}
 }
@@ -160,7 +160,7 @@ func TestSearchDLNADescriptionRoundTrip(t *testing.T) {
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
 	got, err := searchDLNADescription(ctx, pc.LocalAddr().String())

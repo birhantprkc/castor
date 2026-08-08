@@ -15,8 +15,8 @@ import (
 	"github.com/stupside/castor/internal/browse/tmdb"
 )
 
-// genrePicker is the modal genre filter. It owns the draft filter — which media
-// type and which genre ids are selected — and the checklist that edits it. The
+// genrePicker is the modal genre filter. It owns the draft filter (which media
+// type and which genre ids are selected) and the checklist that edits it. The
 // discover feed reads mediaType()/genreIDs() when it needs to run a query; the
 // picker never touches the feed itself.
 type genrePicker struct {

@@ -2,68 +2,76 @@ package cue
 
 import "testing"
 
+// TestCueCut is where a cue ends, stated once per signal that can end it. A cut
+// is an index into the words handed in, so a row is a sequence of words and the
+// count that must be closed off ahead of the rest.
+//
+// The rules interact, which is why they belong in one table rather than one test
+// each: a sentence that ends too soon to be read stays open regardless of its
+// punctuation, and a cue held past the duration cap gives up the cap rather than
+// slice a phrase, so reading a row means reading it against its neighbours.
 func TestCueCut(t *testing.T) {
-	// A sentence long enough to read closes on its final punctuation.
-	sentence := []Word{
-		{Start: 0.0, End: 0.6, Text: "Ask"},
-		{Start: 0.7, End: 1.3, Text: "not."}, // span 1.3s ≥ cueMinSeconds
-		{Start: 1.4, End: 1.7, Text: "What"},
-	}
-	if cut := cueCut(sentence); cut != 2 {
-		t.Errorf("a readable sentence should close after its period, got %d", cut)
-	}
-
-	// A staccato sentence under the minimum stays open so it coalesces with
-	// what follows instead of flashing on its own.
-	staccato := []Word{
-		{Start: 0.0, End: 0.2, Text: "OK."},
-		{Start: 0.3, End: 0.6, Text: "So"},
-	}
-	if cut := cueCut(staccato); cut != 0 {
-		t.Errorf("a sub-minimum sentence should stay open to coalesce, got %d", cut)
-	}
-
-	gap := []Word{
-		{Start: 0.0, End: 0.3, Text: "before"},
-		{Start: 2.0, End: 2.3, Text: "after"},
-	}
-	if cut := cueCut(gap); cut != 1 {
-		t.Errorf("a silence gap should close before it, got %d", cut)
-	}
-
-	open := []Word{{Start: 0.0, End: 0.3, Text: "still"}, {Start: 0.4, End: 0.7, Text: "going"}}
-	if cut := cueCut(open); cut != 0 {
-		t.Errorf("no closing signal should leave the cue open, got %d", cut)
-	}
-}
-
-func TestCueCutPrefersNaturalBreaks(t *testing.T) {
-	// The duration cap trips at the last word, but a pause after "simple"
-	// (gap 0.6s) is a better cut than slicing the phrase that follows it.
-	pause := []Word{
-		{Start: 0.0, End: 0.5, Text: "keep"},
-		{Start: 0.6, End: 1.1, Text: "it"},
-		{Start: 1.2, End: 2.0, Text: "simple"}, // 0.6s pause before the next word
-		{Start: 2.6, End: 3.5, Text: "and"},
-		{Start: 3.6, End: 4.5, Text: "keep"},
-		{Start: 4.6, End: 6.2, Text: "going"}, // span 6.2s ≥ cueMaxSeconds
-	}
-	if cut := cueCut(pause); cut != 3 {
-		t.Errorf("forced cut should fall back to the pause after 3 words, got %d", cut)
-	}
-
-	// Same, but the natural boundary is a comma rather than a silence.
-	comma := []Word{
-		{Start: 0.0, End: 0.6, Text: "we"},
-		{Start: 0.7, End: 1.3, Text: "hold"},
-		{Start: 1.4, End: 2.0, Text: "these"},
-		{Start: 2.1, End: 3.0, Text: "truths,"},
-		{Start: 3.1, End: 4.0, Text: "to"},
-		{Start: 4.1, End: 5.0, Text: "be"},
-		{Start: 5.1, End: 6.3, Text: "self-evident"}, // span 6.3s ≥ cueMaxSeconds
-	}
-	if cut := cueCut(comma); cut != 4 {
-		t.Errorf("forced cut should fall back to the comma after 4 words, got %d", cut)
+	for _, tt := range []struct {
+		name  string
+		words []Word
+		want  int
+	}{{
+		name: "a sentence long enough to read closes on its punctuation",
+		words: []Word{
+			{Start: 0.0, End: 0.6, Text: "Ask"},
+			{Start: 0.7, End: 1.3, Text: "not."}, // span 1.3s, at or over cueMinSeconds
+			{Start: 1.4, End: 1.7, Text: "What"},
+		},
+		want: 2,
+	}, {
+		name: "a sentence too short to read stays open and coalesces",
+		words: []Word{
+			{Start: 0.0, End: 0.2, Text: "OK."},
+			{Start: 0.3, End: 0.6, Text: "So"},
+		},
+		want: 0, // flashing it on its own is worse than merging it with what follows
+	}, {
+		name: "a silence closes the cue before it",
+		words: []Word{
+			{Start: 0.0, End: 0.3, Text: "before"},
+			{Start: 2.0, End: 2.3, Text: "after"},
+		},
+		want: 1,
+	}, {
+		name:  "no closing signal leaves the cue open",
+		words: []Word{{Start: 0.0, End: 0.3, Text: "still"}, {Start: 0.4, End: 0.7, Text: "going"}},
+		want:  0,
+	}, {
+		// The duration cap trips at the last word, but a pause is a better place to
+		// cut than the middle of the phrase that follows it.
+		name: "a cue over the duration cap falls back to the last pause",
+		words: []Word{
+			{Start: 0.0, End: 0.5, Text: "keep"},
+			{Start: 0.6, End: 1.1, Text: "it"},
+			{Start: 1.2, End: 2.0, Text: "simple"}, // 0.6s of silence follows
+			{Start: 2.6, End: 3.5, Text: "and"},
+			{Start: 3.6, End: 4.5, Text: "keep"},
+			{Start: 4.6, End: 6.2, Text: "going"}, // span 6.2s, at or over cueMaxSeconds
+		},
+		want: 3,
+	}, {
+		name: "a cue over the duration cap falls back to the last comma",
+		words: []Word{
+			{Start: 0.0, End: 0.6, Text: "we"},
+			{Start: 0.7, End: 1.3, Text: "hold"},
+			{Start: 1.4, End: 2.0, Text: "these"},
+			{Start: 2.1, End: 3.0, Text: "truths,"},
+			{Start: 3.1, End: 4.0, Text: "to"},
+			{Start: 4.1, End: 5.0, Text: "be"},
+			{Start: 5.1, End: 6.3, Text: "self-evident"}, // span 6.3s, at or over cueMaxSeconds
+		},
+		want: 4,
+	}} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := cueCut(tt.words); got != tt.want {
+				t.Errorf("cueCut = %d, want %d", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -113,14 +121,24 @@ func TestBuilderSilentTailClosesParagraphFinalCue(t *testing.T) {
 }
 
 func TestWrap(t *testing.T) {
-	if got := Wrap("", 42); got != "" {
-		t.Errorf("empty input should wrap to empty, got %q", got)
-	}
-	if got := Wrap("one   two\tthree", 42); got != "one two three" {
-		t.Errorf("whitespace should collapse, got %q", got)
-	}
-	// Greedy wrap at a tight width breaks between words, never inside one.
-	if got := Wrap("alpha beta gamma", 10); got != "alpha beta\ngamma" {
-		t.Errorf("Wrap = %q", got)
+	for _, tt := range []struct {
+		name  string
+		in    string
+		width int
+		want  string
+	}{
+		{"empty in, empty out", "", 42, ""},
+		{"runs of whitespace collapse", "one   two\tthree", 42, "one two three"},
+		// The wrap is greedy and breaks between words, never inside one: a word
+		// split across two lines is unreadable at a distance, which is the only
+		// distance a television is watched from.
+		{"a tight width breaks between words", "alpha beta gamma", 10, "alpha beta\ngamma"},
+		{"a word longer than the width is left whole", "supercalifragilistic", 10, "supercalifragilistic"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Wrap(tt.in, tt.width); got != tt.want {
+				t.Errorf("Wrap(%q, %d) = %q, want %q", tt.in, tt.width, got, tt.want)
+			}
+		})
 	}
 }

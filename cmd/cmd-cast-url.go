@@ -39,8 +39,11 @@ func (a *app) castURLCommand() *cli.Command {
 				return err
 			}
 
+			// One link, because a URL a user typed is the whole ordering: nothing ranked it
+			// against anything and there is no next candidate to fall to. A cast of it can still
+			// degrade a rung or stop copying an axis, which are recoveries within the link.
 			stream := &media.Stream{URL: urlObj, ContentType: media.DetectFromExtension(urlObj)}
-			return cast.Play(ctx, cfg.Playback(), stream)
+			return cast.Play(ctx, cfg.Playback(), []*media.Stream{stream})
 		},
 	}
 }

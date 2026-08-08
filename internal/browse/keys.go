@@ -5,7 +5,7 @@ import "github.com/charmbracelet/bubbles/key"
 // keyMap centralizes every binding the browse TUI uses. Each binding carries
 // its own help text, so help.Model renders a consistent footer without per-
 // screen string lists. j/k are NOT bound to Up/Down because the persistent
-// textinput on screenBrowse needs those keys for typing — so the discover
+// textinput on screenBrowse needs those keys for typing, so the discover
 // controls (genres/sort/type) use ctrl-chords to stay clear of the query, while
 // the genre overlay (no text input) is free to use bare letters.
 type keyMap struct {

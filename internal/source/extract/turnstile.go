@@ -77,7 +77,7 @@ func solveTurnstile(ctx context.Context, solveTimeout time.Duration) bool {
 		ch <- struct{}{}
 	}()
 
-	// Path 2: passive — handles auto-solve token fill and cftCallback page reload.
+	// Path 2: passive, handles auto-solve token fill and cftCallback page reload.
 	go func() {
 		var gone bool
 		if err := chromedp.Run(tCtx,

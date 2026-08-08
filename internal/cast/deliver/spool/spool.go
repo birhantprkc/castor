@@ -26,6 +26,7 @@ type Spool struct {
 	size   int64
 	closed bool  // no more writes are coming
 	err    error // terminal write-side error, if any
+	tails  int   // how many readers have been handed a view of this spool
 }
 
 func New(path string) (*Spool, error) {
@@ -39,12 +40,18 @@ func New(path string) (*Spool, error) {
 }
 
 // Write appends to the spool and wakes any blocked tails.
+//
+// The file write is inside the mutex, not merely the size bookkeeping, because
+// Reset rewinds this same descriptor under that mutex. A write that had already
+// entered os.File.Write when the truncate landed would either re-extend the file
+// it was rewinding or append at an offset the reset had abandoned, and the size
+// this type publishes would then describe neither.
 func (s *Spool) Write(p []byte) (int, error) {
-	n, err := s.w.Write(p)
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	n, err := s.w.Write(p)
 	s.size += int64(n)
 	s.cond.Broadcast()
-	s.mu.Unlock()
 	return n, err
 }
 
@@ -73,17 +80,35 @@ func (s *Spool) Path() string { return s.path }
 
 // Tail returns a reader over the spool from byte 0 that blocks at
 // end-of-data until the writer appends more or closes. The reader also
-// unblocks (with ctx.Err()) when ctx is cancelled — required because
+// unblocks (with ctx.Err()) when ctx is cancelled: required because
 // os/exec waits for stdin-feeding goroutines, which would otherwise hang
 // on a parked Tail after the consumer process dies.
-func (s *Spool) Tail(ctx context.Context) (io.ReadCloser, error) {
+func (s *Spool) Tail(ctx context.Context) (io.ReadCloser, error) { return s.TailAt(ctx, 0) }
+
+// TailAt is Tail from a byte offset, for a consumer that already holds the
+// prefix and asked to continue from where it stopped (an HTTP byte-range
+// resume). offset must not be negative.
+//
+// It is sound only because this buffer is append-only: byte N is the same byte
+// for the life of the spool, so a reader handed an offset can never be handed
+// different media than the prefix it already has. An offset past the current end
+// is not an error either, it blocks like any other tail at end-of-data, which is
+// what a consumer asking for a byte the producer has not reached yet must do.
+func (s *Spool) TailAt(ctx context.Context, offset int64) (io.ReadCloser, error) {
 	f, err := os.Open(s.path)
 	if err != nil {
 		return nil, fmt.Errorf("opening spool for tail: %w", err)
 	}
-	t := &tailReader{spool: s, f: f, ctx: ctx}
-	// Wake the cond loop when ctx dies so Read can observe cancellation.
-	context.AfterFunc(ctx, func() {
+	s.mu.Lock()
+	s.tails++
+	s.mu.Unlock()
+
+	t := &tailReader{spool: s, f: f, ctx: ctx, offset: offset}
+	// Wake the cond loop when ctx dies so Read can observe cancellation. The stop
+	// function is kept and called from Close: ctx is the whole cast's, so a
+	// registration nobody cancels outlives the reader it was made for and is only
+	// released when the cast ends.
+	t.stop = context.AfterFunc(ctx, func() {
 		s.mu.Lock()
 		s.cond.Broadcast()
 		s.mu.Unlock()
@@ -95,6 +120,7 @@ type tailReader struct {
 	spool  *Spool
 	f      *os.File
 	ctx    context.Context
+	stop   func() bool
 	offset int64
 }
 
@@ -133,5 +159,6 @@ func (t *tailReader) Read(p []byte) (int, error) {
 }
 
 func (t *tailReader) Close() error {
+	t.stop()
 	return t.f.Close()
 }

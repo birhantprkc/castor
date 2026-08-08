@@ -9,6 +9,7 @@ package extract
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -20,7 +21,7 @@ import (
 )
 
 // Extractor captures video stream URLs from a page using headless Chrome.
-// It holds only capture and action config (patterns, timing) — no proxies or templates.
+// It holds only capture and action config (patterns, timing), no proxies or templates.
 type Extractor struct {
 	browser  BrowserConfig
 	capture  CaptureConfig
@@ -85,14 +86,22 @@ func (e *Extractor) extract(ctx context.Context, targetURL string) ([]*media.Str
 	return streams, nil
 }
 
-// ExtractAll runs Extract concurrently on all given URLs (bounded by the
-// extractor's MaxConcurrency) and returns deduplicated streams.
+// ExtractAll runs one extraction per URL concurrently (bounded by the extractor's
+// MaxConcurrency) and returns the deduplicated streams. The URLs are alternate embeds
+// of the same title, so one of them succeeding is a success.
 func (e *Extractor) ExtractAll(ctx context.Context, urls []string) ([]*media.Stream, error) {
+	return e.extractAll(ctx, urls, e.extract)
+}
+
+// extractAll is ExtractAll over an injected per-URL extraction, which is what makes
+// the all-failed reporting exercisable without launching a browser per URL.
+func (e *Extractor) extractAll(ctx context.Context, urls []string, one func(context.Context, string) ([]*media.Stream, error)) ([]*media.Stream, error) {
 	slog.InfoContext(ctx, "extracting streams", "urls", len(urls))
 
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, e.capture.MaxConcurrency)
 	results := make([][]*media.Stream, len(urls))
+	failures := make([]error, len(urls))
 
 	for i, targetURL := range urls {
 		wg.Go(func() {
@@ -101,9 +110,10 @@ func (e *Extractor) ExtractAll(ctx context.Context, urls []string) ([]*media.Str
 
 			slog.DebugContext(ctx, "extracting", "url", targetURL, "index", i+1, "total", len(urls))
 
-			streams, err := e.extract(ctx, targetURL)
+			streams, err := one(ctx, targetURL)
 			if err != nil {
 				slog.WarnContext(ctx, "extraction failed", "url", targetURL, "error", err)
+				failures[i] = fmt.Errorf("%s: %w", targetURL, err)
 				return
 			}
 
@@ -119,6 +129,16 @@ func (e *Extractor) ExtractAll(ctx context.Context, urls []string) ([]*media.Str
 	}
 
 	deduped := deduplicateStreams(allStreams)
+	if len(deduped) == 0 {
+		// Every embed failed, and the causes are the diagnosis: a navigation timeout, a
+		// grace period that expired with nothing captured and a page whose only capture
+		// had an unrecognised content type are three different things to do next. Returning
+		// them joined is what stops that becoming the ranker's "no streams to rank" two
+		// calls later, which reads as a bug in ranking and names nothing. Every empty
+		// result has at least one cause recorded, because extract never answers (nil, nil):
+		// a session that captured nothing usable returns why.
+		return nil, fmt.Errorf("no stream extracted from %d URL(s): %w", len(urls), errors.Join(failures...))
+	}
 	slog.InfoContext(ctx, "extraction complete", "urls", len(urls), "streams", len(deduped))
 	return deduped, nil
 }

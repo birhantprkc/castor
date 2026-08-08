@@ -12,7 +12,7 @@ import (
 )
 
 // Profile holds a coherent set of browser fingerprint values for a single
-// extraction session. Every field is internally consistent — UA, platform,
+// extraction session. Every field is internally consistent: UA, platform,
 // WebGL, locale, Client Hints, etc. all match the same virtual identity.
 type Profile struct {
 	UserAgent           string

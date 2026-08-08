@@ -1,7 +1,6 @@
 package core
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -17,7 +16,7 @@ func TestResolveInfoPinnedAddress(t *testing.T) {
 		Network: NetworkConfig{Timeout: 5 * time.Second},
 	}
 
-	info, err := resolveInfo(context.Background(), cfg)
+	info, err := resolveInfo(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("resolveInfo() error = %v", err)
 	}

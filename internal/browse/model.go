@@ -1,15 +1,15 @@
 // Package browse is a Bubble Tea TUI for searching TMDB and picking a movie or
-// TV episode to cast. It does not touch the cast pipeline — Run returns the
+// TV episode to cast. It does not touch the cast pipeline: Run returns the
 // user's Selection and the caller hands it off.
 //
 // The screen is composed from focused parts, each owning its own state:
 //
-//	model       — this file: the results browser (curated tabs / search /
+//	model       - this file: the results browser (curated tabs / search /
 //	              discover feed) plus screen routing and layout.
-//	inspector   — the poster + metadata panel and its async asset loading.
-//	genrePicker — the modal genre filter.
-//	drilldown   — the TV seasons → episodes navigation.
-//	tmdb.Client — the read-only data source.
+//	inspector   - the poster + metadata panel and its async asset loading.
+//	genrePicker - the modal genre filter.
+//	drilldown   - the TV seasons → episodes navigation.
+//	tmdb.Client - the read-only data source.
 package browse
 
 import (
@@ -66,7 +66,7 @@ func Run(ctx context.Context, client *tmdb.Client, devName string, devType devic
 const (
 	// Poster footprint in terminal cells. Half-block rendering means each cell
 	// shows 2 stacked pixels vertically, so the rendered pixel grid is
-	// posterCols × (posterRows*2). 27 × 40 ≈ 2:3 — the canonical movie-poster
+	// posterCols × (posterRows*2). 27 × 40 ≈ 2:3, the canonical movie-poster
 	// aspect ratio. Sizing the box correctly stops pixterm from stretching the
 	// image horizontally.
 	posterCols     = 27
@@ -288,7 +288,7 @@ func searchTickCmd(tok int, query string) tea.Cmd {
 
 func searchCmd(ctx context.Context, c *tmdb.Client, tok int, q string) tea.Cmd {
 	return func() tea.Msg {
-		res, err := c.SearchMulti(ctx, q)
+		res, err := c.Search(ctx, q)
 		return searchDoneMsg{tok: tok, res: res, err: err}
 	}
 }
@@ -645,7 +645,7 @@ func (m model) viewBrowse() string {
 }
 
 // browseHeader puts the active label flush-left and a mode/device indicator
-// flush-right via lipgloss.PlaceHorizontal — tab dots on curated, media type on
+// flush-right via lipgloss.PlaceHorizontal: tab dots on curated, media type on
 // discover, plus the cast target device on every screen.
 func (m model) browseHeader() string {
 	var label, rhs string

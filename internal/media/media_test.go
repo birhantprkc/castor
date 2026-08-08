@@ -31,6 +31,47 @@ func TestFormatForContentType(t *testing.T) {
 	}
 }
 
+// TestEveryFormatDeclaresItsFraming guards the zero value that would otherwise be
+// free. Framing is the input to the one decision whose wrong answer is either
+// fatal or silently destructive (a repack pushed at an in-band container exits 0
+// and leaves 8 of 189 audio packets), and FramingUnknown exists so a row that
+// forgot to answer cannot answer "in band" by accident.
+func TestEveryFormatDeclaresItsFraming(t *testing.T) {
+	for f := range ProducibleFormats() {
+		if f.Framing == FramingUnknown {
+			t.Errorf("format %q declares no framing; every producible container must say how it frames its streams", f.ContentType)
+		}
+	}
+}
+
+// TestFormatToContentTypeAcceptsWhatCastorMuxes covers the containers a probe
+// really reports. An unrecognised one is not an error: refusing here used to
+// abort the whole cast at resolution, so a raw MPEG-TS stream (ffprobe
+// format_name "mpegts") could not be cast at all even though castor muxes
+// MPEG-TS itself.
+func TestFormatToContentTypeAcceptsWhatCastorMuxes(t *testing.T) {
+	cases := map[string]string{
+		"mpegts":        MPEGTS,
+		"hls,applehttp": HLS,
+		"applehttp":     HLS,
+		// ffprobe reports this joined list for a plain .mp4 AND for a genuine .mov,
+		// with "mov" first, which is exactly why there is no mov row: adding one
+		// would reclassify every mp4 source as video/quicktime.
+		"mov,mp4,m4a,3gp,3g2,mj2": MP4,
+		"matroska,webm":           MKV,
+		"avi":                     AVI,
+		"flv":                     FLV,
+		"":                        "",
+		"nut":                     "",
+		"some_future_demuxer":     "",
+	}
+	for format, want := range cases {
+		if got := FormatToContentType(format); got != want {
+			t.Errorf("FormatToContentType(%q) = %q, want %q", format, got, want)
+		}
+	}
+}
+
 func TestStreamInfoPlayable(t *testing.T) {
 	cases := []struct {
 		name string

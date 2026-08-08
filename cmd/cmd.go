@@ -1,6 +1,6 @@
 // Package cmd wires the castor command tree. Configuration is loaded lazily
-// into a typed struct the subcommand closures share — no metadata maps, no
-// runtime type assertions — so commands that don't need a config (scan, info,
+// into a typed struct the subcommand closures share, with no metadata maps and
+// no runtime type assertions, so commands that don't need a config (scan, info,
 // help) never require one.
 package cmd
 

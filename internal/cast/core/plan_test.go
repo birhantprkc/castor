@@ -1,246 +1,154 @@
 package core
 
 import (
-	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 	"testing"
 
-	"github.com/stupside/castor/internal/cast/subtitle"
 	"github.com/stupside/castor/internal/media"
 )
 
-// mpegtsContentType is what a served cast that is not the self-fetch mp4 remux
-// tells the device it is fetching.
-const mpegtsContentType = media.MPEGTS
-
-// TestNewPlan pins the pure plan decision that replaced the two per-device
-// strategies: given the renderer's advertised capabilities (SelfFetch + accepted
-// containers), the source container, and whether the transcriber is enabled, the
-// three probe-free axes (Delivery, Subtitle, OutputContentType) must come out
-// exactly as the old DLNA and Chromecast paths behaved. It is the plan-level
-// heir to the deleted renderer strategy tests.
-func TestNewPlan(t *testing.T) {
-	// caps builds a renderer that self-fetches (or not) and accepts the given
-	// containers. The audio/video support lists are irrelevant to the plan (they
-	// feed the executor's copy-vs-encode, tested in resolve_test), so they stay
-	// empty here. A served renderer declares the container it is served: mp4 for a
-	// self-fetching remux (the HLS variant is pinned separately below), MPEG-TS for
-	// the push-only spool (what runSpooled declares on its synthetic renderer).
+// TestPassthrough pins the delivery decision that replaced the two per-device strategies,
+// and that the composition table now reads as one row's rule: given the renderer's
+// advertised capabilities (SelfFetch plus the containers it takes), the source, and the
+// operator's one knob, a cast is either handed over untouched or produced locally.
+//
+// Every row here was a row of the old planner's matrix and asserts the same answer. What
+// left the value is the two axes that are now structural rather than computed: the served
+// container is the renderer's own declaration (see ServedFormat) and subtitles belong to
+// the one composition that draws them, so neither can be carried into a cast that would
+// ignore it.
+func TestPassthrough(t *testing.T) {
+	// caps builds a renderer that fetches for itself (or not) and accepts the given
+	// containers. The audio/video support lists are irrelevant here (they feed the
+	// copy-vs-encode decision, tested in resolve_test), so they stay empty.
 	caps := func(selfFetch bool, containers ...string) media.Renderer {
-		r := media.Renderer{SelfFetch: selfFetch, Containers: containers}
-		if selfFetch {
-			r.ServedContainer = media.MP4
-		} else {
-			r.ServedContainer = media.MPEGTS
-		}
-		return r
+		return media.Renderer{SelfFetch: selfFetch, Containers: containers}
 	}
 
 	tests := []struct {
-		name          string
-		caps          media.Renderer
-		sourceCT      string
-		sourceHeaders http.Header
-		preference    DeliveryPreference
-		whisper       bool
-		delivery      DeliveryMode
-		subtitle      SubtitleMode
-		outputCT      string
-	}{
-		{
-			// Chromecast direct play: self-fetches and already takes the source
-			// container, so the URL is handed straight to it, no local stream.
-			name:     "chromecast passthrough when it self-fetches and accepts the container",
-			caps:     caps(true, media.MP4),
-			sourceCT: media.MP4,
-			whisper:  false,
-			delivery: DeliverPassthrough,
-			subtitle: SubtitleOff,
-			// OutputContentType is inert on pass-through (the device reads the
-			// source's own type), so the plan leaves it empty.
-			outputCT: "",
-		},
-		{
-			// Burn-in cannot survive a pass-through: there is no local encode to
-			// draw cues into, so even with the transcriber enabled the subtitle
-			// axis is forced Off. This is the delivery-gating in NewPlan.
-			name:     "passthrough forces subtitles off even with whisper enabled",
-			caps:     caps(true, media.MP4),
-			sourceCT: media.MP4,
-			whisper:  true,
-			delivery: DeliverPassthrough,
-			subtitle: SubtitleOff,
-			outputCT: "",
-		},
-		{
-			// A source castor could only fetch with captured request headers is not
-			// passed through even when the renderer self-fetches and takes the
-			// container: the renderer is handed the URL and none of the headers, so
-			// it would fetch nothing (Cast loads the URL, then idles). Castor pulls
-			// it with the headers and serves the remux instead.
-			name:          "header-gated source serves even when the renderer accepts the container",
-			caps:          caps(true, media.HLS, media.MP4),
-			sourceCT:      media.HLS,
-			sourceHeaders: http.Header{"Referer": {"https://player.example/"}, "Origin": {"https://player.example"}},
-			whisper:       false,
-			delivery:      DeliverServe,
-			subtitle:      SubtitleOff,
-			outputCT:      media.MP4,
-		},
-		{
-			// The same source without headers is self-sufficient: a direct URL the
-			// user casts by hand still passes through, no local ffmpeg.
-			name:     "header-free source of an accepted container still passes through",
-			caps:     caps(true, media.HLS, media.MP4),
-			sourceCT: media.HLS,
-			whisper:  false,
-			delivery: DeliverPassthrough,
-			subtitle: SubtitleOff,
-			outputCT: "",
-		},
-		{
-			// The operator's override, for a source nothing else convicts: it needs
-			// no headers and the renderer takes the container, yet the receiver
-			// refuses it (segments served under a disguised extension). Configured
-			// serve relays it anyway.
-			name:       "configured serve overrides an otherwise pass-through cast",
-			caps:       caps(true, media.HLS, media.MP4),
-			sourceCT:   media.HLS,
-			preference: DeliveryServe,
-			whisper:    false,
-			delivery:   DeliverServe,
-			subtitle:   SubtitleOff,
-			outputCT:   media.MP4,
-		},
-		{
-			// The explicit default reads like no key at all: nothing is overridden
-			// and the pass-through rule decides.
-			name:       "configured auto leaves the decision to the rule",
-			caps:       caps(true, media.HLS, media.MP4),
-			sourceCT:   media.HLS,
-			preference: DeliveryAuto,
-			whisper:    false,
-			delivery:   DeliverPassthrough,
-			subtitle:   SubtitleOff,
-			outputCT:   "",
-		},
-		{
-			// Chromecast remux: self-fetches but rejects the source container, so
-			// castor serves a fragmented-mp4 remux the receiver decodes.
-			name:     "chromecast remux to mp4 when it self-fetches but rejects the container",
-			caps:     caps(true, media.MP4),
-			sourceCT: media.MKV,
-			whisper:  false,
-			delivery: DeliverServe,
-			subtitle: SubtitleOff,
-			outputCT: media.MP4,
-		},
-		{
-			// Chromecast remux with the transcriber enabled: it self-fetches, so it
-			// takes captions as a native track (Stage 2), never burn-in. The plan
-			// must not carry BurnIn the remux stage would silently ignore.
-			name:     "chromecast remux leaves subtitles off even with whisper enabled",
-			caps:     caps(true, media.MP4),
-			sourceCT: media.MKV,
-			whisper:  true,
-			delivery: DeliverServe,
-			subtitle: SubtitleOff,
-			outputCT: media.MP4,
-		},
-		{
-			// Roku remux: it self-fetches but rejects the source container and
-			// advertises live HLS as its served container, so the plan targets HLS
-			// rather than the default fragmented mp4. This is the ServedContainer axis.
-			name:     "roku remux to hls when its served container is hls",
-			caps:     media.Renderer{SelfFetch: true, Containers: []string{media.HLS, media.MP4, media.MKV}, ServedContainer: media.HLS},
-			sourceCT: media.AVI,
-			whisper:  false,
-			delivery: DeliverServe,
-			subtitle: SubtitleOff,
-			outputCT: media.HLS,
-		},
-		{
-			// DLNA never self-fetches, so it always serves, and its served
-			// container is MPEG-TS regardless of the source container.
-			name:     "dlna serves mpegts because it never self-fetches",
-			caps:     caps(false),
-			sourceCT: media.MKV,
-			whisper:  false,
-			delivery: DeliverServe,
-			subtitle: SubtitleOff,
-			outputCT: mpegtsContentType,
-		},
-		{
-			// The AND in the delivery rule: a renderer that accepts the container
-			// but does NOT self-fetch still serves (DLNA can only play what we
-			// push it), so accepting a container is not on its own pass-through.
-			name:     "accepting the container without self-fetch still serves",
-			caps:     caps(false, media.MP4),
-			sourceCT: media.MP4,
-			whisper:  false,
-			delivery: DeliverServe,
-			subtitle: SubtitleOff,
-			outputCT: mpegtsContentType,
-		},
-		{
-			// Today's DLNA-only burn-in: a served cast with the transcriber on
-			// draws the cues into the encode.
-			name:     "served cast burns in subtitles when whisper is enabled",
-			caps:     caps(false),
-			sourceCT: media.MKV,
-			whisper:  true,
-			delivery: DeliverServe,
-			subtitle: SubtitleBurnIn,
-			outputCT: mpegtsContentType,
-		},
-		{
-			// The same served cast with the transcriber off carries no subtitles.
-			name:     "served cast leaves subtitles off when whisper is disabled",
-			caps:     caps(false),
-			sourceCT: media.MKV,
-			whisper:  false,
-			delivery: DeliverServe,
-			subtitle: SubtitleOff,
-			outputCT: mpegtsContentType,
-		},
-	}
+		name        string
+		caps        media.Renderer
+		sourceCT    string
+		headers     http.Header
+		demuxed     bool
+		leniency    bool
+		preference  DeliveryPreference
+		passthrough bool
+	}{{
+		// Direct play: the renderer fetches for itself and already takes the source
+		// container, so the URL is handed straight to it and castor stays out of the way.
+		name:        "a renderer that fetches for itself and accepts the container is handed the URL",
+		caps:        caps(true, media.MP4),
+		sourceCT:    media.MP4,
+		passthrough: true,
+	}, {
+		// A source castor could only fetch with the request headers it captured is not
+		// passed through even when the renderer takes the container: the renderer is handed
+		// the URL and none of the headers, so it would fetch nothing (it loads the URL,
+		// then idles).
+		name:     "a header-gated source is served even to a renderer that accepts it",
+		caps:     caps(true, media.HLS, media.MP4),
+		sourceCT: media.HLS,
+		headers:  http.Header{"Referer": {"https://player.example/"}, "Origin": {"https://player.example"}},
+	}, {
+		// One URL is one rendition, so a renderer handed it would play the video and none
+		// of the audio.
+		name:     "a demuxed program is served, since one URL carries only half of it",
+		caps:     caps(true, media.HLS, media.MP4),
+		sourceCT: media.HLS,
+		demuxed:  true,
+	}, {
+		// A renderer fetching for itself applies its own default checks, and refuses what
+		// castor had to relax one to read at all.
+		name:     "a source only a lenient reader opens is served",
+		caps:     caps(true, media.HLS, media.MP4),
+		sourceCT: media.HLS,
+		leniency: true,
+	}, {
+		// The same source without headers is self-sufficient: a direct URL a user casts by
+		// hand still passes through, no local ffmpeg.
+		name:        "a header-free source of an accepted container still passes through",
+		caps:        caps(true, media.HLS, media.MP4),
+		sourceCT:    media.HLS,
+		passthrough: true,
+	}, {
+		// The operator's override, for a source nothing else convicts: it needs no headers
+		// and the renderer takes the container, yet the receiver refuses it.
+		name:       "configured serve overrides an otherwise pass-through cast",
+		caps:       caps(true, media.HLS, media.MP4),
+		sourceCT:   media.HLS,
+		preference: DeliveryServe,
+	}, {
+		// The explicit default reads like no key at all: nothing is overridden and the
+		// evidence decides.
+		name:        "configured auto leaves the decision to the evidence",
+		caps:        caps(true, media.HLS, media.MP4),
+		sourceCT:    media.HLS,
+		preference:  DeliveryAuto,
+		passthrough: true,
+	}, {
+		// It fetches for itself but rejects the source container, so castor produces one it
+		// takes.
+		name:     "a renderer that rejects the source container is served a remux",
+		caps:     caps(true, media.MP4),
+		sourceCT: media.MKV,
+	}, {
+		// The AND in the rule: accepting a container is not on its own pass-through, since
+		// a push-only renderer can only play what castor serves it.
+		name:     "accepting the container without fetching for itself is still served",
+		caps:     caps(false, media.MP4),
+		sourceCT: media.MP4,
+	}, {
+		name:     "a renderer that never fetches for itself is always served",
+		caps:     caps(false),
+		sourceCT: media.MKV,
+	}}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			source := &media.Stream{ContentType: tt.sourceCT, Headers: tt.sourceHeaders}
-			cfg := Config{Whisper: subtitle.Whisper{Enable: tt.whisper}, Delivery: tt.preference}
-
-			plan := NewPlan(source, tt.caps, cfg)
-
-			if plan.Delivery != tt.delivery {
-				t.Errorf("Delivery = %s, want %s", deliveryName(plan.Delivery), deliveryName(tt.delivery))
+			source := &media.Stream{ContentType: tt.sourceCT, Headers: tt.headers, NeedsLeniency: tt.leniency}
+			if tt.demuxed {
+				source.AudioURL = &url.URL{Scheme: "https", Host: "cdn.example", Path: "/audio.m3u8"}
 			}
-			if plan.Subtitle != tt.subtitle {
-				t.Errorf("Subtitle = %s, want %s", subtitleName(plan.Subtitle), subtitleName(tt.subtitle))
-			}
-			if plan.OutputContentType != tt.outputCT {
-				t.Errorf("OutputContentType = %q, want %q", plan.OutputContentType, tt.outputCT)
+			shape := Shape{Renderer: tt.caps, Source: source, Delivery: tt.preference}
+
+			if got := shape.Passthrough(); got != tt.passthrough {
+				t.Errorf("Passthrough() = %v, want %v (shape: %s)", got, tt.passthrough, shape)
 			}
 		})
 	}
 }
 
-func deliveryName(d DeliveryMode) string {
-	switch d {
-	case DeliverPassthrough:
-		return "Passthrough"
-	case DeliverServe:
-		return "Serve"
+// TestServedFormatIsTheRenderersOwnDeclaration covers the axis that used to be computed
+// into a plan field: what a served cast produces is what the renderer asked to be served,
+// and a renderer asking for something castor cannot mux is an error naming ITS declaration.
+// A served leg used to build its encode from a fabricated capability record naming MPEG-TS,
+// so a family declaring anything else was served something it never asked for and this
+// lookup could only ever succeed.
+func TestServedFormatIsTheRenderersOwnDeclaration(t *testing.T) {
+	for _, container := range []string{media.MPEGTS, media.MP4, media.HLS} {
+		format, err := ServedFormat(media.Renderer{ServedContainer: container})
+		if err != nil {
+			t.Fatalf("a renderer asking for %s: %v", container, err)
+		}
+		if format.ContentType != container {
+			t.Errorf("served %q, want the renderer's own %q", format.ContentType, container)
+		}
 	}
-	return fmt.Sprintf("DeliveryMode(%d)", d)
-}
 
-func subtitleName(s SubtitleMode) string {
-	switch s {
-	case SubtitleOff:
-		return "Off"
-	case SubtitleBurnIn:
-		return "BurnIn"
+	_, err := ServedFormat(media.Renderer{ServedContainer: "video/x-nothing-castor-muxes"})
+	if err == nil {
+		t.Fatal("a renderer asking for a container castor cannot produce reported success")
 	}
-	return fmt.Sprintf("SubtitleMode(%d)", s)
+	if !strings.Contains(err.Error(), "video/x-nothing-castor-muxes") {
+		t.Errorf("error = %q, which does not name what the renderer asked for", err)
+	}
+
+	// A renderer that declared nothing is the same failure and must not resolve to a
+	// container castor picked for it.
+	if _, err := ServedFormat(media.Renderer{}); err == nil {
+		t.Error("a renderer that declared no served container was served one anyway")
+	}
 }

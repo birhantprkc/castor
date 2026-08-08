@@ -72,8 +72,8 @@ func (d *drilldown) showSeasons(tv *tmdb.TVDetails) {
 	d.tvName = tv.Name
 	items := make([]list.Item, 0, len(tv.Seasons))
 	for _, s := range tv.Seasons {
-		if s.EpisodeCount == 0 {
-			continue // specials / unaired placeholders
+		if s.EpisodeCount == 0 || s.Unaired() {
+			continue // specials, and seasons announced but not yet airing
 		}
 		items = append(items, seasonItem{s: s})
 	}
@@ -87,6 +87,9 @@ func (d *drilldown) showSeasons(tv *tmdb.TVDetails) {
 func (d *drilldown) showEpisodes(sd *tmdb.SeasonDetails) {
 	items := make([]list.Item, 0, len(sd.Episodes))
 	for _, e := range sd.Episodes {
+		if e.Unaired() {
+			continue // a season part way through its run lists what is still to come
+		}
 		items = append(items, episodeItem{e: e})
 	}
 	d.list.SetItems(items)
@@ -129,7 +132,7 @@ func (d *drilldown) enter() drillOutcome {
 			sel := Selection{
 				Kind:    KindEpisode,
 				TMDBID:  strconv.Itoa(d.tvID),
-				Title:   fmt.Sprintf("%s · S%02dE%02d — %s", d.tvName, d.seasonNum, it.e.EpisodeNumber, it.e.Name),
+				Title:   fmt.Sprintf("%s · S%02dE%02d · %s", d.tvName, d.seasonNum, it.e.EpisodeNumber, it.e.Name),
 				Season:  uint(d.seasonNum),
 				Episode: uint(it.e.EpisodeNumber),
 			}
@@ -163,7 +166,7 @@ type seasonItem struct{ s tmdb.Season }
 
 func (i seasonItem) Title() string {
 	if i.s.Name != "" {
-		return fmt.Sprintf("S%02d — %s", i.s.SeasonNumber, i.s.Name)
+		return fmt.Sprintf("S%02d · %s", i.s.SeasonNumber, i.s.Name)
 	}
 	return fmt.Sprintf("Season %d", i.s.SeasonNumber)
 }
@@ -177,7 +180,7 @@ func (i seasonItem) FilterValue() string { return i.Title() }
 type episodeItem struct{ e tmdb.Episode }
 
 func (i episodeItem) Title() string {
-	return fmt.Sprintf("E%02d — %s", i.e.EpisodeNumber, i.e.Name)
+	return fmt.Sprintf("E%02d · %s", i.e.EpisodeNumber, i.e.Name)
 }
 
 func (i episodeItem) Description() string {

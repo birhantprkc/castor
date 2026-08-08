@@ -8,8 +8,8 @@ package extract
 
 import "time"
 
-// Config is everything an Extractor needs. It is defined here — not in an
-// application-level package — so the dependency arrow points the right way:
+// Config is everything an Extractor needs. It is defined here, not in an
+// application-level package, so the dependency arrow points the right way:
 // the app config composes this type, never the reverse.
 type Config struct {
 	Browser BrowserConfig

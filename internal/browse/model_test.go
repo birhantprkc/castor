@@ -1,7 +1,6 @@
 package browse
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -102,7 +101,7 @@ func fakeResults(n int) []tmdb.SearchResult {
 // path through Update/View headlessly, asserting state transitions and that no
 // render panics along the way.
 func TestBrowseDiscoverFlow(t *testing.T) {
-	m := newModel(context.Background(), tmdb.New("dummy", 0), "", "")
+	m := newModel(t.Context(), tmdb.New("dummy", 0), "", "")
 
 	m, _ = drive(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 	mustRender(t, m)
@@ -226,7 +225,7 @@ func TestBrowseDiscoverFlow(t *testing.T) {
 // TestGenreOverlayDoesNotQuitOnQ guards the fix for the genre list's default
 // "q" keybinding quitting the whole program when forwarded from the overlay.
 func TestGenreOverlayDoesNotQuitOnQ(t *testing.T) {
-	m := newModel(context.Background(), tmdb.New("dummy", 0), "", "")
+	m := newModel(t.Context(), tmdb.New("dummy", 0), "", "")
 	m, _ = drive(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 	m, _ = drive(t, m, genresLoadedMsg{cat: tmdb.GenreCatalog{
 		Movie: []tmdb.Genre{{ID: 28, Name: "Action"}},

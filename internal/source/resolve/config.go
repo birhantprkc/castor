@@ -2,11 +2,28 @@ package resolve
 
 import "time"
 
+// Config is the resolver section of the operator's configuration. It holds two
+// kinds of value and the split matters: MaxHeight and ProbeMaxConcurrency are read
+// by the policy in this package, while the paths and budgets are spent by the
+// composition root building the adapters the policy drives (see internal/config,
+// ./ffprobe and ./httpfetch). Nothing in here names an ffprobe flag or an HTTP
+// client, which is why a decision made in this package can be tested without
+// either.
 type Config struct {
-	HLSTimeout          time.Duration `yaml:"hls_timeout" validate:"required"`
-	FFprobePath         string        `yaml:"ffprobe_path" validate:"required"`
-	ProbeTimeout        time.Duration `yaml:"probe_timeout" validate:"required"`
-	ProbeMaxConcurrency int           `yaml:"probe_max_concurrency" validate:"required,min=1"`
+	// HLSTimeout bounds one playlist fetch, body included. It is the httpfetch
+	// client's budget.
+	HLSTimeout time.Duration `yaml:"hls_timeout" validate:"required"`
+
+	// FFprobePath and ProbeTimeout are the ffprobe prober's binary and the budget
+	// one measurement gets.
+	FFprobePath  string        `yaml:"ffprobe_path" validate:"required"`
+	ProbeTimeout time.Duration `yaml:"probe_timeout" validate:"required"`
+
+	// ProbeMaxConcurrency bounds how many candidates are measured at once. It is a
+	// courtesy to the origin as much as to this machine: an embed proxy answers a
+	// burst of probes behind one signature with HTTP 429, which poisons the whole
+	// ranking (see maxProbePerHost).
+	ProbeMaxConcurrency int `yaml:"probe_max_concurrency" validate:"required,min=1"`
 
 	// MaxHeight is the tallest video the user wants cast: source selection
 	// prefers the largest HLS variant no taller than this, and the encoder

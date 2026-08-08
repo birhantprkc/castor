@@ -1,7 +1,6 @@
 package device
 
 import (
-	"context"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -159,7 +158,7 @@ func TestRokuPlayLaunchRequest(t *testing.T) {
 	dev := &rokuDevice{ecp: mustParseURL(t, ts.URL), appID: "dev", hc: ts.Client()}
 	stream := mustParseURL(t, "http://192.0.2.99:1234/stream.m3u8")
 
-	if err := dev.Play(context.Background(), stream, media.HLS); err != nil {
+	if err := dev.Play(t.Context(), stream, media.HLS); err != nil {
 		t.Fatalf("Play() error = %v", err)
 	}
 	if gotMethod != http.MethodPost {
@@ -184,7 +183,7 @@ func TestRokuPlayNon2xxErrors(t *testing.T) {
 
 	dev := &rokuDevice{ecp: mustParseURL(t, ts.URL), appID: "dev", hc: ts.Client()}
 	stream := mustParseURL(t, "http://192.0.2.99:1234/stream.m3u8")
-	if err := dev.Play(context.Background(), stream, media.HLS); err == nil {
+	if err := dev.Play(t.Context(), stream, media.HLS); err == nil {
 		t.Fatal("Play() to a 404 launch endpoint should error")
 	}
 }
@@ -217,7 +216,7 @@ func TestInstallOutcome(t *testing.T) {
 // issues a Digest challenge, then asserts the retried request carries the
 // multipart archive and mysubmit field. It verifies the digest handshake happens
 // (the first, unauthenticated request is challenged) and that our upload shape is
-// correct — the parts CI can check without a real Roku.
+// correct: the parts CI can check without a real Roku.
 func TestInstallChannelDigestUpload(t *testing.T) {
 	var authedArchiveLen int
 	var gotSubmit string
@@ -260,7 +259,7 @@ func TestInstallChannelDigestUpload(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	err := installChannel(context.Background(), ts.URL+"/plugin_install", "rokudev", "secret", []byte("PK\x03\x04fake-zip-bytes"))
+	err := installChannel(t.Context(), ts.URL+"/plugin_install", "rokudev", "secret", []byte("PK\x03\x04fake-zip-bytes"))
 	if err != nil {
 		t.Fatalf("installChannel() error = %v", err)
 	}
@@ -302,7 +301,7 @@ func rokuAppsServer(t *testing.T, appsBody string) Info {
 
 func TestConnectRokuDevChannelInstalled(t *testing.T) {
 	info := rokuAppsServer(t, `<apps><app id="dev">Castor</app></apps>`)
-	dev, err := roku{}.connect(context.Background(), info, Config{Family: RokuConfig{}})
+	dev, err := roku{}.connect(t.Context(), info, Config{Family: RokuConfig{}})
 	if err != nil {
 		t.Fatalf("roku connect: %v", err)
 	}
@@ -313,7 +312,7 @@ func TestConnectRokuDevChannelInstalled(t *testing.T) {
 
 func TestConnectRokuDevChannelMissingNoPassword(t *testing.T) {
 	info := rokuAppsServer(t, `<apps><app id="12">Netflix</app></apps>`)
-	_, err := roku{}.connect(context.Background(), info, Config{Family: RokuConfig{}})
+	_, err := roku{}.connect(t.Context(), info, Config{Family: RokuConfig{}})
 	if err == nil {
 		t.Fatal("expected an error when the dev channel is missing and no password is set")
 	}
@@ -324,7 +323,7 @@ func TestConnectRokuDevChannelMissingNoPassword(t *testing.T) {
 
 func TestConnectRokuForeignDevChannelNoPassword(t *testing.T) {
 	info := rokuAppsServer(t, `<apps><app id="dev">SomeoneElse</app></apps>`)
-	_, err := roku{}.connect(context.Background(), info, Config{Family: RokuConfig{}})
+	_, err := roku{}.connect(t.Context(), info, Config{Family: RokuConfig{}})
 	if err == nil {
 		t.Fatal("expected an error when a foreign dev channel occupies the slot and no password is set")
 	}
@@ -336,10 +335,10 @@ func TestConnectRokuForeignDevChannelNoPassword(t *testing.T) {
 func TestConnectRokuPublishedAppVerified(t *testing.T) {
 	info := rokuAppsServer(t, `<apps><app id="12345">MyChannel</app></apps>`)
 
-	if _, err := (roku{}).connect(context.Background(), info, Config{Family: RokuConfig{AppID: "12345"}}); err != nil {
+	if _, err := (roku{}).connect(t.Context(), info, Config{Family: RokuConfig{AppID: "12345"}}); err != nil {
 		t.Fatalf("roku connect with an installed published app_id: %v", err)
 	}
-	if _, err := (roku{}).connect(context.Background(), info, Config{Family: RokuConfig{AppID: "99999"}}); err == nil {
+	if _, err := (roku{}).connect(t.Context(), info, Config{Family: RokuConfig{AppID: "99999"}}); err == nil {
 		t.Fatal("expected an error for a published app_id that is not installed")
 	}
 }

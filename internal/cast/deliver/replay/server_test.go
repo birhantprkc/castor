@@ -1,0 +1,630 @@
+package replay
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/stupside/castor/internal/cast/watch"
+)
+
+// This file is the first cover this package has ever had. It fronts every non-segmented
+// cast castor makes, and the properties below are the ones a renderer's behaviour actually
+// depends on: replay from byte 0 for every client, a reconnect served from where it stopped
+// rather than from the beginning, a truthful account of whether anybody fetched, and a bound on
+// how long one client may hold a goroutine that accounts for what it costs when it fires.
+
+// TestEveryClientReplaysFromByteZero is the whole reason this server spools instead of
+// broadcasting. A renderer probes with HEAD, then a short GET, then the real GET, and a live
+// fan-out hands the probe the only copy of the stream head: the real GET then joins at an
+// arbitrary byte offset with no container init and no keyframe, and decodes nothing.
+func TestEveryClientReplaysFromByteZero(t *testing.T) {
+	want := bytes.Repeat([]byte("castor"), 4096)
+	srv := serve(t, bytes.NewReader(want))
+
+	// The probe dance, in order, against one produced stream.
+	if code := head(t, srv); code != http.StatusOK {
+		t.Fatalf("HEAD status = %d, want 200", code)
+	}
+	for _, name := range []string{"the short probe GET", "the real GET"} {
+		got := fetch(t, srv, len(want))
+		if !bytes.Equal(got, want) {
+			t.Errorf("%s received %d bytes, want the whole stream from byte 0 (%d bytes)", name, len(got), len(want))
+		}
+	}
+}
+
+// TestFetchedCountsOnlyRealFetches is what makes "the renderer accepted Play and never came
+// for the bytes" sayable. Every other fact this server tracks is satisfied by a cast nobody
+// ever fetched (its idle grace starts running the moment it is created and its finished
+// condition needs no client at all), which is how castor encoded an entire title and
+// reported it as delivered.
+func TestFetchedCountsOnlyRealFetches(t *testing.T) {
+	body := bytes.Repeat([]byte("x"), 8192)
+	srv := serve(t, bytes.NewReader(body))
+
+	if requests, last := srv.Fetched(); requests != 0 || !last.IsZero() {
+		t.Fatalf("a stream nobody has fetched reports %d requests at %v", requests, last)
+	}
+
+	// A HEAD is not a fetch. A renderer that probes the URL and never gets the stream is
+	// the exact failure this reports, so counting its probe would answer that it was
+	// watching.
+	if code := head(t, srv); code != http.StatusOK {
+		t.Fatalf("HEAD status = %d, want 200", code)
+	}
+	if requests, _ := srv.Fetched(); requests != 0 {
+		t.Errorf("a HEAD probe was counted as %d fetches", requests)
+	}
+
+	before := time.Now()
+	fetch(t, srv, len(body))
+	requests, last := srv.Fetched()
+	if requests != 1 {
+		t.Errorf("requests = %d after one GET, want 1", requests)
+	}
+	if last.Before(before) {
+		t.Errorf("last fetch = %v, which predates the GET at %v: the recency a quiet renderer is judged on never advanced", last, before)
+	}
+}
+
+// TestAClientThatStopsReadingIsSevered pins the bound on one chunk write. Without it a
+// renderer that stops reading parks this goroutine on a blocked socket forever, and the cast
+// hangs outright rather than ending: Wait needs the client count to reach zero, and a
+// goroutine wedged inside Write never decrements it.
+func TestAClientThatStopsReadingIsSevered(t *testing.T) {
+	// Far more than any socket buffer holds, so the server is certain to be blocked in a
+	// write while the client is not reading.
+	const size = 8 << 20
+	srv := serveWith(t, bytes.NewReader(bytes.Repeat([]byte("y"), size)), 100*time.Millisecond)
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL().String(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	// Read one byte, then stop, well past the deadline the server is holding itself to.
+	if _, err := io.ReadFull(resp.Body, make([]byte, 1)); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1 * time.Second)
+
+	// Whatever the client does next, it cannot be handed the rest of the stream: the server
+	// gave up on it while it was not reading.
+	n, _ := io.Copy(io.Discard, resp.Body)
+	if n+1 >= size {
+		t.Errorf("the client was handed all %d bytes after ignoring the socket for ten deadlines, so nothing bounded the write", size)
+	}
+}
+
+// TestTheWriteDeadlineOutlastsEverySilenceCastorTolerates is the derivation, as an assertion.
+// Severing here is expensive (a reconnect that does not ask to continue replays from byte 0, so
+// the film starts over) and it is the ONLY answer a quiet renderer gets: no verdict convicts
+// one, because a pause, a viewer who walked away and a crashed renderer are the same absence of
+// requests from outside. So it must outlast the longest silence any judgement castor makes
+// tolerates, which is watch.StallWindow, or a viewer who stands up loses their position sooner
+// than castor tolerates silence from anybody else.
+func TestTheWriteDeadlineOutlastsEverySilenceCastorTolerates(t *testing.T) {
+	if defaultWriteDeadline <= watch.StallWindow {
+		t.Errorf("defaultWriteDeadline = %s, at or inside the %s castor tolerates silence for elsewhere: a pause shorter than castor's own patience costs the viewer the cast",
+			defaultWriteDeadline, watch.StallWindow)
+	}
+	// And the lingering a caller must allow for covers the severance plus the grace that
+	// follows it, because both are wall clock the cast spends handing over nothing.
+	srv := serve(t, bytes.NewReader(nil))
+	if got := srv.Lingering(); got != defaultWriteDeadline+idleGrace {
+		t.Errorf("Lingering = %s, want %s: a delivery judged over less than it deliberately outlives its last byte by convicts a renderer that stopped one chunk short of the end",
+			got, defaultWriteDeadline+idleGrace)
+	}
+}
+
+// TestSentIsTheMostAnyOneClientWasHanded is the figure a cast's completeness is judged on
+// (core.Undelivered), and the way it is counted is what makes that judgement honest.
+//
+// The MOST, and not the sum: every connection replays from byte 0, so a renderer's probe GET
+// and its real GET overlap byte for byte, and adding them would report a renderer that took
+// the head twice as having taken the film. Any ONE connection is what actually got through, so
+// the longest of them is what the renderer received.
+func TestSentIsTheMostAnyOneClientWasHanded(t *testing.T) {
+	// Far more than any socket buffer holds, so a client that stops reading really does leave
+	// the server unable to hand over the rest.
+	const size = 8 << 20
+	srv := serveWith(t, bytes.NewReader(bytes.Repeat([]byte("w"), size)), 300*time.Millisecond)
+
+	if got := srv.Sent(); got != 0 {
+		t.Fatalf("a stream nobody has fetched reports %d bytes handed over", got)
+	}
+
+	stall(t, srv)
+	partial := srv.Sent()
+	if partial <= 0 || partial >= size {
+		t.Fatalf("a client that read one byte and stopped was handed %d of %d bytes, want a fraction of the stream", partial, size)
+	}
+
+	fetch(t, srv, size)
+	if got := srv.Sent(); got != size {
+		t.Errorf("after a client read the whole stream, Sent = %d, want all %d bytes", got, size)
+	}
+
+	// A second client that gives up takes nothing away from what the first one received, and
+	// adds nothing to it either.
+	stall(t, srv)
+	if got := srv.Sent(); got != size {
+		t.Errorf("Sent = %d after a later client gave up, want the %d bytes one client really took: the sum would credit a renderer with a head it was handed twice", got, size)
+	}
+}
+
+// TestASeveredClientResumesWhereItStopped is what a pause costs, as an assertion. A viewer who
+// pauses stops draining the socket, the blocked write is severed at the write deadline, and
+// every connection replays from byte 0: without this the renderer's next GET restarts the
+// program from the beginning, at whatever point the viewer had reached, with no error anywhere.
+// The spool still holds every byte that renderer had, so the offset it asks for is servable.
+func TestASeveredClientResumesWhereItStopped(t *testing.T) {
+	want := payload(8 << 20)
+	srv := serveWith(t, bytes.NewReader(want), 300*time.Millisecond)
+
+	// The pause: one byte taken, then nothing, until the server gives up on the connection.
+	stall(t, srv)
+
+	from := int64(len(want) / 2)
+	resp := get(t, srv, fmt.Sprintf("bytes=%d-", from))
+	if resp.StatusCode != http.StatusPartialContent {
+		t.Fatalf("a client asking to continue at byte %d got %d, want 206: a 200 is the whole film again from the beginning", from, resp.StatusCode)
+	}
+	stated := fmt.Sprintf("bytes %d-%d/%d", from, len(want)-1, len(want))
+	if got := resp.Header.Get("Content-Range"); got != stated {
+		t.Errorf("Content-Range = %q, want %q", got, stated)
+	}
+	got, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want[from:]) {
+		t.Errorf("the resumed client was handed %d bytes, want the %d from byte %d onwards", len(got), len(want)-int(from), from)
+	}
+}
+
+// TestSentCreditsAResumedClientWithThePrefixItAlreadyHad guards the arithmetic a cast is judged
+// on. Asking for byte N is the client stating it holds 0 to N-1, so a renderer that resumed at
+// the half-way mark and watched to the end took the whole film. Counting only the resumed
+// connection's own bytes reports half of it, and the completeness statement then convicts a
+// renderer that did nothing wrong (see core.Undelivered).
+func TestSentCreditsAResumedClientWithThePrefixItAlreadyHad(t *testing.T) {
+	want := payload(1 << 20)
+	srv := serveWith(t, bytes.NewReader(want), 300*time.Millisecond)
+
+	from := int64(len(want) / 2)
+	resp := get(t, srv, fmt.Sprintf("bytes=%d-", from))
+	if _, err := io.ReadAll(resp.Body); err != nil {
+		t.Fatal(err)
+	}
+	if got := srv.Sent(); got != int64(len(want)) {
+		t.Errorf("Sent = %d after a client resumed at %d and read to the end, want the whole %d bytes it holds", got, from, len(want))
+	}
+}
+
+// TestAResumeIsRefusedWhileNobodyCanSayWhereTheStreamEnds is the boundary of the fix, pinned so
+// it is not mistaken for coverage it does not give. A 206 has to name a last byte, and while the
+// encoder is still producing the only candidates are a number nobody knows yet or the bytes
+// produced so far. Stating the second tells a client the film ends where the encoder happened to
+// have reached, and it stops mid-title with no error: the restart is the lesser failure, so the
+// client is replayed from byte 0 and told why in the log.
+func TestAResumeIsRefusedWhileNobodyCanSayWhereTheStreamEnds(t *testing.T) {
+	log := logged(t)
+	head := payload(64 << 10)
+	srv := serveProducing(t, head)
+
+	resp := get(t, srv, fmt.Sprintf("bytes=%d-", len(head)/2))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200: a range answered over a stream with no stated end is a length castor invented", resp.StatusCode)
+	}
+	got := make([]byte, len(head))
+	if _, err := io.ReadFull(resp.Body, got); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, head) {
+		t.Errorf("the refused client was served from somewhere other than byte 0, so it was handed media it cannot decode")
+	}
+	rec := log.await(t, slog.LevelWarn, "replayed from the beginning")
+	if reason := attrs(rec)["reason"]; !strings.Contains(reason, "still running") {
+		t.Errorf("the refusal reads %q, which does not say why the position could not be honoured", reason)
+	}
+}
+
+// TestABoundedResumeIsServedWhileTheProducerIsStillRunning is the half of the pause that IS
+// free at any point in a cast: a client that names its own last byte is asking for a stretch it
+// chose, so the response invents no length and needs no finished producer.
+func TestABoundedResumeIsServedWhileTheProducerIsStillRunning(t *testing.T) {
+	log := logged(t)
+	head := payload(64 << 10)
+	srv := serveProducing(t, head)
+
+	from, to := int64(len(head)/2), int64(len(head)-1)
+	resp := get(t, srv, fmt.Sprintf("bytes=%d-%d", from, to))
+	if resp.StatusCode != http.StatusPartialContent {
+		t.Fatalf("status = %d, want 206", resp.StatusCode)
+	}
+	// The complete length is the one thing that cannot be stated, and * is what says so.
+	if got, want := resp.Header.Get("Content-Range"), fmt.Sprintf("bytes %d-%d/*", from, to); got != want {
+		t.Errorf("Content-Range = %q, want %q", got, want)
+	}
+	got, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, head[from:to+1]) {
+		t.Errorf("the client was handed %d bytes, want exactly the %d it asked for", len(got), to-from+1)
+	}
+	// And the response ENDS where it said it would. The stretch asked for finishes on the last
+	// byte produced so far, so a handler that keeps reading past its own declared length parks on
+	// a tail that yields nothing until the encoder appends more: the client is long gone, the
+	// server still counts it as connected, and the cast cannot end while it does.
+	log.await(t, slog.LevelInfo, "stream range delivered")
+}
+
+// TestAResumePastTheEndIsAnsweredRatherThanHung: a client asking for a byte after the end of a
+// finished stream is told where the end is. Serving it instead parks the response on a tail that
+// will never yield, and a 206 promising bytes that do not exist hands the renderer a body
+// shorter than the length it was given.
+func TestAResumePastTheEndIsAnsweredRatherThanHung(t *testing.T) {
+	want := payload(4096)
+	srv := serveWith(t, bytes.NewReader(want), 300*time.Millisecond)
+
+	resp := get(t, srv, fmt.Sprintf("bytes=%d-", len(want)))
+	if resp.StatusCode != http.StatusRequestedRangeNotSatisfiable {
+		t.Fatalf("status = %d, want 416", resp.StatusCode)
+	}
+	stated := fmt.Sprintf("bytes */%d", len(want))
+	if got := resp.Header.Get("Content-Range"); got != stated {
+		t.Errorf("Content-Range = %q, want %q: a client refused a range learns nothing unless it is told the length", got, stated)
+	}
+}
+
+// TestAResumeThatTakesTheLastByteEndsTheCast: a client whose stretch ends on the stream's own
+// last byte watched the film to the end, so the delivery is over. Reading that only from a tail
+// reaching EOF misses it, because a bounded response stops on its stated length without ever
+// asking for another byte, and the cast then waits out the idle grace for a renderer that has
+// nothing left to want.
+func TestAResumeThatTakesTheLastByteEndsTheCast(t *testing.T) {
+	want := payload(4096)
+	srv := serveWith(t, bytes.NewReader(want), 300*time.Millisecond)
+
+	resp := get(t, srv, fmt.Sprintf("bytes=%d-%d", len(want)/2, len(want)-1))
+	if _, err := io.ReadAll(resp.Body); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	if err := srv.Wait(ctx); err != nil {
+		t.Fatalf("Wait after a client took the stream's last byte = %v, want nil", err)
+	}
+}
+
+// TestADeviceThatDeclaresNoRangesIsNeverHandedAPartialResponse. The protocol headers on these
+// responses are the DEVICE's statement about what it may ask for, and one family declares
+// Accept-Ranges: none. Answering a 206 over that header is castor contradicting its own promise
+// and handing a firmware the one response shape it was told would not arrive, so the declaration
+// wins and the refusal names it: the header is then the thing to change, not this server.
+func TestADeviceThatDeclaresNoRangesIsNeverHandedAPartialResponse(t *testing.T) {
+	log := logged(t)
+	want := payload(4096)
+	srv := serveDeclining(t, want)
+
+	resp := get(t, srv, fmt.Sprintf("bytes=%d-", len(want)/2))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 for a delivery whose own headers refuse ranges", resp.StatusCode)
+	}
+	got := make([]byte, len(want))
+	if _, err := io.ReadFull(resp.Body, got); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("the client was not replayed from byte 0")
+	}
+	rec := log.await(t, slog.LevelWarn, "replayed from the beginning")
+	if reason := attrs(rec)["reason"]; !strings.Contains(reason, "Accept-Ranges: none") {
+		t.Errorf("the refusal reads %q, which does not name the declaration that caused it", reason)
+	}
+}
+
+// TestARefusedProbeFromByteZeroCostsNothingAndSaysNothing keeps the alarm meaningful. A renderer
+// that probes with a short bounded GET from byte 0 and is handed the whole stream from byte 0 has
+// lost no position, and the GET line already records what it asked for: warning about those puts
+// one line per probe next to the one refusal that really costs a viewer their place.
+func TestARefusedProbeFromByteZeroCostsNothingAndSaysNothing(t *testing.T) {
+	log := logged(t)
+	want := payload(4096)
+	srv := serveDeclining(t, want)
+
+	resp := get(t, srv, "bytes=0-15")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if _, err := io.ReadFull(resp.Body, make([]byte, len(want))); err != nil {
+		t.Fatal(err)
+	}
+	// The refusal is logged before the first byte is written, so a body read to the end has
+	// outlived any line this request was going to produce.
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	for _, rec := range log.list {
+		if rec.Level == slog.LevelWarn && strings.Contains(rec.Message, "replayed from the beginning") {
+			t.Errorf("a probe from byte 0 was reported as having lost its position: %q", rec.Message)
+		}
+	}
+}
+
+// serveDeclining serves a stream over a delivery whose device declares that it takes no ranges,
+// which is the shape one renderer family really is served under (device.StreamHeaders).
+func serveDeclining(t *testing.T, body []byte) *Server {
+	t.Helper()
+	srv, err := New(Config{
+		LocalIP:       "127.0.0.1",
+		ContentType:   "video/mp2t",
+		Extension:     ".ts",
+		Headers:       map[string]string{"Accept-Ranges": "none"},
+		SpoolPath:     filepath.Join(t.TempDir(), "out.ts"),
+		WriteDeadline: 300 * time.Millisecond,
+	}, bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+	<-srv.ProducerDone()
+	return srv
+}
+
+// TestSeveringAClientAccountsForTheRestartItCauses. The write deadline is allowed to destroy a
+// viewer's position (nothing else can bound a human pause) but it is not allowed to do it
+// silently: a film that starts itself over with only "client disconnected" in the log, at the
+// same INFO level as a probe GET closing its socket, is a mystery from the outside. So the
+// numbers that account for the restart are stated where they are known.
+func TestSeveringAClientAccountsForTheRestartItCauses(t *testing.T) {
+	log := logged(t)
+	srv := serveWith(t, bytes.NewReader(payload(8<<20)), 300*time.Millisecond)
+	stall(t, srv)
+
+	rec := log.await(t, slog.LevelWarn, "stopped draining")
+	got := attrs(rec)
+	for _, key := range []string{"stalled_for", "bytes_sent", "write_deadline", "resumable"} {
+		if got[key] == "" {
+			t.Errorf("the severance names no %s, so the restart it causes cannot be accounted for: %v", key, got)
+		}
+	}
+	if got["stalled_for"] == "0s" {
+		t.Errorf("the severance reports a client that had been taking nothing for 0s, which explains nothing: %v", got)
+	}
+	if got["bytes_sent"] == "0" {
+		t.Errorf("the severance reports 0 bytes handed over for a client that took some: %v", got)
+	}
+	if got["resumable"] != "true" {
+		t.Errorf("resumable = %q over a finished producer with no range policy against it, so the log denies the reconnect a fix it actually has", got["resumable"])
+	}
+}
+
+// payload is a stream whose every byte offset is identifiable, so a client served from the wrong
+// offset is caught rather than passing on a repeated byte.
+func payload(size int) []byte {
+	out := make([]byte, size)
+	for i := range out {
+		out[i] = byte(i % 251)
+	}
+	return out
+}
+
+// stall fetches one byte and then ignores the socket for several write deadlines, which is
+// what a renderer that went away looks like to this server.
+func stall(t *testing.T, srv *Server) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL().String(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if _, err := io.ReadFull(resp.Body, make([]byte, 1)); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1500 * time.Millisecond)
+}
+
+// TestWaitEndsWhenAClientHasReadTheStreamToEOF is the ordinary end of a cast: the producer
+// finished and a client consumed everything. The producer finishing is explicitly not
+// enough, because it runs ahead of playback.
+func TestWaitEndsWhenAClientHasReadTheStreamToEOF(t *testing.T) {
+	body := bytes.Repeat([]byte("z"), 4096)
+	srv := serve(t, bytes.NewReader(body))
+	fetch(t, srv, len(body))
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	if err := srv.Wait(ctx); err != nil {
+		t.Fatalf("Wait after a client read the stream to EOF = %v, want nil", err)
+	}
+}
+
+func serve(t *testing.T, producer io.Reader) *Server {
+	t.Helper()
+	return serveWith(t, producer, 0)
+}
+
+func serveWith(t *testing.T, producer io.Reader, writeDeadline time.Duration) *Server {
+	t.Helper()
+	srv, err := New(Config{
+		LocalIP:       "127.0.0.1",
+		ContentType:   "video/mp4",
+		Extension:     ".mp4",
+		SpoolPath:     filepath.Join(t.TempDir(), "out.mp4"),
+		WriteDeadline: writeDeadline,
+	}, producer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+	// The stream is fully produced before any assertion, so a short read is the server's
+	// answer and never a race with the producer.
+	select {
+	case <-srv.ProducerDone():
+	case <-time.After(5 * time.Second):
+		t.Fatal("the producer never finished spooling")
+	}
+	return srv
+}
+
+// serveProducing serves a stream whose producer has NOT finished, with head already spooled. It
+// is the state a cast spends its first half in (the encoder runs ahead of playback), so it is
+// the state most viewers pause in, and it is the state where nothing can state where the stream
+// ends.
+func serveProducing(t *testing.T, head []byte) *Server {
+	t.Helper()
+	pr, pw := io.Pipe()
+	srv, err := New(Config{
+		LocalIP:       "127.0.0.1",
+		ContentType:   "video/mp4",
+		Extension:     ".mp4",
+		SpoolPath:     filepath.Join(t.TempDir(), "out.mp4"),
+		WriteDeadline: 300 * time.Millisecond,
+	}, pr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = pw.Close()
+		_ = srv.Close()
+	})
+	if _, err := pw.Write(head); err != nil {
+		t.Fatal(err)
+	}
+	// The write returns once the copy has taken the bytes, which is not yet the spool having
+	// them, so every assertion below is against a stream this much of has actually landed.
+	for range 500 {
+		if srv.Produced() >= int64(len(head)) {
+			return srv
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("only %d of %d bytes reached the spool", srv.Produced(), len(head))
+	return nil
+}
+
+// get fetches the stream, optionally asking to continue from an offset.
+func get(t *testing.T, srv *Server, byteRange string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL().String(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if byteRange != "" {
+		req.Header.Set("Range", byteRange)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	return resp
+}
+
+// logged captures what this server says for the duration of one test. A severance and a refused
+// resume both destroy a viewer's position, and the log line is the whole of their attribution, so
+// it is asserted on rather than trusted.
+func logged(t *testing.T) *records {
+	t.Helper()
+	previous := slog.Default()
+	kept := &records{}
+	slog.SetDefault(slog.New(kept))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	return kept
+}
+
+type records struct {
+	mu   sync.Mutex
+	list []slog.Record
+}
+
+func (r *records) Enabled(context.Context, slog.Level) bool { return true }
+func (r *records) WithAttrs([]slog.Attr) slog.Handler       { return r }
+func (r *records) WithGroup(string) slog.Handler            { return r }
+
+func (r *records) Handle(_ context.Context, rec slog.Record) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.list = append(r.list, rec.Clone())
+	return nil
+}
+
+// await waits for a line, because the server logs on the goroutine serving the connection and a
+// test that read the slice once would be racing it.
+func (r *records) await(t *testing.T, level slog.Level, phrase string) slog.Record {
+	t.Helper()
+	for range 500 {
+		r.mu.Lock()
+		for _, rec := range r.list {
+			if rec.Level == level && strings.Contains(rec.Message, phrase) {
+				r.mu.Unlock()
+				return rec
+			}
+		}
+		r.mu.Unlock()
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("nothing was logged at %s containing %q", level, phrase)
+	return slog.Record{}
+}
+
+func attrs(rec slog.Record) map[string]string {
+	out := map[string]string{}
+	rec.Attrs(func(a slog.Attr) bool {
+		out[a.Key] = a.Value.String()
+		return true
+	})
+	return out
+}
+
+func head(t *testing.T, srv *Server) int {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodHead, srv.URL().String(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode
+}
+
+func fetch(t *testing.T, srv *Server, want int) []byte {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL().String(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	got := make([]byte, want)
+	if _, err := io.ReadFull(resp.Body, got); err != nil {
+		t.Fatalf("reading the served stream: %v", err)
+	}
+	return got
+}

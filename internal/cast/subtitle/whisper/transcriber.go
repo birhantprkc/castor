@@ -1,6 +1,6 @@
 // Package whisper runs the whisper.cpp Go bindings against a PCM audio stream
 // to produce a stream of committed, timed words. The audio arrives on an
-// io.Reader (16kHz mono s16le — the caller owns whatever process produces it)
+// io.Reader (16kHz mono s16le; the caller owns whatever process produces it)
 // and is transcribed with the LocalAgreement-2 streaming policy (Macháček et
 // al. 2023, "Turning Whisper into a Real-Time Transcription System"): the tail
 // of the stream is re-transcribed on every step and only the word prefix that
@@ -39,13 +39,13 @@ const (
 
 	// stepSeconds is how much new audio each iteration waits for before
 	// re-transcribing the buffer. Smaller steps commit words sooner but run
-	// whisper — whose per-call cost is dominated by its fixed-size encode —
+	// whisper, whose per-call cost is dominated by its fixed-size encode,
 	// more often per second of audio.
 	stepSeconds = 3
 
 	// trimAfterSeconds is the buffer length past which committed audio is
 	// trimmed away at a sentence boundary; maxBufferSeconds is the hard cap
-	// (whisper's native window is 30s — audio beyond it is invisible to the
+	// (whisper's native window is 30s, so audio beyond it is invisible to the
 	// model anyway, minus slack for VAD padding).
 	trimAfterSeconds = 15
 	maxBufferSeconds = 28
@@ -56,8 +56,8 @@ const (
 	promptMaxChars = 200
 )
 
-// word is a committed, timed token. It is cue.Word — the type the sink
-// consumes — aliased for brevity inside the streaming loop.
+// word is a committed, timed token. It is cue.Word, the type the sink
+// consumes, aliased for brevity inside the streaming loop.
 type word = cue.Word
 
 // Transcriber owns a whisper model and streams committed words to a sink. It
@@ -91,7 +91,7 @@ func New(ctx context.Context, cfg subtitle.Whisper) (*Transcriber, error) {
 	}, nil
 }
 
-// LatestEnd returns the end-time, in seconds, of the last committed word —
+// LatestEnd returns the end-time, in seconds, of the last committed word:
 // how far transcription has irrevocably reached.
 func (t *Transcriber) LatestEnd() float64 {
 	t.mu.Lock()
@@ -272,7 +272,7 @@ func (t *Transcriber) transcribeBuffer(ctx context.Context, model wcpp.Model, sa
 	return words, nil
 }
 
-// dropCommitted skips the words whose midpoint lies before cutoff — audio a
+// dropCommitted skips the words whose midpoint lies before cutoff: audio a
 // previous iteration already committed (with jittered timestamps), or audio
 // that has been trimmed out of the buffer.
 func dropCommitted(words []word, cutoff float64) []word {
@@ -312,7 +312,7 @@ func normalizeWord(s string) string {
 }
 
 // isNoise reports whether a word is a non-speech annotation ("[Music]",
-// "(applause)", "♪") — the residue VAD lets through on borderline audio.
+// "(applause)", "♪"), the residue VAD lets through on borderline audio.
 func isNoise(s string) bool {
 	if s == "" {
 		return true
@@ -341,7 +341,7 @@ func trimBuffer(ctx context.Context, buf []float32, bufStart float64, history []
 	if dur > maxBufferSeconds {
 		cut = max(cut, frontier)
 		if hardMin := bufStart + dur - maxBufferSeconds; cut < hardMin {
-			// Nothing committed in over a whole window — hypotheses that
+			// Nothing committed in over a whole window: hypotheses that
 			// never agree (usually music VAD half-passes). Keep the window
 			// legal and accept that the oldest unconfirmed audio is lost.
 			slog.WarnContext(ctx, "dropping unconfirmed audio", "seconds", hardMin-cut)

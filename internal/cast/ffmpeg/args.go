@@ -1,21 +1,22 @@
+// spool lands with a track missing and the encode then dies mapping a stream
+// that is not there. Which axes those are is the caller's answer, taken from a
+// probe of the source before this ran, because a download cannot un-write what
+// it already put on disk.
 package ffmpeg
 
 import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/stupside/castor/internal/cast/carriage"
+	"github.com/stupside/castor/internal/cast/read"
 	"github.com/stupside/castor/internal/media"
 )
-
-// CodecCopy is the ffmpeg "-c copy" keyword: stream-copy a track instead of
-// re-encoding it. It is the one non-encoder value AudioCodec takes (VideoEncoder
-// uses a nil pointer for the same intent), named so callers set and test it
-// without repeating the bare "copy" literal.
-const CodecCopy = "copy"
 
 // NetworkSource is an upstream castor reads over the network: the URL plus
 // everything a fetch of it needs to succeed and behave. Castor has exactly two
@@ -38,26 +39,24 @@ type NetworkSource struct {
 	// segments (see segmented).
 	ContentType string
 
-	// Live marks a genuinely live stream: it arrives at 1x and cannot be
-	// outrun, so it is read at wall-clock speed with no burst.
-	Live bool
-
-	// RWTimeout is how long a single upstream read may stall before ffmpeg
-	// gives up on it and reconnects.
-	RWTimeout time.Duration
+	// Read is how this upstream is fetched: the mid-read deadline, the reconnect
+	// terms, and the pace the source's nature calls for. It is carried as a value
+	// chosen from what the source published (see read.For) rather than decided here,
+	// because a rule about a hostile origin is not a property of an argument builder.
+	// Everything below renders it; nothing below chooses it.
+	Read read.Policy
 }
 
-// NewNetworkSource describes a resolved stream as an upstream to read. Both
-// readers build their source through it, so a pull and a remux of the same
-// stream fetch it identically.
-func NewNetworkSource(stream *media.Stream, rwTimeout time.Duration) NetworkSource {
+// NewNetworkSource describes a resolved stream as an upstream to read on the given
+// terms. Both readers build their source through it, so a pull and a remux of the
+// same stream fetch it identically.
+func NewNetworkSource(stream *media.Stream, policy read.Policy) NetworkSource {
 	return NetworkSource{
 		URL:         stream.URL,
 		AudioURL:    stream.AudioURL,
 		Headers:     stream.Headers,
 		ContentType: stream.ContentType,
-		Live:        stream.Live,
-		RWTimeout:   rwTimeout,
+		Read:        policy,
 	}
 }
 
@@ -66,90 +65,71 @@ func NewNetworkSource(stream *media.Stream, rwTimeout time.Duration) NetworkSour
 // upstream is responsible for filling these in based on device capabilities
 // and source media properties.
 type EncodeOptions struct {
-	// PipeFormat, when non-empty, names the demuxer for stdin input
-	// ("mpegts"); the caller feeds the source via WithStdin. Used to encode
-	// from the local spool: pipes never report EOF until the writer closes,
-	// which is what lets ffmpeg consume a still-growing stream.
-	PipeFormat string
+	// PipeFormat is the container fed to stdin, zero for a network input. The
+	// caller feeds the bytes via WithStdin and takes the record from the container
+	// it is actually feeding (SpoolFormat, the only one today). Used to encode from
+	// the local spool: pipes never report EOF until the writer closes, which is
+	// what lets ffmpeg consume a still-growing stream.
+	//
+	// It carries the whole format record rather than a muxer name, and the zero
+	// value rather than an empty string is what says "no pipe input". The record is
+	// not decoration: the MPEG-TS spool re-frames everything through it, so an fMP4
+	// source's already-out-of-band AAC comes back off the spool as ADTS, and the
+	// spool-fed encode needs a repack that a direct remux of the same source does
+	// not. Nothing reads its Framing today, since the repack is keyed on the
+	// destination, but having the input container's properties out of reach is what
+	// made that asymmetry hard to see.
+	PipeFormat media.FormatInfo
 
-	// Source is the network input, read when PipeFormat is empty and ignored
+	// Source is the network input, read when PipeFormat is zero and ignored
 	// otherwise.
 	Source NetworkSource
 
-	// OutputFormat is ffmpeg's muxer name ("mpegts", "mp4", "hls"). "hls" writes
-	// a playlist plus rolling fMP4 segments into the process working directory
-	// (see WithWorkDir) rather than a single stream on pipe:1.
-	OutputFormat string
+	// Probe is the measurement every copy decision in this command line was made
+	// from: the codecs of the tracks the maps below actually select. It is the
+	// single carrier, read both by the resolvers that chose copy-vs-encode and by
+	// the adaptation planner that fills in what a copy needs, so the two can never
+	// be looking at different facts.
+	//
+	// It must describe the MAPPED tracks. On a demuxed program the audio half comes
+	// from the second input, so SourceProber fills it from the audio rendition or
+	// leaves it zero; a zero audio half means "no measurement", which matches no
+	// adaptation and which the resolver reads as "re-encode", both of which are the
+	// safe answers.
+	Probe media.ProbeInfo
 
-	// VideoEncoder re-encodes the video; nil stream-copies it. The encoder
-	// carries its own device setup, filters, and flags, so EncodeArgs never
-	// branches on the encoder kind. When SubtitleTextFile is set the planner
-	// must supply one: drawtext needs decoded frames, so copy is not possible.
-	VideoEncoder *Encoder
+	// Format is the container to produce, as the registry describes it: the muxer
+	// to run, how the result is delivered (a segmented format writes a playlist
+	// plus rolling segments into the process working directory, see WithWorkDir,
+	// rather than a single stream on pipe:1), and how it frames the streams inside
+	// it. Carrying the whole record rather than a muxer name is what lets a copy
+	// know what the destination will accept without recognising it by name.
+	Format media.FormatInfo
 
-	// VideoBitrate target when re-encoding video (e.g. "4M"). Ignored when
-	// VideoEncoder is nil (copy).
-	VideoBitrate string
-
-	// VideoMaxrate is the VBV peak-rate cap (e.g. "4M"), and VideoBufsize the
-	// VBV buffer (e.g. "8M"). Together they bound the instantaneous bitrate so a
-	// complex scene can't spike past what the renderer decodes and buffers. Both
-	// empty leaves the encoder in unbounded ABR. Ignored when VideoEncoder is
-	// nil (copy).
-	VideoMaxrate string
-	VideoBufsize string
-
-	// VideoMaxHeight caps the output height while preserving aspect ratio.
-	// 0 keeps the source height. Ignored when VideoEncoder is nil (copy).
-	VideoMaxHeight int
-
-	// KeyframeIntervalSec caps the GOP length in seconds via force_key_frames,
-	// so a renderer joining mid-stream resyncs within this bound regardless of
-	// source fps. 0 leaves the encoder default. Ignored when VideoEncoder is
-	// nil (copy): a copied bitstream keeps the source's keyframes.
-	KeyframeIntervalSec int
-
-	// AudioCodec is CodecCopy or an encoder name like "aac".
-	AudioCodec string
-
-	// AudioBitrate target when re-encoding (e.g. "256k"). Ignored for copy.
-	AudioBitrate string
-
-	// AudioSampleRate target when re-encoding (Hz). 0 keeps the source rate.
-	AudioSampleRate int
-
-	// AudioChannels target when re-encoding. 0 keeps the source layout. The
-	// planner's audio resolver sets this: 2 to downmix to stereo (the floor every
-	// renderer decodes), or the source layout capped at the codec's ceiling to
-	// keep 5.1/7.1. Ignored for copy.
-	AudioChannels int
-
-	// SubtitleTextFile, when non-empty, burns the file's current contents
-	// into every frame via drawtext with reload=1: ffmpeg re-opens the file
-	// by path before each frame, so an external writer can swap the active
-	// subtitle line live (atomic rename only — a failed read kills ffmpeg).
-	// The file must exist before ffmpeg starts. Forces a video re-encode.
-	// Enabling this routes -progress to fd 3: start the process
-	// WithExtraPipe and follow Process.Extra.
-	SubtitleTextFile string
+	// Video and Audio are the two axes of the encode: each is a stream copy or a
+	// re-encode carrying its own parameters (see track.go). Both must be decided
+	// before this reaches EncodeArgs; the zero value is not a copy, it is the
+	// absence of a decision, and it is refused.
+	Video VideoTrack
+	Audio AudioTrack
 }
 
-// EncodeReadrateBurstSeconds is how much of the stream the subtitle-burning
-// encoder may race through at full speed before -readrate pins it to its
-// steady pace. Exported because the playback gate's transcription lead must
-// cover it: frames encoded during the burst need their cues committed before
-// the encode starts.
-const EncodeReadrateBurstSeconds = 10
-
-// EncodeReadrate paces the subtitle-burning encoder just above realtime. It
-// must not be exactly 1.0: at dead-even playback speed the renderer's buffer
-// has no steady-state headroom, so any encode or network jitter permanently
-// erodes the initial preroll, and because the encoder never runs ahead it can
-// never rebuild it. A slight margin lets the encoder's output spool accumulate
-// a lead the renderer can draw from. Stays well under the puller's 2x, so the
-// encode never overtakes whisper's committed frontier (the gate guarantees a
-// lead before playback opens).
-const EncodeReadrate = "1.15"
+// scaleFilter caps an encode's height while keeping the aspect ratio and an even width
+// (an encoder requirement, which is what -2 answers), or nothing at all where no ceiling
+// was given. Zero is no ceiling, matching core.Resolve's own convention.
+//
+// One expression, shared by every producer of a re-encode castor runs. The two that exist
+// (the served encode and the pull's floor) are both asked for a picture at whatever
+// resolution the source happens to be, on hardware nobody chose, and a producer that
+// skipped the cap asks a veryfast software encoder for 3840x2160 in realtime. It does not
+// hold it, and a read that cannot hold realtime is one the deliverability judgement
+// convicts as a starving source (speed=0.0627 is what that looks like).
+func scaleFilter(maxHeight int) string {
+	if maxHeight <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("scale=-2:'min(%d,ih)'", maxHeight)
+}
 
 // containerInputArgs returns the ffmpeg input flags a source container needs.
 // HLS (and DASH) playlists require the extension checks relaxed; those flags
@@ -164,42 +144,79 @@ func containerInputArgs(contentType string) []string {
 	}
 }
 
-// pacing is how fast a reader consumes its input: an ffmpeg -readrate multiple
-// of realtime, plus how many seconds it may take at wire speed first. The zero
-// value is wire speed throughout.
-type pacing struct{ readrate, burst string }
+// paceHLSWindow is a pace imposed by an OUTPUT rather than by a source, which is
+// why it is the one pace this package holds: it feeds a deleting HLS window (see
+// containerTuning) at exactly wall-clock speed rather than the read policy's
+// over-speed, because the client consumes that window at 1x and anything faster
+// rolls the next-needed segment off the back before it asks. The burst fills the
+// window once so the device can prebuffer first.
+var paceHLSWindow = read.Pace{Realtime: 1.0, Burst: hlsWindowSeconds * time.Second}
 
-// The paces castor reads at. The first two are per source nature and shared by
-// both network readers: VOD bursts at wire speed then reads at 2x realtime, which
-// keeps a reader well ahead of 1x playback without pulling a whole movie in a
-// couple of minutes; live can't be outrun, and the same burst only asks a CDN for
-// segments that do not exist yet and trips its rate limiter.
-var (
-	pacingVOD  = pacing{readrate: "2.0", burst: "90"}
-	pacingLive = pacing{readrate: "1.0", burst: "0"}
-	// pacingHLSWindow is imposed by an output rather than a source: it feeds a
-	// deleting HLS window (see hlsOutputArgs) at exactly wall-clock speed, not the
-	// slight over-speed above, because the client consumes that window at 1x and
-	// anything faster rolls the next-needed segment off the back before it asks.
-	// The burst fills the window once so the device can prebuffer first.
-	pacingHLSWindow = pacing{readrate: "1.0", burst: strconv.Itoa(hlsWindowSeconds)}
-)
-
-// args renders the pacing as ffmpeg input flags, or nothing when unpaced.
-func (p pacing) args() []string {
-	if p.readrate == "" {
+// paceArgs renders a read pace as ffmpeg input flags, or nothing at all when the
+// read is unpaced.
+func paceArgs(p read.Pace) []string {
+	if p.Realtime <= 0 {
 		return nil
 	}
-	return []string{"-readrate", p.readrate, "-readrate_initial_burst", p.burst}
+	return []string{
+		"-readrate", formatRate(p.Realtime),
+		"-readrate_initial_burst", strconv.Itoa(int(p.Burst.Seconds())),
+	}
 }
 
-// pacing returns the read rate this source's nature calls for, for a reader that
-// paces at all (see segmented).
-func (s NetworkSource) pacing() pacing {
-	if s.Live {
-		return pacingLive
+// formatRate spells a realtime multiple the way -readrate takes it, keeping at least
+// one decimal place. "2" and "2.0" are the same multiple to ffmpeg, and the decimal
+// is what makes a command line read as a rate rather than as a count.
+func formatRate(multiple float64) string {
+	s := strconv.FormatFloat(multiple, 'f', -1, 64)
+	if !strings.Contains(s, ".") {
+		s += ".0"
 	}
-	return pacingVOD
+	return s
+}
+
+// formatSeconds spells a duration the way ffmpeg's own duration options take it, in
+// seconds with no unit suffix and no trailing zeros.
+func formatSeconds(d time.Duration) string {
+	return strconv.FormatFloat(d.Seconds(), 'f', -1, 64)
+}
+
+// readArgs renders the fetch terms of a read policy: the mid-read deadline and the
+// reconnect block. A policy with no backoff ceiling renders no reconnect flags at
+// all, including the retry status set, because a list of statuses to reconnect on
+// says nothing when reconnecting is off.
+//
+// SourceProber renders the same terms, which is what makes its claim to open the
+// source exactly as the reader will true of the deadline and the retries and not
+// only of the request headers. The pace is deliberately not part of this: -readrate
+// is an option of the ffmpeg CLI and not of ffprobe, and a probe reads a few leading
+// packets rather than a title, so there is nothing for it to outrun.
+func readArgs(p read.Policy) []string {
+	var args []string
+	if p.Deadline > 0 {
+		args = append(args, "-rw_timeout", strconv.FormatInt(p.Deadline.Microseconds(), 10))
+	}
+	if p.Backoff > 0 {
+		args = append(args,
+			"-reconnect", "1",
+			"-reconnect_streamed", "1",
+			"-reconnect_delay_max", strconv.Itoa(int(p.Backoff.Seconds())),
+		)
+		if len(p.RetryStatuses) > 0 {
+			args = append(args, "-reconnect_on_http_error", formatStatuses(p.RetryStatuses))
+		}
+	}
+	return args
+}
+
+// formatStatuses renders a retry status set as the one comma separated value
+// -reconnect_on_http_error takes.
+func formatStatuses(codes []int) string {
+	out := make([]string, len(codes))
+	for i, code := range codes {
+		out[i] = strconv.Itoa(code)
+	}
+	return strings.Join(out, ",")
 }
 
 // segmented reports whether reading this source means many small segment
@@ -207,14 +224,18 @@ func (s NetworkSource) pacing() pacing {
 // to run at wire speed should pace anyway: a two-hour HLS title read unpaced is
 // thousands of requests in a couple of minutes, and CDNs answer that with 429s.
 // One long GET of a single file (mp4/mkv/avi) is throttled by nothing.
+//
+// It is answered from the container this builder is about to open, which is the
+// fact a builder has. What pace to use once the answer is yes belongs to the read
+// policy, which took it from what the source published.
 func (s NetworkSource) segmented() bool { return s.ContentType == media.HLS }
 
-// inputArgs renders the input side of a network read: the pacing, the
-// reconnect policy every upstream fetch castor makes shares, the request
-// headers, the container's input flags, and the URL. A demuxed program is two
-// inputs read on identical terms, since its renditions are two halves of one
-// program from one origin (see audioMap for the mapping that follows).
-func (s NetworkSource) inputArgs(pace pacing) []string {
+// inputArgs renders the input side of a network read: the pacing, the read
+// policy's fetch terms, the request headers, the container's input flags, and the
+// URL. A demuxed program is two inputs read on identical terms, since its
+// renditions are two halves of one program from one origin (see audioMap for the
+// mapping that follows).
+func (s NetworkSource) inputArgs(pace read.Pace) []string {
 	args := s.input(pace, s.URL)
 	if s.AudioURL != nil {
 		args = append(args, s.input(pace, s.AudioURL)...)
@@ -225,18 +246,9 @@ func (s NetworkSource) inputArgs(pace pacing) []string {
 // input renders the flags for one of the source's inputs. ffmpeg applies these
 // to the input that follows them, so every input of a demuxed program repeats
 // them.
-func (s NetworkSource) input(pace pacing, u *url.URL) []string {
-	args := pace.args()
-	args = append(args,
-		"-rw_timeout", strconv.FormatInt(s.RWTimeout.Microseconds(), 10),
-		"-reconnect", "1",
-		"-reconnect_streamed", "1",
-		// A minute of backoff paired with 429-as-reconnect lets a rate-limited
-		// CDN be waited out, instead of the HLS demuxer burning through segment
-		// numbers that all fail and keeping the IP tarpitted.
-		"-reconnect_delay_max", "60",
-		"-reconnect_on_http_error", "429",
-	)
+func (s NetworkSource) input(pace read.Pace, u *url.URL) []string {
+	args := paceArgs(pace)
+	args = append(args, readArgs(s.Read)...)
 	args = append(args, media.HeaderArgs(s.Headers)...)
 	args = append(args, containerInputArgs(s.ContentType)...)
 	return append(args, "-i", u.String())
@@ -249,23 +261,82 @@ func (s NetworkSource) input(pace pacing, u *url.URL) []string {
 // A pipe-fed encode leaves the source zero-valued and lands on 0:a:0, which is
 // right: the spool it reads is a single muxed stream whatever the origin looked
 // like.
+// The "?" suffix is the output-side optional-stream marker (see EncodeArgs): a
+// source with no audio track must produce a valid cast, not an argument-parse
+// failure.
 func (s NetworkSource) audioMap() string {
 	if s.AudioURL != nil {
-		return "1:a:0"
+		return "1:a:0?"
 	}
-	return "0:a:0"
+	return "0:a:0?"
 }
 
-// EncodeArgs assembles the encode command line. No "magic" flags: every
-// argument is either part of the standard input/output setup or comes
-// straight from a field in EncodeOptions. It enforces the one cross-field
-// contract EncodeOptions documents but can't express in its types: a
-// SubtitleTextFile burn-in needs decoded frames, so it requires a real
-// VideoEncoder rather than failing later inside ffmpeg with an unrelated
-// "Filtering and streamcopy cannot be used together".
+// axis is which half of the program a set of adaptations applies to, and how it
+// is being produced. It exists so the two facts that travel together, the ffmpeg
+// stream specifier and whether this half is a copy, cannot be passed separately
+// and contradict each other.
+type axis struct {
+	spec    string // ffmpeg's stream specifier: "v" or "a"
+	copying bool
+	refused bool // the tables already say this container will not carry it
+}
+
+var (
+	encodedVideo = axis{spec: "v"}
+	encodedAudio = axis{spec: "a"}
+)
+
+func copiedVideo(refused carriage.Axes) axis {
+	return axis{spec: "v", copying: true, refused: refused.Video}
+}
+
+func copiedAudio(refused carriage.Axes) axis {
+	return axis{spec: "a", copying: true, refused: refused.Audio}
+}
+
+// EncodeArgs assembles the encode command line. No "magic" flags: every argument
+// is either part of the standard input/output setup or comes straight from a
+// field in EncodeOptions.
+//
+// It validates one thing, that both axes were decided. The cross-field contracts
+// it used to police (a burn-in without an encoder, an empty "-c:a") are no longer
+// states an EncodeOptions can hold, so the only way to reach here with something
+// unbuildable is to not have decided at all, and a decision nobody took must not
+// silently become a stream copy: that is how an axis nothing planned reaches a
+// muxer as "-c:v copy" and is discovered from the artifact rather than here.
 func EncodeArgs(opts EncodeOptions) ([]string, error) {
-	if opts.SubtitleTextFile != "" && opts.VideoEncoder == nil {
-		return nil, fmt.Errorf("subtitle burn-in requires a video re-encode: VideoEncoder is nil with SubtitleTextFile set")
+	if !opts.Video.Decided() || !opts.Audio.Decided() {
+		return nil, fmt.Errorf("encode has an undecided axis (video decided: %t, audio decided: %t); a copy is a decision, not a default",
+			opts.Video.Decided(), opts.Audio.Decided())
+	}
+	// Unwrapped once: every branch below asks the same two questions, and asking
+	// them once is what keeps "is this axis re-encoded" and "what does the
+	// re-encode say" from being two independent readings that can disagree.
+	venc, reencodeVideo := opts.Video.Encode()
+	aenc, reencodeAudio := opts.Audio.Encode()
+
+	// The burn-in is a property of the video re-encode, so it is read from there
+	// and is empty on a copy by construction.
+	var burnIn string
+	if reencodeVideo {
+		burnIn = venc.SubtitleTextFile
+	}
+
+	if opts.Format.Muxer == "" {
+		return nil, fmt.Errorf("no output container: EncodeOptions.Format is unset")
+	}
+	// A container that has not declared how it frames its streams cannot be
+	// encoded into, because every copy decision below is a function of that
+	// declaration and the zero value would silently answer "in band". This catches
+	// a FormatInfo built anywhere but the registry, and it catches a resolver that
+	// ran before Format was populated. Both used to produce the original bug back
+	// with no error at all.
+	if opts.Format.Framing == media.FramingUnknown {
+		return nil, fmt.Errorf("output container %q declares no framing", opts.Format.ContentType)
+	}
+	tuning, ok := containerTuning[opts.Format.Muxer]
+	if !ok {
+		return nil, fmt.Errorf("no container tuning for muxer %q", opts.Format.Muxer)
 	}
 
 	// -nostats: the \r-terminated progress line never completes, so it
@@ -273,189 +344,369 @@ func EncodeArgs(opts EncodeOptions) ([]string, error) {
 	// real errors live in. Position tracking uses -progress instead.
 	args := []string{"-hide_banner", "-nostats", "-fflags", "+genpts+discardcorrupt"}
 
-	// A nil VideoEncoder stream-copies the video. Otherwise the encoder
-	// contributes its own hardware-device setup (emitted before the input, so
-	// both the upload filter and the encoder can reference it), filters, and
-	// flags, so there is no per-encoder branching below.
-	enc := opts.VideoEncoder
-	if enc != nil {
-		args = append(args, enc.InitArgs...)
+	// A re-encode contributes its encoder's own hardware-device setup (emitted
+	// before the input, so both the upload filter and the encoder can reference
+	// it), filters, and flags, so there is no per-encoder branching below.
+	if reencodeVideo {
+		args = append(args, venc.Encoder.InitArgs...)
 	}
 
-	if opts.PipeFormat != "" {
-		if opts.SubtitleTextFile != "" {
+	if opts.PipeFormat.Muxer != "" {
+		if burnIn != "" {
 			// Pace the encode to just above realtime. It must stay near
 			// wall-clock speed: the cue writer swaps drawtext's textfile as
 			// -progress ticks arrive, and unpaced the encoder rips through the
 			// spool at CPU speed (every tick covering seconds of video, so cues
 			// smear or skip) and overtakes the transcriber's commit frontier,
 			// after which every cue lookup misses and subtitles stop. It must
-			// not be exactly realtime either — see EncodeReadrate.
-			args = append(args, pacing{
-				readrate: EncodeReadrate,
-				burst:    strconv.Itoa(EncodeReadrateBurstSeconds),
-			}.args()...)
+			// not be exactly realtime either: see read.EncodePace.
+			args = append(args, paceArgs(read.EncodePace)...)
 		}
-		args = append(args, "-f", opts.PipeFormat, "-i", "pipe:0")
+		args = append(args, "-f", opts.PipeFormat.Muxer, "-i", "pipe:0")
 	} else {
 		// This reader may run at wire speed, since its output is either
 		// replay-spooled from byte 0 or a rolling window, so it paces only where
 		// running fast would hurt:
 		//
-		//   - a deleting HLS output window (see hlsOutputArgs) must be produced at
+		//   - a deleting HLS output window (see containerTuning) must be produced at
 		//     exactly wall-clock speed, or the window rolls segments off faster than
 		//     the device plays them at 1x and only the tail is ever fetchable; its
 		//     burst fills the window once so the device can prebuffer first;
-		//   - a segmented source is read at the pace its nature calls for, since
+		//   - a segmented source is read at the pace its read policy calls for, since
 		//     wire speed against a segmented CDN is a request storm (see segmented).
-		var pace pacing
+		var pace read.Pace
 		switch {
-		case opts.OutputFormat == hlsMuxer:
-			pace = pacingHLSWindow
+		case opts.Format.Delivery == media.DeliverSegmented:
+			pace = paceHLSWindow
 		case opts.Source.segmented():
-			pace = opts.Source.pacing()
+			pace = opts.Source.Read.Pace
 		}
 		args = append(args, opts.Source.inputArgs(pace)...)
 	}
 
-	// Map the first video and first audio track explicitly. ffmpeg's default
-	// stream selection picks the audio track with the most channels, which on a
-	// multi-track source can differ from the first track the planner probed to
-	// choose copy-vs-encode — so the encode would apply that decision to the
-	// wrong track. Pinning the pair keeps the encoded track identical to the
-	// probed one, and on a demuxed program it is what joins the two inputs back
-	// into one output. (The read-once spool is already single-audio via the
-	// puller's -map, so this only changes behaviour for the direct network remux.)
-	args = append(args, "-map", "0:v:0", "-map", opts.Source.audioMap())
+	// Map the first video and first audio track explicitly, and optionally.
+	//
+	// Explicitly, because ffmpeg's default stream selection picks the audio track
+	// with the most channels, which on a multi-track source differs from the first
+	// track the planner probed. On a multi-track source -map 0:a:0 and ffprobe's
+	// first audio stream agree, while the default selection reaches past both for
+	// the 5.1 track. Pinning the pair keeps the encoded track identical to the
+	// probed one, and on a demuxed program it joins the two inputs into one output.
+	//
+	// Optionally (the "?" suffix), because a pinned map turns a missing track into
+	// an argument-parse failure before a single byte is read, which is how an
+	// audio-only source, a video-only source and a video-only HLS playlist alike
+	// used to die. With the suffix each of them produces valid output, and on a
+	// source carrying both tracks the behaviour is unchanged. A stray -bsf
+	// against a map that matched nothing is silently ignored at exit 0, so the
+	// relaxation creates no new failure mode. This is the cheapest way castor
+	// honours "never reject a source".
+	//
+	// Optionality stops at the output side. A demuxed program whose audio rendition
+	// 404s fails at input-open (exit 8, "Error opening input files") whether the
+	// map is 1:a:0 or 1:a:0?, because the suffix is an output-side relaxation.
+	// Degrading that shape means building a command line without the second -i, not
+	// relaxing a map.
+	args = append(args, "-map", "0:v:0?", "-map", opts.Source.audioMap())
 
 	// Video filter chain. scale= runs first so text is rendered at the final
 	// resolution (crisper than scaling rendered text); it caps height while
 	// keeping width divisible by 2 (encoder requirement) and preserving aspect
 	// ratio via -2. The encoder's own filters (e.g. the VA-API GPU upload) come
-	// last, after scale and drawtext have run on CPU frames. Copy skips all of
-	// this (enc == nil): a copied bitstream can't be filtered.
+	// last, after scale and drawtext have run on CPU frames. A copy skips all of
+	// this, and cannot ask for any of it: every filter below reads a field that
+	// only exists inside VideoEncode, because a copied bitstream can't be filtered.
 	var vfilters []string
-	if enc != nil && opts.VideoMaxHeight > 0 {
-		vfilters = append(vfilters, fmt.Sprintf("scale=-2:'min(%d,ih)'", opts.VideoMaxHeight))
-	}
-	if opts.SubtitleTextFile != "" {
-		vfilters = append(vfilters, drawtextFilter(opts.SubtitleTextFile))
-	}
-	if enc != nil {
-		vfilters = append(vfilters, enc.Filters...)
+	if reencodeVideo {
+		if f := scaleFilter(venc.MaxHeight); f != "" {
+			vfilters = append(vfilters, f)
+		}
+		if venc.SubtitleTextFile != "" {
+			vfilters = append(vfilters, drawtextFilter(venc.SubtitleTextFile))
+		}
+		vfilters = append(vfilters, venc.Encoder.Filters...)
 	}
 	if len(vfilters) > 0 {
 		args = append(args, "-vf", strings.Join(vfilters, ","))
 	}
 
-	if enc == nil {
-		args = append(args, "-c:v", CodecCopy)
+	// Both branches ask the adaptation tables what the destination needs, because a
+	// muxer's rules are about the bitstream it receives whoever produced it. The
+	// plan is computed here from opts.Probe and opts.Format rather than handed in as
+	// a field, so a filter cannot be set independently of the track it belongs to.
+	//
+	// What the tables already know this destination will not carry is asked once for
+	// the whole command line, because the answer is a function of two things that do
+	// not change inside it: the probe of the mapped tracks and the output format.
+	refused := carriage.Known(opts.Probe, opts.Format)
+
+	var extraMovFlags, extraOutputArgs []string
+
+	// adapt applies one axis's copy adaptations. The axis is a value rather than a
+	// pair of booleans and a stream-specifier string: each of the four call sites
+	// knows statically which axis it is and whether it copies, and spelling that as
+	// arguments meant two things that could disagree about the same fact.
+	adapt := func(a axis, plan copyPlan, codec media.Codec) error {
+		// A copy the tables already refuse must not be buildable. The resolver is
+		// supposed to have asked carriage and chosen a re-encode; if it did not,
+		// failing here beats handing an MPEG-TS muxer a track it will write as private
+		// data and report success for. It consults the owner rather than keeping a
+		// second opinion, so one place still knows which pairs do not work.
+		if a.copying && a.refused {
+			return fmt.Errorf("copy of %q into %q on -c:%s is known not to be carriable; it should have been re-encoded",
+				codec, opts.Format.ContentType, a.spec)
+		}
+		// A repack rewrites framing a track ALREADY has, so it is meaningless on one
+		// castor is producing and fatal when the filter does not know the codec. Every
+		// row carrying Filters is gated on the copying predicate; this is the assertion
+		// that a future row cannot quietly forget it.
+		if !a.copying && len(plan.Filters) > 0 {
+			return fmt.Errorf("re-encode to %q on -c:%s would carry bitstream filters %v; a repack belongs to a copy, so that row needs the copying predicate",
+				codec, a.spec, plan.Filters)
+		}
+		// ffmpeg takes the whole chain as one comma separated value, which is why the
+		// plan accumulates a slice rather than emitting a flag per adaptation.
+		if len(plan.Filters) > 0 {
+			args = append(args, "-bsf:"+a.spec, strings.Join(plan.Filters, ","))
+		}
+		extraMovFlags = append(extraMovFlags, plan.MovFlags...)
+		extraOutputArgs = append(extraOutputArgs, plan.OutputArgs...)
+		return nil
+	}
+
+	args = append(args, "-c:v", opts.Video.Name())
+	if !reencodeVideo {
+		if err := adapt(copiedVideo(refused), planVideoCopy(opts.Probe, opts.Format), opts.Probe.VideoCodec); err != nil {
+			return nil, err
+		}
 	} else {
-		args = append(args, "-c:v", enc.Name)
-		args = append(args, enc.Flags...)
-		if opts.VideoBitrate != "" {
-			args = append(args, "-b:v", opts.VideoBitrate)
+		// The muxer's rules apply to what castor produces too, so the encoder's
+		// output codec goes through the same table (an encoded HEVC track needs the
+		// hvc1 tag exactly like a copied one). A produced codec is never uncarriable,
+		// which is what makes the ladder terminal, so this cannot block.
+		if err := adapt(encodedVideo, planVideoEncode(venc.Encoder.Codec, opts.Probe, opts.Format), venc.Encoder.Codec); err != nil {
+			return nil, err
+		}
+		args = append(args, venc.Encoder.Flags...)
+		if venc.Bitrate != "" {
+			args = append(args, "-b:v", venc.Bitrate)
 		}
 		// VBV cap: bound the instantaneous bitrate so the pacer's fixed send
 		// rate is a real ceiling. Both encoders honour this (libx264 VBV,
 		// VideoToolbox/VA-API DataRateLimits).
-		if opts.VideoMaxrate != "" {
-			args = append(args, "-maxrate", opts.VideoMaxrate)
+		if venc.Maxrate != "" {
+			args = append(args, "-maxrate", venc.Maxrate)
 		}
-		if opts.VideoBufsize != "" {
-			args = append(args, "-bufsize", opts.VideoBufsize)
+		if venc.Bufsize != "" {
+			args = append(args, "-bufsize", venc.Bufsize)
 		}
 		// Cap the GOP in wall-clock time, fps-independent, so a renderer that
 		// joins mid-stream resyncs within the interval. Works on every encoder
 		// family (VideoToolbox additionally needs -g in its Flags to lift its
 		// wasteful sub-second default so this expression is the real limiter).
-		if opts.KeyframeIntervalSec > 0 {
-			args = append(args, "-force_key_frames", fmt.Sprintf("expr:gte(t,n_forced*%d)", opts.KeyframeIntervalSec))
+		if venc.KeyframeIntervalSec > 0 {
+			args = append(args, "-force_key_frames", fmt.Sprintf("expr:gte(t,n_forced*%d)", venc.KeyframeIntervalSec))
 		}
 	}
 
-	args = append(args, "-c:a", opts.AudioCodec)
-	if opts.AudioCodec != CodecCopy {
-		if opts.AudioSampleRate > 0 {
-			args = append(args, "-ar", strconv.Itoa(opts.AudioSampleRate))
+	args = append(args, "-c:a", opts.Audio.Name())
+	if !reencodeAudio {
+		if err := adapt(copiedAudio(refused), planAudioCopy(opts.Probe, opts.Format), opts.Probe.AudioCodec); err != nil {
+			return nil, err
 		}
-		if opts.AudioChannels > 0 {
-			args = append(args, "-ac", strconv.Itoa(opts.AudioChannels))
+	} else {
+		// Same on the audio side, and the one that matters most: the Dolby rung of
+		// core.DecideAudio hands the mp4 muxer an E-AC-3 track it refuses to write a
+		// header for unless delay_moov is set, whether castor copied that track or
+		// encoded it.
+		if err := adapt(encodedAudio, planAudioEncode(aenc.Codec, opts.Probe, opts.Format), aenc.Codec); err != nil {
+			return nil, err
 		}
-		if opts.AudioBitrate != "" {
-			args = append(args, "-b:a", opts.AudioBitrate)
+		if aenc.SampleRate > 0 {
+			args = append(args, "-ar", strconv.Itoa(aenc.SampleRate))
+		}
+		if aenc.Channels > 0 {
+			args = append(args, "-ac", strconv.Itoa(aenc.Channels))
+		}
+		if aenc.Bitrate != "" {
+			args = append(args, "-b:a", aenc.Bitrate)
 		}
 	}
 
-	switch opts.OutputFormat {
-	case "mpegts":
-		// mpegts container tuning. PCR and PAT/PMT need to repeat frequently
-		// so a renderer that joins mid-stream (some smart TVs HEAD-probe then
-		// GET before playing) can resync within one GOP. Annexb conversion for
-		// copied video is auto-inserted by ffmpeg per actual codec when needed.
-		args = append(args,
-			"-mpegts_flags", "+resend_headers+initial_discontinuity",
-			// pat_period (not "mpegts_pat_period" — that name was removed
-			// in ffmpeg 8) caps the interval between PAT/PMT tables, which
-			// renderers joining mid-stream need to resync within one GOP.
-			"-pat_period", "0.1",
-			"-muxdelay", "0",
-			"-muxpreload", "0",
-		)
-	case "mp4":
-		// Plain mp4 needs a seekable output to finalize the moov atom; on a
-		// pipe we must fragment instead.
-		args = append(args, "-movflags", "+frag_keyframe+empty_moov+default_base_moof")
+	// -strict -2 unconditionally, and as an OUTPUT option. It is a no-op for every
+	// codec but one, and the only thing that unlocks a copied TrueHD track into mp4
+	// and hls/fMP4, which the muxer otherwise refuses as experimental. Placement
+	// matters: given before -i it never reaches the muxer and the encode still dies.
+	// Since it costs nothing elsewhere, gating it on a codec would buy only a codec
+	// list that goes stale. It also relaxes the encoder side, which changes nothing here
+	// because the only encoders castor selects are h264, hevc, aac, ac3 and eac3,
+	// none of which ffmpeg marks experimental.
+	args = append(args, "-strict", "-2")
+	args = append(args, extraOutputArgs...)
+
+	// -movflags is an AVOption, so the last one on the command line wins: an
+	// adaptation's tokens have to be merged into the muxer's base rather than
+	// emitted as a second flag that would clobber it. A muxer with no base and an
+	// adaptation that wants tokens is a mis-scoped predicate, not a runtime
+	// condition, so it is reported rather than silently dropped.
+	if len(tuning.MovFlags) == 0 && len(extraMovFlags) > 0 {
+		return nil, fmt.Errorf("copy adaptation contributed movflags %v to muxer %q, which declares none", extraMovFlags, opts.Format.Muxer)
+	}
+	if flags := slices.Concat(tuning.MovFlags, extraMovFlags); len(flags) > 0 {
+		args = append(args, "-movflags", "+"+strings.Join(flags, "+"))
 	}
 
-	if opts.SubtitleTextFile != "" {
-		// Progress reporting drives the live subtitle writer: it tells us
-		// the encoder's output position so the writer can swap the active
-		// cue in the textfile. fd 3 is the runner's extra pipe. With the
-		// encode paced at realtime, the period is also the cue placement
-		// granularity in video time.
-		args = append(args, "-progress", "pipe:3", "-stats_period", "0.1")
+	// -progress on the runner's first extra pipe, on every encode. It is this
+	// process's only machine-readable output about itself: its position, the bytes it
+	// has produced, and the speed it is producing them at, which is what separates an
+	// encoder that is slow from one that is starving behind a slow read. Emitting it
+	// only when subtitles were being burned is why the encode legs of a cast that died
+	// after 935300 bytes could be described only by the byte count of what it wrote.
+	//
+	// The reader is opened by whoever starts the process (see WithExtraPipes) and must
+	// drain it for the life of the encode.
+	args = append(args, "-progress", pipeURL(progressFD))
+	if burnIn != "" {
+		// A burn-in makes the report period the cue placement granularity in video
+		// time: the cue writer swaps drawtext's textfile as these blocks arrive, and the
+		// encode is paced at realtime, so ffmpeg's default half second would place every
+		// line up to half a second late.
+		args = append(args, "-stats_period", "0.1")
 	}
 
-	// HLS writes a playlist + segment files, not a stream on a pipe. The bare
-	// relative filenames rely on the process running WithWorkDir(the cast dir).
-	if opts.OutputFormat == hlsMuxer {
-		return append(args, hlsOutputArgs()...), nil
-	}
-	args = append(args, "-f", opts.OutputFormat, "pipe:1")
-	return args, nil
+	args = append(args, "-f", opts.Format.Muxer)
+	args = append(args, tuning.Args...)
+	return append(args, tuning.Output), nil
 }
 
-// HLS output tuning. A live sliding-window fMP4 tail: hlsListSize segments of
-// ~hlsSegmentSeconds each keep hlsWindowSeconds on disk, comfortably above the
-// ~30s-behind-live-edge window HLS clients conventionally buffer; hls_playlist_type
-// stays unset so the window rolls (event/vod would pin the list size to 0 and
-// grow disk unbounded).
+// containerTuningEntry is the fixed output configuration of one muxer.
+type containerTuningEntry struct {
+	// MovFlags is the base -movflags token set, nil for a muxer with no such
+	// option. Copy adaptations merge their own tokens into it (see
+	// copyAdaptation.MovFlags); a plan contributing tokens to a muxer whose base is
+	// nil is a programming error and EncodeArgs says so.
+	MovFlags []string
+	// Args are the muxer's fixed output options, emitted after -f <muxer>.
+	Args []string
+	// Output is the muxer's output target: the pipe for a single growing stream,
+	// the playlist filename for a segmented one. It lives here rather than being
+	// derived from DeliveryKind so a second segmented format would declare its own
+	// manifest name instead of silently inheriting HLS's.
+	Output string
+}
+
+// containerTuning is the fixed output configuration of each muxer castor writes:
+// the options that are true of the container regardless of what is inside it. The
+// per-codec options live in the copy adaptation tables instead, because those
+// depend on the bitstream and these do not.
+//
+// It is keyed by the ffmpeg muxer name declared on the format registry row, and a
+// muxer with no entry is an error rather than a silent no-tuning fall-through.
+// That is deliberate: the mp4 entry is what lets a fragmented output exist on a
+// pipe at all, and the previous shape (a switch with no default) meant renaming
+// the registry's mp4 row to "mov" would silently drop +frag_keyframe+empty_moov
+// and break every mp4 cast on non-seekable output with no error anywhere.
+var containerTuning = map[string]containerTuningEntry{
+	media.MuxerMPEGTS: {
+		// mpegts container tuning, reduced to the two options that do anything.
+		//
+		// -muxdelay 0 -muxpreload 0 pull the output's start_time back to zero from
+		// the demuxer's own offset, for about 2.2% in size, with packet counts
+		// unchanged and a clean decode.
+		//
+		// Two options that used to be here are gone because they were dead.
+		// -pat_period 0.1 is already ffmpeg's default, and -mpegts_flags
+		// +resend_headers only re-emits PAT/PMT at explicit segment boundaries while
+		// castor's mpegts output is always one pipe; neither changed the output. If castor ever adds a segmented mpegts format, resend_headers comes
+		// back with it, and so does the Framing question on that row.
+		Args:   []string{"-mpegts_flags", "+initial_discontinuity", "-muxdelay", "0", "-muxpreload", "0"},
+		Output: "pipe:1",
+	},
+	media.MuxerMP4: {
+		// Plain mp4 needs a seekable output to finalize its moov atom; on a pipe it
+		// must be fragmented instead. empty_moov puts the initialization segment out
+		// out immediately, which is the whole point of it: the client holds ftyp and
+		// moov within milliseconds, while every alternative configuration makes it
+		// wait for the first fragment.
+		//
+		// It is not free. empty_moov clears AVFMT_FLAG_AUTO_BSF, which is the
+		// machinery that would otherwise insert aac_adtstoasc for us: at -v verbose
+		// the muxer prints "Empty MOOV enabled; disabling automatic bitstream
+		// filtering" and then "Malformed AAC bitstream detected", in that order, and
+		// the first line is the cause of the second. That is why the AAC repack is
+		// hand-written rather than inherited, and it is a consequence of this flag
+		// rather than a fact about AAC. Dropping empty_moov would restore the
+		// automatic repack and fix AC-3 at the same time (15/15 source-codec
+		// combinations with an empty filter table), and it is not done for three
+		// reasons: the hls muxer exposes no check_bitstream of its own and ignores
+		// -movflags entirely, so Roku would still need the hand-written filter and
+		// would silently regress if the design leaned on the automatic one; the first
+		// media chunk completes at t+3.63 s instead of t+1.58 s; and the moov's shape
+		// changes (1241 to 2503 bytes, a real fragment-1 sample table, mvhd duration
+		// bounded rather than 0) in a way no local test can clear against a real
+		// receiver.
+		MovFlags: []string{"frag_keyframe", "empty_moov", "default_base_moof"},
+		Output:   "pipe:1",
+	},
+	media.MuxerHLS: {
+		// A live sliding-window fMP4 tail: hlsListSize segments of
+		// ~hlsSegmentSeconds each keep hlsWindowSeconds on disk, comfortably above
+		// the ~30s-behind-live-edge window HLS clients conventionally buffer;
+		// hls_playlist_type stays unset so the window rolls (event/vod would pin the
+		// list size to 0 and grow disk unbounded).
+		//
+		// -hls_segment_type fmp4 is the flag the HLS registry row's FramingOutOfBand
+		// is about. The two are one fact stored in two places and must move together:
+		// the same muxer with -hls_segment_type mpegts carries ADTS AAC untouched, so
+		// declaring OutOfBand while writing mpegts segments would hand the repack to
+		// an in-band destination, which exits cleanly having discarded almost every
+		// audio packet. TestHLSSegmentTypeMatchesDeclaredFraming binds them.
+		//
+		// The bare relative filenames rely on the process running WithWorkDir.
+		Args: []string{
+			"-hls_time", strconv.Itoa(hlsSegmentSeconds),
+			"-hls_list_size", strconv.Itoa(hlsListSize),
+			"-hls_flags", "delete_segments+independent_segments",
+			"-hls_segment_type", "fmp4",
+			"-hls_fmp4_init_filename", media.HLSInitName,
+			"-hls_segment_filename", media.HLSSegmentPattern,
+		},
+		Output: media.HLSPlaylistName,
+	},
+}
+
 const (
-	// hlsMuxer is ffmpeg's HLS muxer name and the OutputFormat value selecting the
-	// live-directory output (files under the work dir, not pipe:1).
-	hlsMuxer = "hls"
 	// hlsSegmentSeconds targets the segment length. With stream-copy the muxer can
 	// only cut on a source keyframe, so it is a lower bound, not exact.
 	hlsSegmentSeconds = 4
 	// hlsListSize is how many segments the rolling playlist keeps on disk.
 	hlsListSize = 8
-	// hlsWindowSeconds is the on-disk window; it also sizes pacingHLSWindow's
+	// hlsWindowSeconds is the on-disk window; it also sizes paceHLSWindow's
 	// burst so the device can prebuffer one full window before pacing binds.
 	hlsWindowSeconds = hlsSegmentSeconds * hlsListSize
 )
 
-func hlsOutputArgs() []string {
-	return []string{
-		"-f", hlsMuxer,
-		"-hls_time", strconv.Itoa(hlsSegmentSeconds),
-		"-hls_list_size", strconv.Itoa(hlsListSize),
-		"-hls_flags", "delete_segments+independent_segments",
-		"-hls_segment_type", "fmp4",
-		"-hls_fmp4_init_filename", media.HLSInitName,
-		"-hls_segment_filename", media.HLSSegmentPattern,
-		media.HLSPlaylistName,
+// HLSWindow is all the media a segmented delivery ever has in hand, because
+// delete_segments removes everything behind it. It is exported for the party that has to
+// know what a renderer can still be handed: a judgement that counted media this muxer has
+// already deleted would hold a cast open over segments that answer 404.
+const HLSWindow = hlsWindowSeconds * time.Second
+
+// SpoolFormat is the container the read-once path passes through itself: the
+// pull muxes the upstream into it (PullArgs), it lands in the spool file on
+// disk, and the encode demuxes it back off stdin (EncodeOptions.PipeFormat).
+// MPEG-TS, because it is strictly append-only (no trailer, no seeking back to
+// patch a header), which is what lets a tail read the file while it is still
+// growing. Declared once so the two ends of that pipe, and the file between
+// them, cannot disagree about what is in it.
+var SpoolFormat = spoolFormat()
+
+func spoolFormat() media.FormatInfo {
+	f, ok := media.FormatForContentType(media.MPEGTS)
+	if !ok {
+		panic("the format registry has no entry for " + media.MPEGTS)
 	}
+	return f
 }
 
 // PullOptions configures the single upstream reader's command line.
@@ -464,60 +715,170 @@ type PullOptions struct {
 	// reads its own (same reconnect policy, headers, container flags, pacing).
 	Source NetworkSource
 
+	// Reencode names the axes the spool container cannot carry as they are, decided
+	// before the download starts (see carriage.Known). The zero value is the
+	// ordinary all-copy pull.
+	Reencode carriage.Axes
+
+	// MaxHeight caps the height of the floor encode Reencode.Video asks for, and is
+	// ignored by a copy, which carries no filter it could apply. It is the ceiling this
+	// cast is already committed to (core.Resolve's MaxHeight): the served encode
+	// downstream of this buffer scales to it anyway, so a floor encode that produced the
+	// source's own 2160p would spend an encoder castor cannot afford on pixels the next
+	// process throws away.
+	MaxHeight int
+
 	// Verbose selects -loglevel verbose (playlist/segment URLs, connection
 	// lines) instead of the default warning level.
 	Verbose bool
 
-	// PCM additionally extracts mono s16le audio on fd 3 for the
-	// transcriber; start the process WithExtraPipe.
+	// PCM additionally extracts mono s16le audio for the transcriber, on the second
+	// extra pipe (see pcmFD): the first carries -progress, which every pull emits.
 	PCM bool
 	// PCMSampleRate is the audio sample rate for the PCM output.
 	PCMSampleRate int
 }
 
+// ExtraPipes is how many extra output pipes this pull needs open before it can run:
+// one for the -progress feed, plus one for the PCM tee when it is asked for. The
+// builder answers it rather than the caller counting, because the builder is what
+// routes the outputs, and a count that disagrees with the flags is not a missing feed
+// but "Failed to open progress URL pipe:3: Bad file descriptor" before a byte is read.
+func (opts PullOptions) ExtraPipes() int {
+	if opts.PCM {
+		return 2
+	}
+	return 1
+}
+
+// EncodeExtraPipes is how many extra output pipes an encode needs open: one, for the
+// -progress feed EncodeArgs emits unconditionally.
+const EncodeExtraPipes = 1
+
 // PullArgs assembles the upstream download command line: a codec-copy remux
 // of the source into append-only MPEG-TS on stdout, paced like a buffering
 // player, with an optional PCM tee for transcription.
 func PullArgs(opts PullOptions) []string {
-	// Baseline "warning" (not "error") so HLS segment failures — "Failed to open
-	// segment N", "HTTP error 404 Not Found" — reach the stderr ring tail.
+	// Baseline "warning" (not "error") so HLS segment failures, "Failed to open
+	// segment N" and "HTTP error 404 Not Found", reach the stderr ring tail.
 	// They're warning-level in ffmpeg, so -loglevel error hides them, and a pull
 	// whose every segment 404s (expired signed URL) then looks identical to a
 	// silent stall: the playback gate reports "throttled or expired" with no
 	// evidence. Capturing them lets the gate show the real reason without
 	// --debug. Under --debug, verbose additionally streams the playlist/segment
 	// URLs and connection lines so a stall can be reproduced by hand.
+	//
+	// It also must never drop to "error". The only signal castor has for the
+	// MPEG-TS muxer's silent losses is a WARNING line ("Stream N, codec X, is muxed
+	// as a private data stream and may not be recognized upon reading"), and
+	// -fflags +discardcorrupt's packet drops are warnings too ("Packet corrupt
+	// (stream = N, dts = ...), dropping it."). At -v error both are invisible while
+	// the exit code stays 0.
 	logLevel := "warning"
 	if opts.Verbose {
 		logLevel = "verbose"
 	}
 
-	args := []string{"-nostats", "-loglevel", logLevel}
+	// -progress on the runner's first extra pipe. Without it this process reported
+	// nothing about itself at all: the only number a starved read produced was the
+	// spool's byte count, and "spooled_bytes=14390648 rate_bytes_per_sec=0" printed
+	// twice in a row cannot distinguish an origin that stopped from one that finished.
+	// The feed carries ffmpeg's own speed=, which said 0.39x on that read (see
+	// WatchProgress), and it costs one line every half second on a pipe the runner
+	// drains anyway.
+	//
+	// The report period is spelled rather than left to ffmpeg's default, because the
+	// playback gate's confidence window is counted in these blocks: it holds for a derived
+	// number of them before a stated speed is allowed to convict a link, and it reads their
+	// duration from the read policy that owns it (read.StatsPeriod) rather than from here.
+	// A reader reporting half as often would otherwise halve that evidence silently.
+	args := []string{"-nostats", "-loglevel", logLevel,
+		"-progress", pipeURL(progressFD), "-stats_period", formatSeconds(read.StatsPeriod)}
 
 	// The pull always paces, whatever the container: it buffers a whole title
 	// into a spool the encoder tails, so running further ahead than the source's
 	// own pace buys nothing and only spends the origin's patience.
-	args = append(args, opts.Source.inputArgs(opts.Source.pacing())...)
+	args = append(args, opts.Source.inputArgs(opts.Source.Read.Pace)...)
 
-	// Output 1: codec-copy remux to MPEG-TS on stdout → spool. mpegts is the
-	// right spool format because it is strictly append-only (no trailer or
-	// header seek-back), so a tail can read it while it grows. No explicit
-	// bitstream filter: ffmpeg auto-inserts the right *_mp4toannexb for the
-	// actual codec (h264 vs hevc) when the source uses fmp4 segments;
-	// hardcoding the h264 one breaks HEVC sources.
-	args = append(args,
-		"-map", "0:v:0", "-map", opts.Source.audioMap(),
-		"-c", CodecCopy,
-		"-f", "mpegts", "pipe:1",
-	)
+	// Output 1: codec-copy remux into the spool container on stdout (see
+	// SpoolFormat for why it is what it is). The maps carry the same optional
+	// suffix the encode uses, for the same reason.
+	//
+	// No explicit bitstream filter in either direction. Toward MPEG-TS ffmpeg
+	// inserts the right *_mp4toannexb itself, per actual codec, so hardcoding the
+	// h264 one would break HEVC sources. And the one
+	// filter castor does own must never point this way: aac_adtstoasc into an
+	// MPEG-TS output with an ADTS input exits 0 while the muxer rejects every packet
+	// ("AAC bitstream not in ADTS format and extradata missing", repeated 188
+	// times), leaving 8 to 61 of 189 to 470 packets and audio that does not decode.
+	// It is structurally unreachable here, because the only producer of that filter
+	// is an adaptation whose predicate requires a FramingOutOfBand destination and
+	// this output is SpoolFormat, which the registry declares FramingInBand.
+	//
+	// What IS still open here is carriage, and the pull cannot close it by planning.
+	// The MPEG-TS muxer never refuses a codec: FLAC, Vorbis, PCM, VP8, VP9, AV1,
+	// MJPEG and msmpeg4v3 are all written as private data streams at exit 0, so the
+	// spool lands with a track missing and the encode then dies mapping a stream
+	// that is not there. Every other stage asks a copy adaptation table before
+	// copying, which needs a probe; this one runs before any probe exists, on a URL
+	// that may be single-use and that the read-once composition is built to reach within
+	// milliseconds. So the pull is the one stage that adapts at runtime instead of
+	// at plan time: it probes the spool it is in the middle of writing, compares it
+	// to the source, and restarts itself with whatever axis went missing re-encoded
+	// (see the pipeline's pull). That observes, it does not gate, and it needs no
+	// codec allow-list to stay correct as ffmpeg changes. Reencode is how that
+	// restart is expressed here.
+	args = append(args, "-map", "0:v:0?", "-map", opts.Source.audioMap())
+	// A stream copy on each axis, or the re-encode the spool container needs. The
+	// targets are the floors core.DecideVideo and core.DecideAudio bottom out at,
+	// which MPEG-TS carries by definition, so this cannot itself produce a spool the
+	// container refuses.
+	if opts.Reencode.Video {
+		// The software baseline for the floor codec, named from the same registry the
+		// decision layer selects from rather than spelled out again here.
+		//
+		// -crf under a VBV cap (capped CRF), never -crf alone. Quality-targeted encoding
+		// with no ceiling is unbounded by construction, and this is the one reader that can
+		// be asked for it on a source nobody chose the resolution of: at 3840x2160 a bare
+		// -crf 23 asks a veryfast software encoder for tens of Mbit/s in realtime, which it
+		// cannot hold, and a read that cannot hold realtime is a read the deliverability
+		// judgement convicts (speed=0.0627 is what that looks like). So the recovery for a
+		// copy that broke upstream would manufacture the undeliverable cast it exists to
+		// escape. The cap is the budget the decision layer already gives H.264, read from
+		// the one place both producers of the floor read it.
+		floor, _ := softwareBaseline(media.FloorVideoCodec)
+		args = append(args, "-c:v", floor.Name, "-preset", "veryfast", "-crf", "23",
+			"-maxrate", media.FloorVideoMaxrate, "-bufsize", media.FloorVideoBufsize)
+		// And capped in RESOLUTION, which is what the VBV cap above cannot do: the ceiling
+		// bounds the bits, while what a veryfast software encoder cannot hold at 3840x2160 is
+		// the pixel rate. Unscaled, this read measures under realtime on ordinary hardware, the
+		// gate reports the SOURCE as too slow to watch, and the recovery that asked for this
+		// encode (an axis a previous copy died on) manufactures the undeliverable verdict it
+		// exists to escape. The picture is capped to the same height the encode downstream of
+		// this buffer scales to, so nothing is lost that would have been kept.
+		if f := scaleFilter(opts.MaxHeight); f != "" {
+			args = append(args, "-vf", f)
+		}
+	} else {
+		args = append(args, "-c:v", codecCopy)
+	}
+	if opts.Reencode.Audio {
+		args = append(args, "-c:a", string(media.FloorAudioCodec),
+			"-b:a", media.FloorAudioBitrate, "-ac", strconv.Itoa(media.FloorAudioChannels))
+	} else {
+		args = append(args, "-c:a", codecCopy)
+	}
+	args = append(args, "-f", SpoolFormat.Muxer, "pipe:1")
 
 	if opts.PCM {
-		// Output 2: mono PCM for whisper on fd 3 (the runner's extra pipe).
+		// Output 2: mono PCM for whisper on the runner's second extra pipe, since the
+		// first carries -progress. It is decoded rather than copied, so what the spool
+		// container can carry has no bearing on it.
 		args = append(args,
 			"-map", opts.Source.audioMap(), "-vn",
 			"-ac", "1",
 			"-ar", strconv.Itoa(opts.PCMSampleRate),
-			"-f", "s16le", "pipe:3",
+			"-f", "s16le", pipeURL(pcmFD),
 		)
 	}
 	return args
@@ -548,7 +909,7 @@ func drawtextFilter(textFile string) string {
 // escapeFilterArg escapes a value for passing through ffmpeg's two-level
 // filter-string parser (graph parser, then per-filter option parser). Each
 // level consumes one backslash, so a literal ':' in a filter option needs
-// '\\:' in the input — one backslash survives the graph parser and the
+// '\\:' in the input: one backslash survives the graph parser and the
 // next is consumed by the option parser. Single-quote wrapping at graph
 // level does NOT propagate to the option parser, so we don't rely on it.
 func escapeFilterArg(s string) string {

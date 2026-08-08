@@ -66,6 +66,19 @@ var registry = []Encoder{
 	hevcVideoToolbox, hevcVAAPI, libx265,
 }
 
+// softwareBaseline returns the always-available encoder for a codec: the last
+// candidate in the registry, which is by construction the software one. It is how
+// a caller that cannot afford a test encode still names the same encoder the
+// decision layer would have settled on.
+func softwareBaseline(codec media.Codec) (Encoder, bool) {
+	for _, enc := range slices.Backward(registry) {
+		if enc.Codec == codec && !enc.Hardware {
+			return enc, true
+		}
+	}
+	return Encoder{}, false
+}
+
 // SelectEncoder returns the best working encoder for codec on this host: a
 // hardware encoder whose real test encode passes, otherwise the software
 // baseline. ok is false only for a codec with no registered encoder at all;

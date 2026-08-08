@@ -9,202 +9,183 @@ import (
 	"github.com/stupside/castor/internal/cast/core"
 )
 
-func TestLoadMissingFileWithEnvVars(t *testing.T) {
-	t.Setenv("CASTOR_DEVICE__NAME", "Xiaomi TV Box")
-	t.Setenv("CASTOR_DEVICE__TYPE", "chromecast")
-
-	cfg, err := Load("/tmp/nonexistent-config-293478.yaml")
-	if err != nil {
-		t.Fatalf("Load should succeed when config file is missing and env vars supply required fields: %v", err)
-	}
-	if cfg.Device.Name != "Xiaomi TV Box" {
-		t.Errorf("device.name should come from env var, got %q", cfg.Device.Name)
-	}
-	if string(cfg.Device.Type) != "chromecast" {
-		t.Errorf("device.type should come from env var, got %q", cfg.Device.Type)
-	}
-	if cfg.Network.Timeout != 5*time.Second {
-		t.Errorf("network.timeout should default to 5s, got %s", cfg.Network.Timeout)
-	}
-	if cfg.Resolver.MaxHeight != 1080 {
-		t.Errorf("resolver.max_height should default to 1080, got %d", cfg.Resolver.MaxHeight)
-	}
+// A load is one row: the files on disk, the environment around them, and what
+// the configuration that comes out has to hold.
+//
+// Layering is the whole subject. A value can arrive from four places (the typed
+// defaults, config.yaml, the config.local.yaml overlay beside it, and the
+// environment), each beating the one before, and a row is how one of those
+// precedences is stated. Written as separate functions the rows shared fifteen
+// lines of setup and hid which layer each was actually about.
+type loadCase struct {
+	name string
+	// yaml is config.yaml's content; empty means no file exists at that path at
+	// all, which is a supported way to run castor and not an error.
+	yaml string
+	// local is the config.local.yaml overlay written beside it.
+	local string
+	env   map[string]string
+	// wantErr means Load must refuse rather than hand the rest of the program a
+	// configuration nothing downstream could act on.
+	wantErr bool
+	want    func(*testing.T, *Config)
 }
 
-func TestLoadLocalOverlay(t *testing.T) {
-	dir := t.TempDir()
-	base := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(base, []byte("device:\n  name: tv\n  type: dlna\ntmdb:\n  api_key: placeholder\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "config.local.yaml"), []byte("tmdb:\n  api_key: real\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+func TestLoad(t *testing.T) {
+	for _, tt := range []loadCase{{
+		// No file at all, with the required fields supplied by the environment. The
+		// typed defaults still have to fill in everything nobody mentioned.
+		name: "the environment alone configures a cast",
+		env:  map[string]string{"CASTOR_DEVICE__NAME": "Xiaomi TV Box", "CASTOR_DEVICE__TYPE": "chromecast"},
+		want: func(t *testing.T, cfg *Config) {
+			if cfg.Device.Name != "Xiaomi TV Box" {
+				t.Errorf("device.name = %q, want it from the environment", cfg.Device.Name)
+			}
+			if cfg.Device.Type != "chromecast" {
+				t.Errorf("device.type = %q, want it from the environment", cfg.Device.Type)
+			}
+			if cfg.Network.Timeout != 5*time.Second {
+				t.Errorf("network.timeout = %s, want the 5s default", cfg.Network.Timeout)
+			}
+			if cfg.Resolver.MaxHeight != 1080 {
+				t.Errorf("resolver.max_height = %d, want the 1080 default", cfg.Resolver.MaxHeight)
+			}
+		},
+	}, {
+		name:  "the local overlay beats the file it sits beside",
+		yaml:  "device:\n  name: tv\n  type: dlna\ntmdb:\n  api_key: placeholder\n",
+		local: "tmdb:\n  api_key: real\n",
+		want: func(t *testing.T, cfg *Config) {
+			if cfg.TMDB.APIKey != "real" {
+				t.Errorf("tmdb.api_key = %q, want the overlay's value", cfg.TMDB.APIKey)
+			}
+			if cfg.Device.Name != "tv" {
+				t.Errorf("device.name = %q, want the base value the overlay never mentioned", cfg.Device.Name)
+			}
+			if cfg.Resolver.MaxHeight != 1080 {
+				t.Errorf("resolver.max_height = %d, want the default under both", cfg.Resolver.MaxHeight)
+			}
+		},
+	}, {
+		// The footgun the shipped template walks straight into: a section header
+		// whose every field is commented out parses to YAML null, and a null that
+		// wiped the defaults beneath it would fail validation on fields the user
+		// never touched.
+		name: "a section commented out to null keeps the defaults beneath it",
+		yaml: "device:\n  name: tv\n  type: dlna\nresolver:\n  # max_height: 1080\n",
+		want: func(t *testing.T, cfg *Config) {
+			if cfg.Resolver.MaxHeight != 1080 {
+				t.Errorf("resolver.max_height = %d, want the 1080 default", cfg.Resolver.MaxHeight)
+			}
+			if cfg.Resolver.FFprobePath != "ffprobe" {
+				t.Errorf("resolver.ffprobe_path = %q, want the default", cfg.Resolver.FFprobePath)
+			}
+			// Durations come from the typed defaults as real time.Duration values
+			// rather than "30s" strings, so they have to survive the decode intact.
+			if cfg.Resolver.HLSTimeout != 30*time.Second {
+				t.Errorf("resolver.hls_timeout = %s, want the 30s default", cfg.Resolver.HLSTimeout)
+			}
+			if cfg.Network.Timeout != 5*time.Second {
+				t.Errorf("network.timeout = %s, want the 5s default", cfg.Network.Timeout)
+			}
+		},
+	}, {
+		name: "the file beats the default, durations included",
+		yaml: "device:\n  name: tv\n  type: dlna\nresolver:\n  max_height: 2160\nnetwork:\n  timeout: 12s\n",
+		want: func(t *testing.T, cfg *Config) {
+			if cfg.Resolver.MaxHeight != 2160 {
+				t.Errorf("resolver.max_height = %d, want the file's 2160", cfg.Resolver.MaxHeight)
+			}
+			if cfg.Network.Timeout != 12*time.Second {
+				t.Errorf("network.timeout = %s, want the file's 12s", cfg.Network.Timeout)
+			}
+			if cfg.Resolver.ProbeMaxConcurrency != 2 {
+				t.Errorf("probe_max_concurrency = %d, want the sibling default the file never touched", cfg.Resolver.ProbeMaxConcurrency)
+			}
+		},
+	}, {
+		// A pinned host makes the name optional, and has to reach the agnostic
+		// device config the connect layer actually reads.
+		name: "a pinned host addresses a device with no name",
+		yaml: "device:\n  type: dlna\n  host: 192.168.0.3\n",
+		want: func(t *testing.T, cfg *Config) {
+			if cfg.Device.Host != "192.168.0.3" {
+				t.Errorf("device.host = %q, want 192.168.0.3", cfg.Device.Host)
+			}
+			if got := cfg.Playback().Device.Address; got != "192.168.0.3" {
+				t.Errorf("device.Config.Address = %q, want the host to resolve onto it", got)
+			}
+		},
+	}, {
+		name:    "neither a name nor a host leaves the device unaddressable",
+		yaml:    "device:\n  type: dlna\n",
+		wantErr: true,
+	}, {
+		// The one cast decision the operator owns, from the file.
+		name: "the file's delivery preference reaches the cast",
+		yaml: "device:\n  name: tv\n  type: chromecast\ncast:\n  delivery: serve\n",
+		want: func(t *testing.T, cfg *Config) {
+			if got := cfg.Playback().Delivery; got != core.DeliveryServe {
+				t.Errorf("cast.delivery = %q, want %q", got, core.DeliveryServe)
+			}
+		},
+	}, {
+		// And from the environment, which is the reason it is a config key rather
+		// than a CLI flag: CASTOR_CAST__DELIVERY=serve makes it a one-off, and works
+		// in a container where a flag does not.
+		name: "the environment's delivery preference reaches the cast",
+		yaml: "device:\n  name: tv\n  type: chromecast\n",
+		env:  map[string]string{"CASTOR_CAST__DELIVERY": "serve"},
+		want: func(t *testing.T, cfg *Config) {
+			if got := cfg.Playback().Delivery; got != core.DeliveryServe {
+				t.Errorf("cast.delivery = %q, want %q", got, core.DeliveryServe)
+			}
+		},
+	}, {
+		name: "an unset delivery preference decides nothing",
+		yaml: "device:\n  name: tv\n  type: chromecast\n",
+		want: func(t *testing.T, cfg *Config) {
+			if got := cfg.Playback().Delivery; got == core.DeliveryServe {
+				t.Errorf("cast.delivery = %q; nobody asked for a relay", got)
+			}
+		},
+	}, {
+		// What the enum buys over a bool: a typo fails at load instead of silently
+		// meaning auto.
+		name:    "an unknown delivery mode is a typo, not a default",
+		yaml:    "device:\n  name: tv\n  type: chromecast\ncast:\n  delivery: relay\n",
+		wantErr: true,
+	}} {
+		t.Run(tt.name, func(t *testing.T) {
+			// A fresh directory per row, so "no config file" means exactly that and
+			// cannot be answered by whatever else is on the machine.
+			dir := t.TempDir()
+			path := filepath.Join(dir, "config.yaml")
+			if tt.yaml != "" {
+				if err := os.WriteFile(path, []byte(tt.yaml), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tt.local != "" {
+				if err := os.WriteFile(filepath.Join(dir, "config.local.yaml"), []byte(tt.local), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
 
-	cfg, err := Load(base)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.TMDB.APIKey != "real" {
-		t.Errorf("config.local.yaml should overlay the base config: api_key = %q", cfg.TMDB.APIKey)
-	}
-	if cfg.Device.Name != "tv" {
-		t.Errorf("base values outside the overlay must survive: device.name = %q", cfg.Device.Name)
-	}
-	// A required-with-default field is present without the user setting it.
-	if cfg.Resolver.MaxHeight != 1080 {
-		t.Errorf("resolver.max_height should default to 1080, got %d", cfg.Resolver.MaxHeight)
-	}
-}
-
-// TestLoadEmptySectionKeepsDefaults guards the footgun where a section header
-// with every field commented out parses to null. That null must not wipe the
-// defaults beneath it, or validation fails on fields the user never touched.
-func TestLoadEmptySectionKeepsDefaults(t *testing.T) {
-	dir := t.TempDir()
-	base := filepath.Join(dir, "config.yaml")
-	// `resolver:` with only a comment underneath is YAML null, exactly like
-	// the shipped template's optional-override block.
-	if err := os.WriteFile(base, []byte("device:\n  name: tv\n  type: dlna\nresolver:\n  # max_height: 1080\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, err := Load(base)
-	if err != nil {
-		t.Fatalf("null section wiped defaults and broke validation: %v", err)
-	}
-	if cfg.Resolver.MaxHeight != 1080 {
-		t.Errorf("resolver.max_height should still default to 1080, got %d", cfg.Resolver.MaxHeight)
-	}
-	if cfg.Resolver.FFprobePath != "ffprobe" {
-		t.Errorf("resolver.ffprobe_path should still default, got %q", cfg.Resolver.FFprobePath)
-	}
-	// Durations come from the typed defaults as real time.Duration values, not
-	// "30s" strings; make sure they survive the decode intact.
-	if cfg.Resolver.HLSTimeout != 30*time.Second {
-		t.Errorf("resolver.hls_timeout should default to 30s, got %s", cfg.Resolver.HLSTimeout)
-	}
-	if cfg.Network.Timeout != 5*time.Second {
-		t.Errorf("network.timeout should default to 5s, got %s", cfg.Network.Timeout)
-	}
-}
-
-// TestLoadHostPinsDeviceWithoutName confirms a pinned device.host makes
-// device.name optional (name is only required without host) and that host
-// resolves onto the agnostic device.Config as the Address the connect layer reads.
-func TestLoadHostPinsDeviceWithoutName(t *testing.T) {
-	dir := t.TempDir()
-	base := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(base, []byte("device:\n  type: dlna\n  host: 192.168.0.3\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, err := Load(base)
-	if err != nil {
-		t.Fatalf("host should satisfy validation without name: %v", err)
-	}
-	if cfg.Device.Host != "192.168.0.3" {
-		t.Errorf("device.host = %q, want 192.168.0.3", cfg.Device.Host)
-	}
-	if got := cfg.Playback().Device.Address; got != "192.168.0.3" {
-		t.Errorf("host should resolve onto device.Config.Address, got %q", got)
-	}
-}
-
-// TestLoadCastDelivery covers the one cast decision the operator owns, from both
-// layers that matter for it: the file, and the environment, which is the reason
-// it is a config key rather than a CLI flag (CASTOR_CAST__DELIVERY=serve makes it
-// a one-off, and works in a container where a flag does not).
-func TestLoadCastDelivery(t *testing.T) {
-	dir := t.TempDir()
-	base := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(base, []byte("device:\n  name: tv\n  type: chromecast\ncast:\n  delivery: serve\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, err := Load(base)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := cfg.Playback().Delivery; got != core.DeliveryServe {
-		t.Errorf("cast.delivery should reach the cast config, got %q", got)
-	}
-
-	// Unset is auto: a cast nobody configured is decided from capabilities and
-	// the source alone.
-	plain := filepath.Join(dir, "plain.yaml")
-	if err := os.WriteFile(plain, []byte("device:\n  name: tv\n  type: chromecast\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err = Load(plain)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := cfg.Playback().Delivery; got == core.DeliveryServe {
-		t.Errorf("an unset cast.delivery must not force serving, got %q", got)
-	}
-
-	t.Setenv("CASTOR_CAST__DELIVERY", "serve")
-	cfg, err = Load(plain)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := cfg.Playback().Delivery; got != core.DeliveryServe {
-		t.Errorf("CASTOR_CAST__DELIVERY should reach the cast config, got %q", got)
-	}
-}
-
-// TestLoadCastDeliveryRejectsUnknownMode is what the enum buys over a bool: a
-// typo fails at load with a validation error instead of silently meaning auto.
-func TestLoadCastDeliveryRejectsUnknownMode(t *testing.T) {
-	dir := t.TempDir()
-	base := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(base, []byte("device:\n  name: tv\n  type: chromecast\ncast:\n  delivery: relay\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := Load(base); err == nil {
-		t.Fatal("an unknown cast.delivery mode should fail validation")
-	}
-}
-
-// TestLoadRequiresNameWithoutHost guards the other half of required_without:
-// with neither name nor host, validation must fail rather than leave the device
-// unaddressable.
-func TestLoadRequiresNameWithoutHost(t *testing.T) {
-	dir := t.TempDir()
-	base := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(base, []byte("device:\n  type: dlna\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := Load(base); err == nil {
-		t.Fatal("device with neither name nor host should fail validation")
-	}
-}
-
-// TestLoadFileOverridesDefault confirms the layering direction: a value the
-// file sets must win over the typed default, including durations parsed from
-// the "30s" string form.
-func TestLoadFileOverridesDefault(t *testing.T) {
-	dir := t.TempDir()
-	base := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(base, []byte("device:\n  name: tv\n  type: dlna\nresolver:\n  max_height: 2160\nnetwork:\n  timeout: 12s\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, err := Load(base)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Resolver.MaxHeight != 2160 {
-		t.Errorf("file should override the default: max_height = %d", cfg.Resolver.MaxHeight)
-	}
-	if cfg.Network.Timeout != 12*time.Second {
-		t.Errorf("file should override the default duration: network.timeout = %s", cfg.Network.Timeout)
-	}
-	// A sibling default the file didn't touch must remain.
-	if cfg.Resolver.ProbeMaxConcurrency != 2 {
-		t.Errorf("untouched sibling default should remain: probe_max_concurrency = %d", cfg.Resolver.ProbeMaxConcurrency)
+			cfg, err := Load(path)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("want a validation error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			tt.want(t, cfg)
+		})
 	}
 }

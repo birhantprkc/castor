@@ -57,7 +57,7 @@ func defaults() *Config {
 }
 
 // envPrefix is the prefix for environment overrides. Convention:
-// CASTOR_SECTION__FIELD — the double underscore separates the section from
+// CASTOR_SECTION__FIELD, where the double underscore separates the section from
 // the field so single underscores can stay in field names.
 //
 //	CASTOR_TMDB__API_KEY       → tmdb.api_key

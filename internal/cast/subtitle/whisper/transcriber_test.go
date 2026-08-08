@@ -2,7 +2,6 @@ package whisper
 
 import (
 	"bytes"
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,7 +66,7 @@ func TestDropCommitted(t *testing.T) {
 }
 
 func TestTrimBufferMovesTextToPrompt(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	buf := make([]float32, 20*SampleRate) // 20s, past the soft threshold
 	history := []word{
 		{Start: 2.0, End: 2.5, Text: "Sentence"},
@@ -109,7 +108,7 @@ func TestStreamingSmoke(t *testing.T) {
 		t.Skipf("sample audio unavailable: %v", err)
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	tr, err := New(ctx, subtitle.Whisper{})
 	if err != nil {
 		t.Fatal(err)

@@ -25,19 +25,31 @@ const (
 	TypeRoku       Type = "roku"
 )
 
-// SelfFetches reports whether a renderer of this type fetches media URLs itself
-// (a smart client such as Chromecast, or Roku's channel Video node) versus only
-// playing bytes castor serves to it (DLNA). It is a static property of the
-// protocol, known before the network round-trip of discovery and connect, so the
-// cast pipeline can decide up front that a non-self-fetching renderer will always
-// serve a local spool and begin buffering the single-use source while connect runs
-// concurrently. It MUST agree with the connected renderer's Capabilities().SelfFetch,
-// which the copy-vs-encode stage reads once the device is in hand: each family's
-// media.Renderer literal sets SelfFetch by calling its own selfFetches() rather
-// than re-stating the bool, so the two can't drift independently.
-func SelfFetches(t Type) bool {
+// Profile is what is knowable about a renderer of this type before there is one: the
+// static self-fetch protocol fact, and nothing else. It is capability DATA and not a
+// second kind of answer, so the layer above reads the same media.Renderer shape in both
+// phases of a cast and needs no per-family question of its own.
+//
+// Every other field is deliberately zero, and zero means unmeasured everywhere in that
+// record (see media.Renderer's conventions). That is what makes composing a cast before
+// connecting sound rather than a guess: a rule reading a field no profile fills cannot be
+// answered here, which is precisely the rule that has to wait for the renderer.
+//
+// The one fact it does answer agrees with the connected renderer's Capabilities().SelfFetch
+// by construction: each family's media.Renderer literal sets SelfFetch by calling its own
+// selfFetches() rather than re-stating the bool, so the two cannot drift (pinned by
+// TestProfileAgreesWithWhatEachFamilyReportsConnected). A cast composed on this fact and
+// contradicted by the connected device would read the single-use source on terms the
+// renderer refuses, having already spent the URL.
+//
+// An unregistered type answers the zero renderer: not self-fetching, nothing measured.
+// Nothing can be cast to it anyway, and Connect is where that is reported.
+func Profile(t Type) media.Renderer {
 	r, ok := rendererFor(t)
-	return ok && r.selfFetches()
+	if !ok {
+		return media.Renderer{}
+	}
+	return media.Renderer{SelfFetch: r.selfFetches()}
 }
 
 type Info struct {
@@ -97,7 +109,7 @@ type Device interface {
 type renderer interface {
 	// selfFetches reports whether the family fetches media URLs itself (a smart
 	// client) rather than only playing bytes castor serves it. It is a static
-	// protocol property answered without a device in hand (see SelfFetches).
+	// protocol property answered without a device in hand (see Profile).
 	selfFetches() bool
 
 	// discover scans the local network for devices of this family until ctx expires,

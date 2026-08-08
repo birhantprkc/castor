@@ -1,10 +1,16 @@
 // Package core holds the device-agnostic decision layer and the machinery every
-// cast shares: config, source resolution, device discovery/connect, the pure
-// Plan (delivery/subtitle/output axes) with its copy-vs-encode resolvers, and the
-// replay-server delivery. It knows nothing about any specific device family; the
-// pipeline executor and the device adapters import core, never the other way
-// round, so a device concern physically cannot leak across the boundary or into
-// this core.
+// cast shares: config, source resolution, device discovery/connect, the pure facts a
+// cast is composed from (Shape, Facts) with the copy-vs-encode decisions taken from
+// them, and the served delivery driver.
+//
+// Device-agnostic is a statement about what core KNOWS, not about what it links.
+// The edge runs core to device, not the other way: Connect returns a
+// device.Device and Config embeds device.Config, because a cast has to be handed
+// a connected renderer from somewhere and this is the layer that owns the
+// prelude. What core never does is name a family. Every decision below reads
+// media.Renderer capabilities, which the device adapters produce, so adding or
+// changing a family cannot reach a decision here; and the device package imports
+// nothing of core's, so no decision can leak the other way.
 package core
 
 import (
@@ -25,16 +31,25 @@ type Config struct {
 	Transcode TranscodeConfig
 	Resolver  resolve.Config
 
-	// Delivery is the operator's say over the delivery axis, read by
-	// ResolveDelivery. Unset (the zero value) means DeliveryAuto, so a cast
-	// nobody configured is decided entirely from capabilities and the source.
+	// Source is the source resolver with its adapters already bound: it is handed
+	// in rather than built here from Resolver, because a package that constructs
+	// its own ffprobe subprocess and http.Client cannot be run without them, and
+	// the judgements the resolver makes (which candidate is real, which rendition
+	// to read) are exactly the ones worth testing. The composition root owns the
+	// wiring; this layer owns none of it.
+	Source *resolve.Resolver
+
+	// Delivery is the operator's say over the delivery axis, read by the composition
+	// rule that would otherwise hand the renderer the source URL (see
+	// Shape.Passthrough). Unset (the zero value) means DeliveryAuto, so a cast nobody
+	// configured is decided entirely from capabilities and the source.
 	Delivery DeliveryPreference
 
-	// Whisper is the subtitle-transcription knob NewPlan reads to choose the
-	// subtitle axis (Enable gates burn-in). Its type lives in the cgo-free
-	// subtitle package, not the whisper transcriber, so this decision core carries
-	// it without importing whisper's cgo. A device that never serves (or a disabled
-	// transcriber) simply resolves to SubtitleOff.
+	// Whisper is the subtitle-transcription knob the subtitle axis reads (Enable gates
+	// burn-in, see SubtitleForServed). Its type lives in the cgo-free subtitle package,
+	// not the whisper transcriber, so this decision layer carries it without importing
+	// whisper's cgo. A renderer that fetches for itself never reaches the question, and
+	// a disabled transcriber answers SubtitleOff.
 	Whisper subtitle.Whisper
 }
 
@@ -54,6 +69,11 @@ type NetworkConfig struct {
 // Resolve* functions); only the binary path and the upstream I/O timeout, which
 // no capability can determine, come from config.
 type TranscodeConfig struct {
-	FFmpegPath string        `yaml:"ffmpeg_path" validate:"required"`
-	RWTimeout  time.Duration `yaml:"rw_timeout" validate:"required"`
+	FFmpegPath string `yaml:"ffmpeg_path" validate:"required"`
+
+	// RWTimeout is the mid-read deadline: how long one upstream read may stall before
+	// it is abandoned and retried. It is an input to the read policy (see read.For)
+	// rather than a flag value, because whether a source of a given shape can afford
+	// to have a read abandoned partway through is not something a config file knows.
+	RWTimeout time.Duration `yaml:"rw_timeout" validate:"required"`
 }

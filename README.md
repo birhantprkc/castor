@@ -42,9 +42,56 @@ To extract, it launches headless Chrome and watches network traffic over the Chr
 </p>
 
 
+## Quick start
+
+**1. Install** (macOS. [Other options](#installation))
+
+```sh
+brew install --cask stupside/tap/castor
+```
+
+**2. Find your TV**
+
+```sh
+castor scan
+```
+
+**3. Save it to `config.yaml`**
+
+```yaml
+device:
+  name: "Living Room TV"   # exact name from `castor scan`
+  type: dlna               # or: chromecast, roku
+```
+
+**4. Cast**
+
+```sh
+castor cast player https://example.com/watch/some-video
+```
+
+That's it. Nothing else is required. See [Configuration](#configuration) for subtitles, quality, and title search.
+
+> `castor scan` found nothing? See [Troubleshooting](#troubleshooting).
+
+
+## Commands
+
+| Command | What it does |
+| --- | --- |
+| `castor scan` | List cast targets on your network |
+| `castor cast player <url>` | Cast a web page with an embedded video player |
+| `castor cast url <url>` | Cast a direct stream or video URL |
+| `castor cast` | Browse titles and cast, interactively (needs a [TMDB key](#tmdb-key)) |
+| `castor cast movie <id>` | Resolve a movie id against your [sources](#sources) and cast |
+| `castor cast episode <id> --season N --episode N` | Same, for a TV episode |
+
+Run `castor --help` for all flags.
+
+
 ## Installation
 
-Run Castor as a **native binary** (recommended): it runs on your machine, so it shares your TV's network, which device discovery needs. The binary shells out to three tools that must be on your `PATH`:
+Castor runs best as a **native binary**: it shares your TV's network, which device discovery needs. It shells out to three tools that must be on your `PATH`.
 
 | Tool | Version | Used for |
 | --- | --- | --- |
@@ -52,7 +99,8 @@ Run Castor as a **native binary** (recommended): it runs on your machine, so it 
 | **ffmpeg** | 7.1+ | Transcoding (and stream copy) |
 | **ffprobe** | 7.1+ | Source format detection |
 
-ffmpeg and ffprobe must be **7.1 or newer**: Castor uses flags (`-readrate_initial_burst`, stricter HLS extension handling) that older builds reject. The [Docker image](#docker-optional) bundles a suitable build (Linux only).
+> [!IMPORTANT]
+> ffmpeg and ffprobe must be **7.1 or newer**. Castor uses flags older builds reject (`-readrate_initial_burst`, stricter HLS extension handling).
 
 ### Homebrew (macOS)
 
@@ -60,10 +108,9 @@ ffmpeg and ffprobe must be **7.1 or newer**: Castor uses flags (`-readrate_initi
 brew install --cask stupside/tap/castor
 ```
 
-<details>
-<summary><b>Build from source</b> (needs Go 1.26+ and cmake)</summary>
+### Build from source
 
-The whisper.cpp bindings are cgo and link a locally built `libwhisper.a`, so clone with submodules and build with `make`:
+Needs **Go 1.26+** and **cmake**. Clone with submodules, then `make`:
 
 ```sh
 git clone --recurse-submodules https://github.com/stupside/castor.git
@@ -71,76 +118,56 @@ cd castor
 make          # builds libwhisper.a, then the castor binary
 ```
 
-`go install` won't work: the vendored whisper.cpp bindings come in through a local `replace` and need that prebuilt static lib.
-
-</details>
-
-
-## Quick start
-
-Tell Castor which TV to use: find its name with `castor scan` and put it in `config.yaml`.
-
-```yaml
-device:
-  name: "Living Room TV"   # exact name from `castor scan`
-  type: dlna
-```
-
-### Can't discover the device? Pin it by address
-
-If `castor scan` finds nothing, point Castor straight at the device by IP and it skips discovery:
-
-```yaml
-device:
-  name: "Living Room TV"   # now just a label
-  type: dlna
-  host: 192.168.0.3        # the device's LAN IP
-```
-
-Discovery uses SSDP/mDNS **multicast**, which doesn't cross VLANs/subnets and is blocked on Android/Termux (you'll see `netlinkrib: permission denied`). A pinned `host` reaches the device by **unicast** instead, so it works across those networks and skips the discovery wait on every cast.
-
-- **DLNA** `host` is the device IP; Castor asks it for its description over a single unicast request. If your TV doesn't answer that, set `host` to its full description URL instead (e.g. `http://192.168.0.3:9197/dmr`).
-- **Chromecast / Roku** `host` is the device IP.
-
-> On Android/Termux, also leave `network.interface` empty (the default): pinning one needs the same blocked interface lookup.
-
-Now cast a page you are watching, or a stream URL you have:
-
-```sh
-castor cast player https://example.com/watch/some-video
-```
-
-For the interactive browser, which searches titles and casts them for you, add a TMDB key and a source (see [Configuration](#configuration)), then run `castor cast`:
-
-<p align="center">
-  <img src=".github/images/screen-devices.png" alt="Selecting a cast target in the castor TUI" width="640"/>
-</p>
-
-The commands you'll use most (run `castor --help` for all flags):
-
-| Command | What it does |
-| --- | --- |
-| `castor scan` | List cast targets on your network |
-| `castor cast` | Browse titles and cast, interactively (needs a TMDB key) |
-| `castor cast player <url>` | Cast a web page that has an embedded video player |
-| `castor cast url <url>` | Cast a direct stream or video URL |
-| `castor cast movie <id>` | Resolve a movie id against your sources and cast |
-| `castor cast episode <id> --season N --episode N` | Resolve a TV episode and cast |
+`go install` won't work: the whisper.cpp bindings are cgo, come in through a local `replace`, and need that prebuilt static lib.
 
 
 ## Configuration
 
-Castor reads `config.yaml` from the working directory (or `--config <path>`). **The only required key is the `device`** shown in [Quick start](#quick-start); everything else (timeouts, probing, capture, transcoding, network interface, Chrome discovery) has working defaults.
+Castor reads `config.yaml` from the working directory (or `--config <path>`). **The only required key is `device`.** Everything else has working defaults.
+
+| Key | What it does | Reach for it when |
+| --- | --- | --- |
+| [`whisper.enable`](#subtitles) | Transcribes the audio and burns subtitles into the video | You want subtitles a source doesn't provide |
+| [`resolver.max_height`](#video-quality) | Caps both the stream picked and the encoder output | Your TV isn't 1080p, or you want to save bandwidth |
+| [`sources`](#sources) | Turns a movie/episode id into a page URL to extract from | Using `cast movie`, `cast episode`, or the browser |
+| [`tmdb.api_key`](#tmdb-key) | Searches titles by name | Using the interactive browser |
+| [`cast.delivery`](#forcing-a-relay) | Forces Castor to relay instead of handing over the URL | A device refuses a source and you can't see why |
 
 > [!TIP]
-> Keep secrets like your TMDB key out of the committed file: put them in a git-ignored `config.local.yaml` that overlays `config.yaml`, or in `CASTOR_SECTION__FIELD` environment variables. See [SECURITY.md](SECURITY.md).
+> Keep secrets out of the committed file. Put them in a git-ignored `config.local.yaml` that overlays `config.yaml`, or in `CASTOR_SECTION__FIELD` environment variables. See [SECURITY.md](SECURITY.md).
 
-Everything below is optional.
+### Subtitles
 
-<details>
-<summary><b>Sources</b>: resolve movie / episode ids against sites you configure</summary>
+Auto-generated subtitles, transcribed with whisper and burned into the video. Models download once to your user cache.
 
-`cast movie`, `cast episode`, and the interactive browser resolve a title id against sources you configure. Castor bundles none, so add your own (sites you are authorized to use). There is no catalog and no lookup: Castor substitutes the id into the `templates` you write, prefixes each of your `proxies`, and opens the resulting page, then extracts the stream exactly like `cast player`. For example, `castor cast movie tt12300742` opens `https://your-source.example/embed/movie/tt12300742`.
+```yaml
+whisper:
+  enable: true             # off by default
+  # language: "fr"         # default: English
+  # model_path: ""         # default: ggml-tiny.en (~75 MB, auto-downloaded)
+```
+
+> [!NOTE]
+> Burn-in applies to devices Castor streams to directly (DLNA). Devices that fetch the stream themselves (Chromecast, Roku) don't get burned-in subtitles.
+
+### Video quality
+
+Set `max_height` to your TV's vertical resolution. It caps both the stream Castor picks and what the encoder emits.
+
+```yaml
+resolver:
+  max_height: 2160         # default: 1080
+  # hls_timeout: 30s
+  # probe_timeout: 30s
+  # probe_max_concurrency: 2
+  # ffprobe_path: ffprobe
+```
+
+### Sources
+
+`cast movie`, `cast episode`, and the interactive browser turn a title id into a page URL. **Castor bundles no sources**. You add your own (sites you are authorized to use).
+
+There is no catalog and no lookup. Castor substitutes the id into your `templates`, prefixes each of your `proxies`, opens the page, and extracts exactly like `cast player`.
 
 ```yaml
 sources:
@@ -150,94 +177,39 @@ sources:
       episode: "/embed/tv/{itemID}/{season}-{episode}"
 ```
 
-</details>
+So `castor cast movie tt12300742` opens `https://your-source.example/embed/movie/tt12300742`.
 
-<details>
-<summary><b>Cast</b>: force a local relay with <code>delivery</code></summary>
+### TMDB key
 
-Castor decides per source whether the device fetches the stream itself or Castor relays it. It hands over the URL only when it has checked the device can actually fetch it, and relays otherwise: when the source answers only with the headers Castor captured, when it publishes its audio as a separate rendition (one URL is one rendition, so the device would play in silence), or when it opens only under relaxed reader checks, which is what an HLS playlist whose segments are served under a disguised extension (`.jpg` with `image/jpeg`) needs. `delivery: serve` relays always, for a source a device refuses for some reason Castor cannot see.
-
-```yaml
-cast:
-  delivery: serve   # always relay; "auto" (the default) decides per source
-```
-
-Relaying spends this machine's bandwidth and CPU on every cast, so try it as a one-off first: `CASTOR_CAST__DELIVERY=serve castor cast url <url>`. Any key works that way, e.g. `CASTOR_RESOLVER__MAX_HEIGHT=720`.
-
-</details>
-
-<details>
-<summary><b>Resolver</b>: cap resolution with <code>max_height</code></summary>
-
-Source selection and stream probing. All options have sensible defaults; you normally only set `max_height` to your TV's vertical resolution, which caps both the selected stream and the encoder output.
-
-```yaml
-resolver:
-  # The tallest video to cast. Source selection prefers the largest stream no
-  # taller than this, and the encoder scales its output down to it. Defaults to
-  # 1080; raise it to your TV's native height (e.g. 2160 for a 4K panel) to pass
-  # 4K through, or lower it to save bandwidth.
-  max_height: 2160
-  # hls_timeout: 30s
-  # probe_timeout: 30s
-  # probe_max_concurrency: 2
-  # ffprobe_path: ffprobe
-```
-
-</details>
-
-<details>
-<summary><b>TMDB</b>: API key for the interactive browser</summary>
-
-The interactive browser (`castor cast`) uses a TMDB API key to search titles; direct commands like `cast movie <id>` do not need it. Get a free key from [themoviedb.org](https://www.themoviedb.org/settings/api) and keep it in `config.local.yaml`:
+Only the interactive browser (`castor cast`) needs one. `cast movie <id>` and friends don't. Get a free key from [themoviedb.org](https://www.themoviedb.org/settings/api):
 
 ```yaml
 tmdb:
   api_key: "<KEY>"
 ```
 
-</details>
+### Forcing a relay
 
-<details>
-<summary><b>Subtitles</b>: auto-transcribe with whisper and burn in (off by default)</summary>
+Castor decides per source whether the **device fetches the stream itself** or **Castor relays it**. It hands over the URL only after checking the device can actually fetch it, and relays when:
 
-Auto-generated subtitles, transcribed with whisper and burned into the video:
+- the source answers only with the request headers Castor captured;
+- the source publishes its audio as a separate rendition (one URL is one rendition, so the device would play in silence);
+- the source opens only under relaxed reader checks, e.g. an HLS playlist whose segments are disguised as `.jpg` with `image/jpeg`.
 
-```yaml
-whisper:
-  enable: true             # off by default
-  # language: "fr"         # default: English
-  # model_path: ""         # default: ggml-tiny.en (~75 MB, auto-downloaded)
-```
-
-</details>
-
-<details>
-<summary><b>Roku</b>: cast to a Roku TV or player (one-time Developer Mode setup)</summary>
-
-Roku devices are not DLNA renderers, so Castor reaches them over Roku's ECP (External Control Protocol). Roku has no supported way to play an arbitrary URL from a preinstalled app, so Castor ships a tiny channel of its own and plays through it. A source Roku already accepts (HLS, MP4, MKV) is passed straight through; anything else is remuxed to live HLS on the fly.
+Set `delivery: serve` to relay **always**, for a source a device refuses for some reason Castor cannot see:
 
 ```yaml
-device:
-  name: "Living Room"   # the Roku's name, from `castor scan`
-  type: roku
-  roku:
-    # Only needed the first time, to sideload Castor's channel (see below).
-    password: "<dev-web-server-password>"
+cast:
+  delivery: serve   # "auto" (the default) decides per source
 ```
 
-Sideloading the channel uses Roku's developer web server, which you turn on by hand once (there is no remote API for it):
+Relaying spends this machine's bandwidth and CPU on every cast, so try it as a one-off first:
 
-1. On the Roku remote press **Home x3, Up x2, Right, Left, Right, Left, Right**.
-2. Enable developer mode and set a **web-server password** (the device reboots).
-3. Put that password in `device.roku.password` (keep it in a git-ignored `config.local.yaml`, or set `CASTOR_DEVICE__ROKU__PASSWORD`).
+```sh
+CASTOR_CAST__DELIVERY=serve castor cast url <url>
+```
 
-On the first cast Castor sideloads its channel automatically; later casts reuse it. If you publish the channel to your account instead, set `device.roku.app_id` to its numeric id (no dev mode or password needed).
-
-> [!NOTE]
-> Roku's live playback is a sliding-window HLS stream and stays roughly 30 s behind the live edge, so expect a longer start delay and more latency than DLNA.
-
-</details>
+Any key works that way, e.g. `CASTOR_RESOLVER__MAX_HEIGHT=720`.
 
 
 ## Supported devices
@@ -250,13 +222,69 @@ Run `castor scan` to list what is on your network.
 | **Chromecast** | Google Cast devices | Experimental, untested (contributions welcome) |
 | **Roku** | Roku TVs and streaming players (via a sideloaded channel over ECP) | Experimental, untested (contributions welcome) |
 
+### Roku setup
+
+Roku needs **one extra step** the others don't. It isn't a DLNA renderer, so Castor reaches it over Roku's ECP, and since Roku can't play an arbitrary URL from a preinstalled app, Castor ships a tiny channel of its own.
+
+**1. Turn on Developer Mode** (once, by hand: there's no remote API for it)
+
+On the Roku remote press **Home x3, Up x2, Right, Left, Right, Left, Right**, enable developer mode, and set a **web-server password**. The device reboots.
+
+**2. Put the password in your config**
+
+```yaml
+device:
+  name: "Living Room"   # from `castor scan`
+  type: roku
+  roku:
+    password: "<dev-web-server-password>"   # first cast only
+```
+
+Keep it in a git-ignored `config.local.yaml`, or set `CASTOR_DEVICE__ROKU__PASSWORD`.
+
+**3. Cast.** Castor sideloads its channel automatically; later casts reuse it.
+
+Already published the channel to your account? Set `device.roku.app_id` to its numeric id instead: no dev mode, no password.
+
+> [!NOTE]
+> Roku playback is a sliding-window HLS stream and stays roughly 30 s behind the live edge. Expect a longer start delay than DLNA.
+
+
+## Troubleshooting
+
+### `castor scan` finds nothing: pin the device by IP
+
+Discovery uses SSDP/mDNS **multicast**, which doesn't cross VLANs/subnets and is blocked on Android/Termux (you'll see `netlinkrib: permission denied`). Pinning a `host` reaches the device by **unicast** instead, which works across those networks and skips the discovery wait on every cast.
+
+```yaml
+device:
+  name: "Living Room TV"   # now just a label
+  type: dlna
+  host: 192.168.0.3        # the device's LAN IP
+```
+
+- **DLNA**: `host` is the device IP. If your TV doesn't answer Castor's description request, use the full description URL instead (e.g. `http://192.168.0.3:9197/dmr`).
+- **Chromecast / Roku**: `host` is the device IP.
+
+> On Android/Termux, also leave `network.interface` empty (the default): pinning one needs the same blocked interface lookup.
+
+### The page won't play
+
+Extraction only works on pages that **allow automated playback**, and won't work everywhere. It does not touch DRM. See the intro for what the extractor actually does.
+
+### The device loads the stream but plays nothing
+
+Try [forcing a relay](#forcing-a-relay).
+
 
 ## Docker (optional)
 
-The prebuilt `ghcr.io/stupside/castor` image bundles Chrome, ffmpeg, and ffprobe, so you install nothing by hand. Run it on a **Linux host on the same LAN as your TV**.
+The prebuilt `ghcr.io/stupside/castor` image bundles Chrome, ffmpeg, and ffprobe. Run it on a **Linux host on the same LAN as your TV**.
 
 > [!WARNING]
-> `--network host` is required: device discovery (SSDP multicast) and the TV streaming back from Castor both need the container on your real LAN. On Docker Desktop (macOS/Windows) that flag is a no-op, so the container never reaches your TV and `scan` finds nothing. Use the [native binary](#homebrew-macos) there instead.
+> `--network host` is required: discovery (SSDP multicast) and the TV streaming back both need the container on your real LAN.
+>
+> On Docker Desktop (macOS/Windows) that flag is a no-op, so the container never reaches your TV and `scan` finds nothing. Use the [native binary](#homebrew-macos) there instead.
 
 ```sh
 # Discover devices (no config needed)
@@ -270,9 +298,10 @@ docker run --rm --network host --device /dev/dri \
   cast player https://example.com/watch/some-video
 ```
 
-`--device /dev/dri` hands the container your Intel GPU for VA-API hardware H.264 encoding; without it (or on a non-Intel host) Castor falls back to software `libx264`. Either way, when your TV already accepts the source video Castor stream-copies it and skips encoding entirely.
-
-Run commands from the directory holding your [`config.yaml`](config.yaml) (mounted at `/config.yaml`). The `castor-cache` volume persists the auto-downloaded whisper models.
+- `--device /dev/dri` hands the container your Intel GPU for VA-API hardware H.264 encoding. Without it (or on a non-Intel host) Castor falls back to software `libx264`.
+- Either way, when your TV already accepts the source video, Castor stream-copies it and skips encoding entirely.
+- Run from the directory holding your [`config.yaml`](config.yaml) (mounted at `/config.yaml`).
+- The `castor-cache` volume persists auto-downloaded whisper models.
 
 | Tag | Build |
 | --- | --- |
@@ -285,7 +314,7 @@ Run commands from the directory holding your [`config.yaml`](config.yaml) (mount
 
 Castor is a general-purpose caster, not a service tied to any particular site.
 
-- **It hosts nothing.** No bundled video, catalog, or sources: Castor casts only a page, stream URL, or source you supply and are authorized to use, much like a Chromecast.
+- **It hosts nothing.** No bundled video, catalog, or sources. Castor casts only a page, stream URL, or source you supply and are authorized to use, much like a Chromecast.
 - **It does not touch DRM.** Castor does not decrypt or circumvent DRM, and cannot cast DRM-protected services.
 - **Using it lawfully is your responsibility.** Whether a site's terms of use and your local law allow what you do with Castor is on you. Do not use it to infringe copyright.
 

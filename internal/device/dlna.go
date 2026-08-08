@@ -37,7 +37,7 @@ const (
 // and Sony sets commonly advertise :3) and service lookup is an exact URN
 // match, so asking only for :1 misses them. UPnP requires a higher service
 // version to stay backward compatible with the actions of lower ones, and
-// castor calls only SetAVTransportURI, Play and GetProtocolInfo — all unchanged
+// castor calls only SetAVTransportURI, Play and GetProtocolInfo: all unchanged
 // since v1.
 var serviceVersions = []int{3, 2, 1}
 
@@ -309,11 +309,21 @@ var (
 // the one assumption we keep, and only as a floor.
 func fallbackCaps() media.Renderer {
 	return media.Renderer{
-		SelfFetch:  dlna{}.selfFetches(),
-		Containers: []string{media.MPEGTS},
-		Video:      []media.VideoSupport{videoSupportFor(media.CodecH264)},
+		SelfFetch:       dlna{}.selfFetches(),
+		Containers:      []string{media.MPEGTS},
+		Video:           []media.VideoSupport{videoSupportFor(media.CodecH264)},
+		ServedContainer: servedContainer,
 	}
 }
+
+// servedContainer is what castor muxes for a DLNA renderer. MPEG-TS is the one
+// container this family is uniformly safe with: it is elementary-stream framed,
+// so it can be produced as a single growing resource with no header to rewrite,
+// which is what SetAVTransportURI plus a stream of unknown length needs. It is
+// declared here, with the family that plays it, because it is a fact about the
+// renderer and not about the pipeline: nothing in core or the executor may bake
+// in a container of its own (see media.Renderer.ServedContainer).
+const servedContainer = media.MPEGTS
 
 // parseSinkProtocolInfo maps a ConnectionManager Sink protocolInfo CSV into a
 // Renderer. Each entry is "protocol:network:mime:additionalInfo"; the codec is
@@ -350,7 +360,7 @@ func parseSinkProtocolInfo(sink string) media.Renderer {
 	// false (derived from dlna.selfFetches(), the single source of truth for
 	// this family's static self-fetch bit) and the planner always serves the
 	// stream from castor.
-	r := media.Renderer{SelfFetch: dlna{}.selfFetches()}
+	r := media.Renderer{SelfFetch: dlna{}.selfFetches(), ServedContainer: servedContainer}
 	for _, c := range discoverableCodecs {
 		if present[c] {
 			r.Video = append(r.Video, videoSupportFor(c))

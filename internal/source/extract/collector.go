@@ -71,7 +71,7 @@ func (c *collector) addByPattern(u string, reqID network.RequestID) {
 }
 
 // addByMIME records a URL when the server has confirmed the MIME type is a
-// stream type. Pattern matching is skipped — the confirmed MIME takes precedence.
+// stream type. Pattern matching is skipped: the confirmed MIME takes precedence.
 func (c *collector) addByMIME(u string, reqID network.RequestID, mime string) {
 	if media.DetectFromMIME(mime) == "" {
 		return
@@ -142,15 +142,33 @@ func (c *collector) Entries() []capturedStream {
 	return entries
 }
 
+// HasHits reports whether anything at all was captured. Its one caller asks it in
+// place of hasMaster because it faces a different alternative: a failed navigation is
+// about to discard the session entirely, so any candidate is better than none. Nothing
+// that can keep working toward a master should stop on this.
 func (c *collector) HasHits() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return len(c.candidates) > 0
 }
 
-// hasMaster reports whether a master playlist has been captured. A master is
-// the top of the HLS tree, so once one is seen there's nothing better to wait
-// for and the collection window can be cut short.
+// hasMaster reports whether a master playlist has been captured. A master is the top
+// of the HLS tree: it enumerates every variant, so once one is seen there is nothing
+// better to wait for.
+//
+// This is the single definition of a capture worth stopping for, and both places that
+// stop early read it: the action pipeline (runActions) and the collection window
+// (Wait). They used to disagree, the pipeline stopping on any hit at all and the
+// window only on a master, which let one early chunklist capture end the pipeline
+// before the page had been driven far enough to request the master and left the ranker
+// a single rendition with no ladder behind it.
+//
+// It reads the score the collector already computes rather than the captured document,
+// which bounds what it can recognise: a master whose path names neither "master" nor
+// "playlist" scores like any other URL and is not identified as one here. Deciding it
+// from the document's own EXT-X-STREAM-INF tags belongs to the layer that fetches
+// playlists, not to a URL ranker, and guessing a master's URL from a variant's is
+// exactly the per-site pattern invention extraction refuses.
 func (c *collector) hasMaster() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -164,8 +182,8 @@ func (c *collector) hasMaster() bool {
 // If no streams are found, it waits up to graceAfterActions before giving up.
 func (c *collector) Wait(ctx context.Context, graceAfterActions, collectionWindow time.Duration) ([]capturedStream, error) {
 	collectMore := func() []capturedStream {
-		// Once a master playlist is in hand there's nothing better to wait for —
-		// it already enumerates every variant — so return immediately instead of
+		// Once a master playlist is in hand there's nothing better to wait for
+		// (it already enumerates every variant), so return immediately instead of
 		// burning the rest of collectionWindow. These source URLs are short-lived
 		// signed links; every second spent here is a second of the token's life
 		// gone before the puller can touch it. Without a master we keep collecting
