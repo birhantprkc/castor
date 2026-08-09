@@ -85,19 +85,6 @@ func videoSupportFor(codec media.Codec) media.VideoSupport {
 	}
 }
 
-// videoSupportForAll is the declared decode envelope of a family whose codecs are
-// published rather than negotiated, in the order given. A family with no runtime
-// capability query still has an envelope; what it does not have is a way to ask,
-// so it declares the vendor's published profile and this is where that declaration
-// is turned into the one capability shape every layer above reads.
-func videoSupportForAll(codecs ...media.Codec) []media.VideoSupport {
-	support := make([]media.VideoSupport, 0, len(codecs))
-	for _, c := range codecs {
-		support = append(support, videoSupportFor(c))
-	}
-	return support
-}
-
 type Info struct {
 	Name    string
 	Type    Type

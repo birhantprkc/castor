@@ -323,14 +323,14 @@ func streamFormatFor(contentType string) string {
 // live remux (see ServedContainer, set to HLS: Roku has no supported way to play
 // a growing single-file URL).
 //
-// The video envelope is the H.264/HEVC decode this family's own documentation
-// asserts, written as data (see codecEnvelopes) rather than as the prose it used
-// to be: the field was nil, on the grounds that the served path stream-copies
-// video unconditionally, which is true of the leg and not of the device. What that
-// nil actually decided was the target of a re-encode castor had no choice about
-// (an HDR source, a picture above the cast's ceiling, a copy a previous attempt
-// died on), and it decided it as "the renderer advertised nothing", aiming a whole
-// title at the floor codec for a device that decodes HEVC at half the bitrate.
+// The video envelope is deliberately absent, and absent means unknown rather than
+// none. The model is what decides here and the family is all castor is told: an
+// Express decodes no HEVC where a Stick 4K does, and both are configured as
+// "roku". Declaring the family's best profile would aim every forced re-encode (an
+// HDR source, a picture above the cast's ceiling, a copy a previous attempt died
+// on) at a codec some of these devices cannot decode, trading a larger H.264
+// stream for a black screen. Roku does publish the answer per device, at ECP
+// query/device-info, so the fix is to ask rather than to assert here.
 //
 // The audio envelope lets a 5.1/7.1 AC-3/E-AC-3 or AAC track pass the remux
 // through intact instead of being downmixed to stereo.
@@ -338,7 +338,6 @@ var rokuCapabilities = media.Renderer{
 	SelfFetch:       roku{}.selfFetches(),
 	Containers:      []string{media.HLS, media.MP4, media.MKV},
 	ServedContainer: media.HLS,
-	Video:           videoSupportForAll(media.CodecH264, media.CodecHEVC),
 	Audio: []media.AudioSupport{
 		{Codec: media.CodecAAC, MaxChannels: 6},
 		{Codec: media.CodecAC3},

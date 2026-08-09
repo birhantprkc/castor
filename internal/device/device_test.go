@@ -44,52 +44,58 @@ func TestProfileAgreesWithWhatEachFamilyReportsConnected(t *testing.T) {
 	}
 }
 
-// TestEveryFamilyDeclaresTheVideoItDecodes closes the gap a nil envelope left. Two
-// families carried none, described in their own comments as deliberate because the leg
-// they land on copies whatever the source is, which is a fact about a leg: the field is
-// read by the layer that has to choose a codec when a copy is refused, and it answered
-// there with "this renderer advertised nothing we can encode to", spending a whole title
-// on the floor codec for a device whose vendor publishes HEVC.
+// TestOnlyAFamilyThatCanAskStatesWhatItDecodes pins the line between a capability and a
+// guess about a model.
 //
-// It is stated over the registry rather than per family, so a fourth family cannot ship
-// with the field left at nil and the same reasoning rediscovered a third time.
-func TestEveryFamilyDeclaresTheVideoItDecodes(t *testing.T) {
-	// The floor every family clears: H.264 is what a source publishes when it publishes
-	// for players in general, and a family that cannot decode it cannot be cast to at all.
+// A family name is not a device. "Chromecast" spans receivers a decade apart, and a first
+// generation decodes no HEVC where an Ultra decodes it at half the bitrate of H.264;
+// "roku" spans an Express and a Stick 4K the same way. The only thing castor is told is
+// the word the operator typed, so a video envelope written per family is an assertion
+// about hardware nobody identified. It is not free to make: the envelope decides which
+// codec a forced re-encode AIMS at, so declaring the family's best profile points every
+// such cast at a codec some of those devices cannot decode, and a black screen is a worse
+// answer than a larger H.264 stream.
+//
+// DLNA is the family that may state one, because it does not guess: it asks the device
+// (GetProtocolInfo) and only falls back to this conservative envelope when the answer is
+// unusable. The rule is therefore "declare what you negotiated, or declare nothing", and
+// nothing means unknown rather than none.
+func TestOnlyAFamilyThatCanAskStatesWhatItDecodes(t *testing.T) {
+	// The floor a negotiated envelope has to clear: H.264 High 8-bit is what a source
+	// publishes when it publishes for players in general.
 	baseline := media.ProbeInfo{VideoCodec: media.CodecH264, VideoProfile: "High", VideoBitDepth: 8}
 
-	declared := map[Type]media.Renderer{
-		TypeChromecast: chromecastCapabilities,
-		TypeRoku:       rokuCapabilities,
-		TypeDLNA:       fallbackCaps(),
+	if caps := fallbackCaps(); !caps.CanCopyVideo(baseline) {
+		t.Error("the negotiated family's fallback refuses 8-bit High-profile H.264, so a source published for players in general is re-encoded for a device that asked for none of that")
 	}
-	for _, r := range renderers {
-		caps, ok := declared[r.Type]
-		if !ok {
-			t.Errorf("family %q states no capabilities here, so its video envelope is unproven", r.Type)
-			continue
-		}
-		if len(caps.Video) == 0 {
-			t.Errorf("family %q declares no video envelope at all, so every re-encode for it aims at the floor codec and every copy gate reads a renderer that said nothing", r.Type)
-			continue
-		}
-		if !caps.CanCopyVideo(baseline) {
-			t.Errorf("family %q does not accept 8-bit High-profile H.264, which is what a source publishes for players in general", r.Type)
+
+	for _, caps := range []struct {
+		family Type
+		of     media.Renderer
+	}{
+		{TypeChromecast, chromecastCapabilities},
+		{TypeRoku, rokuCapabilities},
+	} {
+		if len(caps.of.Video) != 0 {
+			t.Errorf("family %q states a video envelope of %+v, but it has no way to ask this device what it decodes: the model is what decides, and a forced re-encode would aim at that codec for every receiver wearing the family name",
+				caps.family, caps.of.Video)
 		}
 	}
 }
 
-// TestADeclaredEnvelopeIsTheOneEnvelopeTheCodecHas pins that the families which declare
-// rather than negotiate declare the SAME envelope DLNA pairs with a negotiated codec. The
-// profile and bit-depth lists are what separate a copy that plays from a green smear (High
-// 10 is the one that bites on H.264), and three copies of them is how two families end up
+// TestADeclaredEnvelopeIsTheOneEnvelopeTheCodecHas pins that the envelope a negotiated
+// codec is paired with comes from codecEnvelopes rather than being restated. The profile
+// and bit-depth lists are what separate a copy that plays from a green smear (High 10 is
+// the one that bites on H.264), and a second copy of them is how two callers end up
 // disagreeing about which.
 func TestADeclaredEnvelopeIsTheOneEnvelopeTheCodecHas(t *testing.T) {
-	for _, caps := range []media.Renderer{chromecastCapabilities, rokuCapabilities} {
-		for _, got := range caps.Video {
-			if want := videoSupportFor(got.Codec); !reflect.DeepEqual(got, want) {
-				t.Errorf("a declared %s envelope is %+v, want the one codecEnvelopes states for every family: %+v", got.Codec, got, want)
-			}
+	caps := fallbackCaps()
+	if len(caps.Video) == 0 {
+		t.Fatal("the fallback declares no video at all, so this pins nothing")
+	}
+	for _, got := range caps.Video {
+		if want := videoSupportFor(got.Codec); !reflect.DeepEqual(got, want) {
+			t.Errorf("a declared %s envelope is %+v, want the one codecEnvelopes states: %+v", got.Codec, got, want)
 		}
 	}
 }

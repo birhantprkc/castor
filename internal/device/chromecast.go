@@ -142,18 +142,15 @@ func (c *chromecastDevice) Close() error {
 // container casts straight through with no castor-served stream and anything else
 // is remuxed to mp4.
 //
-// The video envelope is the profile Cast publishes: H.264 and HEVC, each with the
-// profiles and bit depths that decode rather than black-screen (see
-// codecEnvelopes, which is where a codec's safe envelope is stated once for every
-// family). It used to be nil, described as deliberate on the grounds that Cast
-// "never re-encodes video", and that was a fact about the LEG rather than about
-// the device: the remux this family lands on copies a bitstream the renderer never
-// listed, so the nil envelope was never consulted, and the one decision it does
-// reach was being made against a device that had declared nothing. That decision
-// is which codec a re-encode castor was forced into (by the height ceiling, by an
-// HDR source, by a copy that already broke) aims at, and answering it with "the
-// renderer advertised nothing we can encode to" spent a 4K title's quality on the
-// floor codec for a receiver that decodes HEVC at half the bitrate.
+// The video envelope is deliberately absent, and absent means unknown rather than
+// none. "Chromecast" names a decade of receivers: a first generation decodes no
+// HEVC and an Ultra decodes it at half the bitrate of H.264, and nothing here can
+// tell them apart, because the only fact available is the family the operator
+// typed. Declaring the family's best profile would make castor aim a forced
+// re-encode at HEVC for every receiver wearing the name, which black-screens the
+// ones that cannot decode it, and a black screen is a worse answer than a larger
+// H.264 stream. The honest fix is to ask the device (Cast reports receiver
+// capabilities on connect) rather than to assert on its behalf here.
 //
 // The audio envelope drives the remux path only: Cast decodes AAC, AC-3 and
 // E-AC-3, so a 5.1 track in an MKV is stream-copied intact instead of downmixed.
@@ -164,7 +161,6 @@ var chromecastCapabilities = media.Renderer{
 	SelfFetch:       chromecast{}.selfFetches(),
 	Containers:      []string{media.HLS, media.MP4, media.MKV, media.WebM},
 	ServedContainer: media.MP4,
-	Video:           videoSupportForAll(media.CodecH264, media.CodecHEVC),
 	Audio: []media.AudioSupport{
 		{Codec: media.CodecAAC, MaxChannels: 6},
 		{Codec: media.CodecAC3},
