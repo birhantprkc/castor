@@ -295,62 +295,75 @@ func TestHandedCreditsAResumedClientWithThePrefixItAlreadyHad(t *testing.T) {
 	}
 }
 
-// TestAResumeIsRefusedWhileNobodyCanSayWhereTheStreamEnds is the boundary of the fix, pinned so
-// it is not mistaken for coverage it does not give. A 206 has to name a last byte, and while the
-// encoder is still producing the only candidates are a number nobody knows yet or the bytes
-// produced so far. Stating the second tells a client the film ends where the encoder happened to
-// have reached, and it stops mid-title with no error: the restart is the lesser failure, so the
-// client is replayed from byte 0 and told why in the log.
+// TestAResumeIsRefusedWhileNobodyCanSayWhereTheStreamEnds is the boundary of the fix, and it is
+// where the resume STOPS: while the encoder is producing, every shape of range is replayed from
+// byte 0.
+//
+// A 206 has to name a last byte and the length it is a stretch of, and while the producer runs the
+// only candidates are numbers nobody knows yet or the bytes produced so far. Stating the second
+// tells a client the film ends where the encoder happened to have reached, and it stops mid-title
+// with no error: the restart is the lesser failure, so the client is replayed from byte 0 and told
+// why in the log.
+//
+// A client naming its own last byte used to be answered here, on the argument that it invents no
+// length of its own. That half is gone rather than fixed: no renderer castor serves has ever sent
+// such a range (the family it serves for itself declares Accept-Ranges: none and its GETs carry no
+// range at all), so it was arithmetic over a moving file written for nobody, and one shape of
+// refusal is one thing to get right.
 func TestAResumeIsRefusedWhileNobodyCanSayWhereTheStreamEnds(t *testing.T) {
-	log := logged(t)
-	head := payload(64 << 10)
-	srv := serveProducing(t, head)
+	for _, asked := range []string{"bytes=%d-", "bytes=%d-65535"} {
+		t.Run(asked, func(t *testing.T) {
+			log := logged(t)
+			head := payload(64 << 10)
+			srv := serveProducing(t, head)
 
-	resp := get(t, srv, fmt.Sprintf("bytes=%d-", len(head)/2))
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200: a range answered over a stream with no stated end is a length castor invented", resp.StatusCode)
-	}
-	got := make([]byte, len(head))
-	if _, err := io.ReadFull(resp.Body, got); err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(got, head) {
-		t.Errorf("the refused client was served from somewhere other than byte 0, so it was handed media it cannot decode")
-	}
-	rec := log.await(t, slog.LevelWarn, "replayed from the beginning")
-	if reason := attrs(rec)["reason"]; !strings.Contains(reason, "still running") {
-		t.Errorf("the refusal reads %q, which does not say why the position could not be honoured", reason)
+			resp := get(t, srv, fmt.Sprintf(asked, len(head)/2))
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d, want 200: a range answered over a stream with no stated end is a length castor invented", resp.StatusCode)
+			}
+			got := make([]byte, len(head))
+			if _, err := io.ReadFull(resp.Body, got); err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got, head) {
+				t.Errorf("the refused client was served from somewhere other than byte 0, so it was handed media it cannot decode")
+			}
+			rec := log.await(t, slog.LevelWarn, "replayed from the beginning")
+			if reason := attrs(rec)["reason"]; !strings.Contains(reason, "still running") {
+				t.Errorf("the refusal reads %q, which does not say why the position could not be honoured", reason)
+			}
+		})
 	}
 }
 
-// TestABoundedResumeIsServedWhileTheProducerIsStillRunning is the half of the pause that IS
-// free at any point in a cast: a client that names its own last byte is asking for a stretch it
-// chose, so the response invents no length and needs no finished producer.
-func TestABoundedResumeIsServedWhileTheProducerIsStillRunning(t *testing.T) {
+// TestABoundedResumeEndsWhereItSaidItWould is the other half of the arithmetic over a finished
+// file: a client that names its own last byte is served exactly that stretch, and the response
+// STOPS there.
+//
+// The stopping is the part worth a test. A handler that kept reading past its own declared length
+// parks on a tail that yields nothing until somebody appends more: the client is long gone, the
+// server still counts it as connected, and the cast cannot end while it does.
+func TestABoundedResumeEndsWhereItSaidItWould(t *testing.T) {
 	log := logged(t)
-	head := payload(64 << 10)
-	srv := serveProducing(t, head)
+	want := payload(1 << 20)
+	srv := serve(t, bytes.NewReader(want))
 
-	from, to := int64(len(head)/2), int64(len(head)-1)
+	from, to := int64(len(want)/2), int64(len(want)-1024)
 	resp := get(t, srv, fmt.Sprintf("bytes=%d-%d", from, to))
 	if resp.StatusCode != http.StatusPartialContent {
 		t.Fatalf("status = %d, want 206", resp.StatusCode)
 	}
-	// The complete length is the one thing that cannot be stated, and * is what says so.
-	if got, want := resp.Header.Get("Content-Range"), fmt.Sprintf("bytes %d-%d/*", from, to); got != want {
-		t.Errorf("Content-Range = %q, want %q", got, want)
+	stated := fmt.Sprintf("bytes %d-%d/%d", from, to, len(want))
+	if got := resp.Header.Get("Content-Range"); got != stated {
+		t.Errorf("Content-Range = %q, want %q", got, stated)
 	}
 	got, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(got, head[from:to+1]) {
+	if !bytes.Equal(got, want[from:to+1]) {
 		t.Errorf("the client was handed %d bytes, want exactly the %d it asked for", len(got), to-from+1)
 	}
-	// And the response ENDS where it said it would. The stretch asked for finishes on the last
-	// byte produced so far, so a handler that keeps reading past its own declared length parks on
-	// a tail that yields nothing until the encoder appends more: the client is long gone, the
-	// server still counts it as connected, and the cast cannot end while it does.
 	log.await(t, slog.LevelInfo, "stream range delivered")
 }
 
@@ -523,6 +536,54 @@ func stall(t *testing.T, srv *Server) {
 	time.Sleep(1500 * time.Millisecond)
 }
 
+// TestCloseJoinsTheGoroutineSpoolingTheProducer is the guarantee the caller's next two steps rest
+// on, and it was missing: this server reads the producer's pipe from a goroutine of its own, and
+// nothing waited for it. The caller reaps the producer immediately after Close (os/exec closes that
+// pipe inside Wait, underneath a copy still reading it) and removes the work directory right after
+// that (deleting the file the copy writes into). Both were harmless by accident of timing and of
+// POSIX tolerating writes to an unlinked file, while the opener's own doc claimed nothing was left
+// writing.
+//
+// The other half of the contract is the reason it is safe to block here: Close is called by a
+// caller that has already stopped the producer, so the copy is at EOF or about to be.
+func TestCloseJoinsTheGoroutineSpoolingTheProducer(t *testing.T) {
+	pr, pw := io.Pipe()
+	srv, err := New(Config{
+		LocalIP:     "127.0.0.1",
+		ContentType: "video/mp2t",
+		Extension:   ".ts",
+		SpoolPath:   filepath.Join(t.TempDir(), "out.ts"),
+	}, pr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pw.Write(payload(4096)); err != nil {
+		t.Fatal(err)
+	}
+
+	closed := make(chan error, 1)
+	go func() { closed <- srv.Close() }()
+	select {
+	case err := <-closed:
+		t.Fatalf("Close returned %v while the producer was still writing into the spool: the caller reaps that producer next and removes the directory it writes into", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	// What the caller does before Close in production: it stops the producer, so the copy reaches
+	// the end of its input.
+	if err := pw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Errorf("Close = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close never returned after the producer ended")
+	}
+}
+
 // TestWaitEndsWhenAClientHasReadTheStreamToEOF is the ordinary end of a cast: the producer
 // finished and a client consumed everything. The producer finishing is explicitly not
 // enough, because it runs ahead of playback.
@@ -593,12 +654,13 @@ func serveProducing(t *testing.T, head []byte) *Server {
 	// The write returns once the copy has taken the bytes, which is not yet the spool having
 	// them, so every assertion below is against a stream this much of has actually landed.
 	for range 500 {
-		if srv.Produced() >= int64(len(head)) {
+		if landed, _ := srv.Spooled(); landed >= int64(len(head)) {
 			return srv
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("only %d of %d bytes reached the spool", srv.Produced(), len(head))
+	landed, _ := srv.Spooled()
+	t.Fatalf("only %d of %d bytes reached the spool", landed, len(head))
 	return nil
 }
 

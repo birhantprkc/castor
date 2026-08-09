@@ -24,19 +24,87 @@ import (
 
 // This file is the served-cast delivery driver. It is device-blind and carries no
 // per-delivery code path in its control flow: Serve looks the delivery mechanism
-// up from the format's DeliveryKind (data) and drives it uniformly. Each
-// mechanism is one opener behind the deliveries table, so adding a delivery (or a
-// caption sidecar, which is a second Sink at Serve's single Play step) is new data
-// plus a small impl, not another Serve* function and not a content-type branch.
+// up from the format's DeliveryKind (data) and drives it uniformly. A mechanism is
+// one interface with one constructor behind the table, so adding a delivery is new
+// data plus a small adapter, not another Serve* function and not a content-type branch.
+//
+// It also owns one lifetime and owns it whole: the encoder and the mechanism fronting it are
+// started here, stopped here, and stopped in one order no mechanism can restate (see open).
 
-// Sink is a running local server fronting a produced stream for one cast: it
-// exposes the URL the renderer fetches and blocks until the stream is fully
-// delivered. Closing it is the opener's job (its teardown holds the concrete
-// server), so the driver only ever needs these two. Both replay.Server and
-// hlsserve.Server satisfy it unchanged.
-type Sink interface {
+// mechanism is one delivery mechanism, whole: where it is fetched, when it is over, what a
+// renderer may be pointed at, what can be judged about it while it runs and afterwards, and
+// how it stops.
+//
+// One interface, because this used to be three things describing one: a two-method port for
+// the URL and the wait, four closures on the driver's own session for everything else, and a
+// third type repackaging two of those for the supervisor. Nothing kept them in agreement, and
+// each mechanism then hand-wrote its own five steps in its own order.
+//
+// Both implementations are thin adapters over a server that already answered every one of these
+// under a different name (Handed, Served, Spooled, ProducerDone, ProducerEnded).
+type mechanism interface {
+	// URL is the address the renderer fetches this delivery at.
 	URL() *url.URL
+
+	// Wait blocks until the delivery has run its course, or ctx ends. It states that nothing is
+	// left to serve, which is NOT a statement that the cast worked: that is why the driver asks
+	// two further questions of every mechanism (see InFlight and Settled).
 	Wait(ctx context.Context) error
+
+	// Artifact is what a renderer will be pointed at, as the gate waiting for it reads it.
+	Artifact() Artifact
+
+	// Drained is closed once this mechanism has read the encoder's output to its end.
+	//
+	// It is two things at once, and they are the same fact. It is what an artifact gate watches
+	// to tell "still starting" from "already over", since a producer that ended having written
+	// nothing will never write anything. And it is what makes reaping the encoder safe: os/exec
+	// closes the output pipe inside Wait, so a reap racing a mechanism that is still reading it
+	// truncates the very stream being delivered.
+	Drained() <-chan struct{}
+
+	// InFlight is this delivery as a supervisor reads it, or nil where this mechanism cannot
+	// honestly be judged while it runs (see Delivery, and segmented.InFlight for the mechanism
+	// that answers nil).
+	InFlight() *Delivery
+
+	// Settled states whether the renderer took what this mechanism made for it, asked once the
+	// delivery has run its course. It takes nothing, and that is load-bearing: the only facts
+	// the answer may rest on are counts the mechanism holds itself (what it handed over and what
+	// it produced), so there is no parameter through which a clock could reach the arithmetic
+	// again (see undelivered).
+	//
+	// EVERY mechanism answers, and it is a method rather than an optional field for that reason.
+	// Silence here is how a cast nobody ever fetched exited 0: it was a closure the segmented
+	// mechanism left nil because it cannot state a SHARE of a program it deletes, and the one
+	// thing it could always have stated (whether anything at all got through) went unsaid on the
+	// one mechanism nothing judges in flight either. What a mechanism cannot measure it says
+	// nothing ABOUT (see unfetched); what it cannot be is silent.
+	Settled() error
+
+	// Close stops serving and finishes reading the encoder's output, joining whatever goroutine
+	// of its own was doing the reading. The driver calls it as one step of one teardown; a
+	// mechanism orders nothing itself.
+	Close() error
+}
+
+// Artifact is what a renderer will be pointed at while it is still appearing: what to call it
+// in a log line and in a fault, how much of it exists, and how long this mechanism is willing
+// to wait for the first of it.
+type Artifact struct {
+	// Subject is the difference between "the stream output" and "the HLS playlist" in a message
+	// a user reads.
+	Subject string
+
+	// Landed reports how much of the artifact exists now. It is polled, and it is the delivery's
+	// own artifact rather than the encoder's report about itself, so a producer whose telemetry
+	// pipe broke cannot hold a cast whose output is filling.
+	Landed func() int64
+
+	// Grace is how long the artifact may take to appear before the renderer is pointed at it
+	// anyway. Zero never proceeds, which is the honest answer for a document a renderer cannot
+	// be handed half of.
+	Grace time.Duration
 }
 
 // Renderer is the two things a served cast needs from the connected device:
@@ -58,14 +126,22 @@ type Renderer interface {
 // Opts.Format, the same record the encode is built from: carrying it twice meant
 // two copies of one value at both call sites with nothing enforcing agreement,
 // and a divergence hangs the cast (Opts.Format.Delivery DeliverStream with a
-// DeliverSegmented duplicate writes "-f mp4 pipe:1" while openSegmented waits
-// forever for a playlist).
+// DeliverSegmented duplicate writes "-f mp4 pipe:1" while the segmented mechanism
+// waits forever for a playlist).
 type OpenParams struct {
 	FFmpegPath string
 	Opts       ffmpeg.EncodeOptions
-	StartOpts  []ffmpeg.StartOption
 	LocalIP    string
 	WorkDir    string
+
+	// Input, if set, is the feed the encoder reads on stdin, and Serve OWNS it: it is closed as
+	// one step of the teardown, on every path out, and a caller must not close it itself. The
+	// ownership is what makes that teardown terminate rather than a tidiness (see open), and a
+	// defer at the caller could not do the job, since it cannot run until the delivery has
+	// returned, which is what it would be waiting for. A leg whose encoder reads the network
+	// leaves it nil.
+	Input io.ReadCloser
+
 	// OnProgress, if set, is called with every sample the encoder reports about
 	// itself: its output position, the bytes it has produced, and the speed it is
 	// producing them at. The spool path places subtitle cues from it; nothing here
@@ -87,137 +163,112 @@ type OpenParams struct {
 	// on, so a caller that reads what it recorded after Serve returns needs no
 	// synchronisation of its own.
 	OnPlaying func()
-
-	// Supervise, if set, judges the cast for as long as the renderer is playing it, over
-	// the delivery's own facts. It is a callback because the facts a health rule needs
-	// live on both sides of this layer: what the renderer fetches and what is still
-	// fetchable are the delivery's to report, while the read behind it belongs to the leg
-	// that started it, and Serve is not the party that gets to hold them both.
-	//
-	// It returns when a verdict ends the cast, and its error becomes the cast's error
-	// joined with whatever the encoder had to say. A leg that leaves it nil gets today's
-	// behaviour: the delivery runs its course and nobody asks whether anyone was watching.
-	Supervise func(ctx context.Context, d Delivery) error
 }
 
-// Delivery is one opened delivery as its supervisor reads it: who has come for the bytes,
-// and how much media is still there to be come for.
+// Supervisor judges a cast for as long as the renderer is playing it, over the read behind the
+// delivery. It is a parameter of Serve and not a field of OpenParams, so no leg can leave a cast
+// unwatched by omitting one: the remux leg did exactly that, and every Chromecast cast of a
+// header-gated source ran with no stall rule, no in-flight deliverability rule and no unfetched
+// rule at all, on the composition where the encoder IS the read.
 //
-// The two travel together because either one alone convicts a viewer who PAUSES. A paused
-// renderer stops requesting segments, or stops draining the socket, and no sink can tell
-// that from a renderer that went away, so silence alone ended a film at two and a half
-// minutes of somebody standing up. What separates the two is whether castor still has
+// nil says "this leg opened no read of its own", NOT "do not watch". The driver then judges the
+// encode it started itself (see session.watchTheEncode), which on such a leg is the read.
+//
+// It is a callback because the facts a health rule needs live on both sides of this layer: what
+// the renderer fetches and what is still fetchable are the delivery's to report, while a read
+// castor opened belongs to the leg that opened it, and Serve is not the party that gets to hold
+// them both. It returns when a verdict ends the cast, and its error becomes the cast's error
+// joined with whatever the encoder had to say.
+type Supervisor func(ctx context.Context, d Delivery) error
+
+// Delivery is one opened delivery as its supervisor reads it: who has come for the bytes, and
+// how much media is still there to be come for.
+//
+// The two travel as ONE value, built by one constructor, and that is what makes "half the pair"
+// unrepresentable: it used to be two independent nilable closures with a paragraph elsewhere
+// warning that a leg must not hand over one of them. Either fact alone convicts a viewer who
+// PAUSES. A paused renderer stops requesting segments, or stops draining the socket, and no
+// mechanism can tell that from a renderer that went away, so silence alone ended a film at two
+// and a half minutes of somebody standing up. What separates the two is whether castor still has
 // anything for it to come back to.
 type Delivery struct {
-	// Consumer is the renderer's fetching as the sink fronting this delivery tracks it.
+	// Consumer is the renderer's fetching as the mechanism fronting this delivery tracks it.
 	Consumer watch.Consumer
 
-	// Delivered is how much media this delivery can still hand over. It is nil where the
-	// delivery cannot honestly say, which is never "nothing" by accident: a rule that reads
-	// it must treat the absence as an unmeasured buffer and judge on the rest (see
-	// openSegmented, whose muxer deletes behind its own window).
+	// Delivered is how much media this delivery can still hand over.
 	Delivered func() time.Duration
 }
 
-// session is one opened delivery: the running server, an optional readiness gate
-// (nil when the URL is usable immediately), and the teardown that stops the
-// encoder and server AND reports why the encoder stopped. It lets Serve stay
-// branch-free over the two mechanisms.
-type session struct {
-	sink Sink
-	// consumer is the renderer's side of this delivery as a health rule reads it. It sits
-	// beside the sink rather than widening Sink past URL+Wait, which is deliberately
-	// narrow: a third delivery mechanism supplies one as data instead of every observer
-	// reaching for a concrete *replay.Server the way the first-bytes gate used to.
-	//
-	// It is nil on a mechanism nothing supervises in flight, which is not a second way of
-	// saying the same thing as delivered being nil, it is the same fact: a delivery that
-	// deletes behind its own window has no buffer to weigh a renderer's silence against, so
-	// there is nothing an in-flight rule could do with its fetching except convict every cast
-	// it serves. Such a mechanism answers for its renderer once, afterwards (see settled).
-	consumer watch.Consumer
-	// delivered is how much media this delivery can still hand the renderer, nil where this
-	// mechanism cannot say so honestly. It is the opener's answer and not the driver's
-	// because it is a property of what the mechanism keeps: a delivery that never takes back
-	// what it produced can offer the encoder's whole position, while one that rolls a window
-	// has only the window.
-	delivered func() time.Duration
-	// settled states whether the renderer took what this mechanism made for it, asked once
-	// the delivery has run its course. It takes nothing, and that is load-bearing: the only
-	// facts the answer may rest on are counts this mechanism holds itself (what it handed over
-	// and what it produced), so there is no parameter through which a clock could reach the
-	// arithmetic again (see undelivered).
-	//
-	// EVERY mechanism answers, and there is no nil to mean "cannot say". Silence here is how a
-	// cast nobody ever fetched exits 0: it was optional, the segmented mechanism left it out
-	// because it cannot state a SHARE of a program it deletes, and the one thing it could
-	// always have stated (whether anything at all got through) went unsaid on the only leg that
-	// also hands over no supervisor. What a mechanism cannot measure it says nothing ABOUT (see
-	// unfetched); what it cannot be is silent.
-	settled func() error
-	ready   func(ctx context.Context) error
-	// teardown stops everything and returns the encoder's terminal error. Openers
-	// build it with sync.OnceValue so it is idempotent and memoized: Serve both
-	// defers it (for the early returns) and calls it on the happy path for its
-	// value, and those must be one teardown reporting one result.
-	//
-	// Returning that error is the point. A dead encoder used to be indistinguishable
-	// from a finished one: io.Copy sees a clean EOF, the replay server's Wait returns
-	// nil once no client is left, and the exit status was logged at WARN after Serve
-	// had already returned success. So an ADTS AAC track copied into the mp4 muxer,
-	// which exits 255 with audio:0KiB, produced a castor run that exited 0 having
-	// cast nothing. The encoder's exit status is now part of the cast's result,
-	// together with ffmpeg.Process.SilentFailure and a probe of what the delivery
-	// actually wrote, which between them cover the shapes that exit 0 and still
-	// produced nothing playable: the container that refuses a track by writing it as
-	// private data reports a plausible byte count and complains to nobody, so the
-	// artifact is the only party that ever says so.
-	teardown func() error
+// inFlight is the only way a Delivery is built: both facts or no Delivery at all.
+func inFlight(consumer watch.Consumer, delivered func() time.Duration) *Delivery {
+	return &Delivery{Consumer: consumer, Delivered: delivered}
 }
 
-// opener starts an encoder and fronts it, returning the opened session. On
-// failure it fully cleans up the encoder itself and returns the error, so Serve
-// never has to tear down a half-open delivery.
-type opener func(ctx context.Context, p OpenParams, headers map[string]string) (*session, error)
+// opening is what a mechanism is built from, and all of it is decided before any mechanism
+// exists: this cast's parameters, the directory its artifacts live in, the encoder's output, the
+// headers the renderer asked for, and the encoder's own account of what it has made.
+type opening struct {
+	p       OpenParams
+	dir     string
+	out     io.Reader
+	headers map[string]string
+	made    func() media.Progress
+}
 
-// deliveries maps a format's DeliveryKind to the opener that serves it. This is
-// the whole per-delivery dispatch: no switch, no content-type conditional.
-var deliveries = map[media.DeliveryKind]opener{
-	media.DeliverStream:    openStream,
-	media.DeliverSegmented: openSegmented,
+// mechanisms maps a format's DeliveryKind to the constructor that fronts it. This is the whole
+// per-delivery dispatch: no switch, no content-type conditional. A constructor starts no process
+// and owns no lifetime, which is what leaves the ordering in one place (see open).
+var mechanisms = map[media.DeliveryKind]func(opening) (mechanism, error){
+	media.DeliverStream:    newStreamed,
+	media.DeliverSegmented: newSegmented,
+}
+
+// session is one opened delivery: the mechanism serving it, the encode behind it, and the one
+// stop that ends both.
+type session struct {
+	// mech is the delivery mechanism serving this cast, which is the whole of what a delivery
+	// supplies. Nothing about it arrives here as a closure an opener could fill half of.
+	mech mechanism
+
+	// proc is the encode, held for the one thing the mechanism cannot state: what ffmpeg printed
+	// while the artifact was failing to appear.
+	proc *ffmpeg.Process
+
+	// stop ends the encode and everything the driver started with it, in one order (see open).
+	// It is memoized, because Serve both defers it (for the early returns) and calls it on the
+	// happy path for its value, and those must be one teardown reporting one result.
+	//
+	// Returning that error is the point. A dead encoder used to be indistinguishable from a
+	// finished one: io.Copy sees a clean EOF, the mechanism's Wait ends once no client is left,
+	// and the exit status was logged at WARN after Serve had already returned success. It is now
+	// part of the cast's result, beside what the mechanism says the renderer took (see Serve).
+	stop func() error
 }
 
 // Serve runs one served cast end to end and is the single delivery entry point:
 // pick the mechanism from the format's DeliveryKind, open it, wait until the
 // device can be handed a URL, play, and block until delivered or ctx ends,
-// tearing the encoder and server down on every return. It names no device family.
-func Serve(ctx context.Context, dev Renderer, p OpenParams) error {
+// tearing the encoder and mechanism down on every return. It names no device family.
+func Serve(ctx context.Context, dev Renderer, p OpenParams, supervise Supervisor) error {
 	format := p.Opts.Format
-	open, ok := deliveries[format.Delivery]
-	if !ok {
-		return fmt.Errorf("no delivery mechanism for format %q", format.ContentType)
-	}
-
 	sess, err := open(ctx, p, dev.StreamHeaders(format.ContentType))
 	if err != nil {
 		return err
 	}
-	defer func() { _ = sess.teardown() }()
+	defer func() { _ = sess.stop() }()
 
-	if sess.ready != nil {
-		if err := sess.ready(ctx); err != nil {
-			// The gate reports that no playlist appeared; the teardown reports WHY the
-			// encoder stopped. Returning only the first is how "encoder exited before
-			// producing the HLS playlist" used to be the whole story on a run whose
-			// ffmpeg had a real reason waiting in its exit status.
-			return errors.Join(err, sess.teardown())
-		}
+	if err := sess.ready(ctx); err != nil {
+		// The gate reports that no artifact appeared; the teardown reports WHY the encoder
+		// stopped. Returning only the first is how "encoder exited before producing the HLS
+		// playlist" used to be the whole story on a run whose ffmpeg had a real reason waiting in
+		// its exit status.
+		return errors.Join(err, sess.stop())
 	}
 
-	streamURL := sess.sink.URL()
+	streamURL := sess.mech.URL()
 	slog.InfoContext(ctx, "starting playback", "url", streamURL.String(), "content_type", format.ContentType)
 	if err := dev.Play(ctx, streamURL, format.ContentType); err != nil {
-		return errors.Join(fmt.Errorf("starting playback: %w", err), sess.teardown())
+		return errors.Join(fmt.Errorf("starting playback: %w", err), sess.stop())
 	}
 	// Announced before anything else can go wrong, because everything after this line fails
 	// with a renderer holding a URL and that is the fact that decides what may be done about
@@ -228,49 +279,321 @@ func Serve(ctx context.Context, dev Renderer, p OpenParams) error {
 	}
 	slog.InfoContext(ctx, "streaming to device, press Ctrl+C to stop")
 
-	// The sink's Wait says the delivery ran its course, the supervisor says whether it was
+	// The mechanism's Wait says the delivery ran its course, the supervisor says whether it was
 	// working while it did, and the teardown says whether the thing being delivered was
 	// real. All three are part of the result, because a clean Wait over an encoder that
 	// died on its first audio packet, or over a renderer that never fetched a byte, is
 	// exactly the "exited 0 having cast nothing" shape this whole layer exists to prevent.
-	waitErr := deliver(ctx, sess, p.Supervise)
-	return errors.Join(waitErr, sess.teardown())
+	waitErr := sess.deliver(ctx, supervise)
+	return errors.Join(waitErr, sess.stop())
 }
 
-// deliver blocks until the delivery has run its course or the supervisor names a fault,
+// open starts the encode, fronts it with the mechanism the format names, and returns the opened
+// session. It is the ONE place either is started or stopped, and the ordering below is used by
+// every failure of its own as well as by the end of a healthy cast, so there is no second
+// ordering to disagree with it.
+func open(ctx context.Context, p OpenParams, headers map[string]string) (*session, error) {
+	var (
+		proc *ffmpeg.Process
+		mech mechanism
+		join = func() {}
+	)
+	// THE TEARDOWN, built before anything is started so that everything below can use it, and
+	// total over the states where half of what it stops does not exist yet.
+	stop := sync.OnceValue(func() error {
+		// Killed first, because everything after this needs the encoder to have stopped writing:
+		// a mechanism reading its output reaches EOF, and a reap can happen at all. Kill and not
+		// a cancelled context, because os/exec turns a cancellation into the process's own error
+		// and every healthy cast would then report "encoder: context canceled" and dump a stderr
+		// tail.
+		if proc != nil {
+			proc.Kill()
+		}
+		// Then the feed it reads, which is what frees os/exec's stdin-copying goroutine: Wait
+		// waits for that goroutine, and it parks in a read of a buffer that stops growing at
+		// exactly the moment a fault ends a cast (see OpenParams.Input).
+		if p.Input != nil {
+			_ = p.Input.Close()
+		}
+		// Then the mechanism, which stops serving and joins its own reading of the output, so
+		// nothing is left reading a pipe the reap below is about to close, and nothing is left
+		// writing into a work directory the caller removes next.
+		if mech != nil {
+			_ = mech.Close()
+		}
+		// Then the reap, and only then the progress feed's join: a progress consumer writes a cue
+		// file into that same work directory, so "the encoder has exited" is not on its own enough
+		// to say nobody is still writing.
+		if proc == nil {
+			return nil
+		}
+		err := encoderResult(ctx, proc, proc.Wait())
+		join()
+		return err
+	})
+
+	build, ok := mechanisms[p.Opts.Format.Delivery]
+	if !ok {
+		return nil, errors.Join(fmt.Errorf("no delivery mechanism for format %q", p.Opts.Format.ContentType), stop())
+	}
+	// The mechanism's artifacts live in a directory of their own, never in the cast's work
+	// directory itself: the file server that fronts a segmented delivery publishes everything in
+	// the directory it is given, and the cast's own private files (the buffer a read-once leg
+	// fills, the live cue file a burn-in draws from) are in the work directory beside it.
+	dir := filepath.Join(p.WorkDir, "delivery")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, errors.Join(fmt.Errorf("creating the delivery directory: %w", err), stop())
+	}
+
+	// The encoder's own account of what it has made, wrapping the caller's consumer rather than
+	// replacing it, because the feed has exactly one reader and the spool path places its
+	// subtitle cues off the same samples.
+	follow, made := produced(p.OnProgress)
+	p.OnProgress = follow
+
+	var err error
+	if proc, join, err = startEncoder(ctx, p, dir); err != nil {
+		return nil, errors.Join(err, stop())
+	}
+	if mech, err = build(opening{p: p, dir: dir, out: proc.Stdout, headers: headers, made: made}); err != nil {
+		return nil, errors.Join(fmt.Errorf("starting the delivery: %w", err), stop())
+	}
+	return &session{mech: mech, proc: proc, stop: stop}, nil
+}
+
+// ready holds until the renderer may be pointed at this delivery's artifact, or until the
+// mechanism's own patience for one runs out.
+//
+// One gate for every mechanism, over the terms each of them states (see Artifact). The producer
+// it watches is the encode, which answers two facts and not four: what it printed, and whether
+// its output has ended. Its pace and its terminal error are deliberately not offered here (see
+// watch.Telemetry).
+func (s *session) ready(ctx context.Context) error {
+	artifact := s.mech.Artifact()
+	return watch.Watch(ctx, watch.Monitor{
+		Subject:  artifact.Subject,
+		Window:   watch.Opening,
+		Producer: encoderOutput{proc: s.proc, ended: s.mech.Drained()},
+		Landed:   artifact.Landed,
+		Grace:    artifact.Grace,
+	})
+}
+
+// deliver blocks until the delivery has run its course or a supervisor names a fault,
 // whichever comes first, and returns that party's answer.
 //
-// A sink's Wait is not on its own a statement that the cast worked: it ends when nothing
+// A mechanism's Wait is not on its own a statement that the cast worked: it ends when nothing
 // is left to serve, and "nothing is left to serve" is also what a renderer that never
 // came for the bytes looks like from here. Racing the two is what makes the supervisor's
 // verdict able to outrank a clean-looking delivery, and cancelling the loser is what
 // stops either goroutine from outliving the cast.
 //
-// A Wait that ends CLEANLY is therefore asked one more question: did the renderer take what
-// was made for it. That question is answerable only here, at the end, because it is
-// arithmetic over the whole cast rather than a state anybody was ever in (see
-// session.settled), and it is asked whether or not this leg supervises, because the legs that
-// do not are the ones with nobody watching the renderer at all.
-func deliver(ctx context.Context, sess *session, supervise func(context.Context, Delivery) error) error {
-	if supervise == nil {
-		return cmp.Or(sess.sink.Wait(ctx), sess.settled())
+// WHO IS SUPERVISED is a property of the mechanism and not of the leg: whatever can be judged in
+// flight, is (see Supervisor). Only a mechanism that can state neither what the renderer fetched
+// nor what is left for it runs unwatched, which it must, since the in-flight rules answer that
+// pair with a stall on every cast (see segmented.InFlight).
+//
+// A Wait that ends CLEANLY is asked one more question: did the renderer take what was made for
+// it. That question is answerable only here, at the end, because it is arithmetic over the whole
+// cast rather than a state anybody was ever in (see mechanism.Settled), and it is asked whether
+// or not this cast was supervised.
+func (s *session) deliver(ctx context.Context, supervise Supervisor) error {
+	d := s.mech.InFlight()
+	if d == nil {
+		return s.settle(s.mech.Wait(ctx))
 	}
+	if supervise == nil {
+		supervise = s.watchTheEncode
+	}
+
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
 
 	delivered := make(chan error, 1)
-	go func() { delivered <- sess.sink.Wait(ctx) }()
+	go func() { delivered <- s.mech.Wait(ctx) }()
 	judged := make(chan error, 1)
-	go func() {
-		judged <- supervise(ctx, Delivery{Consumer: sess.consumer, Delivered: sess.delivered})
-	}()
+	go func() { judged <- supervise(ctx, *d) }()
 
 	select {
 	case err := <-delivered:
-		return cmp.Or(err, sess.settled())
+		return s.settle(err)
 	case err := <-judged:
 		return err
 	}
+}
+
+// settle asks the mechanism what the renderer took, and asks it ONLY of a delivery that ran its
+// course cleanly.
+//
+// The ordering is the whole of it. Both statements say they are never made about a cast the user
+// stopped (see undelivered and unfetched), and while this was one cmp.Or the ordering was a claim
+// rather than a fact: cmp.Or is a function, so its second argument is evaluated on every cancelled
+// cast and only its answer discarded. Harmless while these two are pure arithmetic, and not
+// harmless the day one of them logs, counts, or reads a clock that has been running since Play.
+func (s *session) settle(delivered error) error {
+	if delivered != nil {
+		return delivered
+	}
+	return s.mech.Settled()
+}
+
+// watchTheEncode judges a cast whose producer is the encode this driver started, which is the
+// composition where the encode IS the read: one ffmpeg reads the upstream and writes the very
+// bytes the renderer fetches (see Supervisor for the casts this leaves watched).
+//
+// NO PACE, and it is not an omission. The deliverability verdict says the source cannot sustain
+// the cast, and this encode is castor's own work: it may be decoding, scaling under the height
+// ceiling and re-encoding, which needs hardware to hold realtime and sits far under it on a
+// software-only host. Measured as a link, that ends a cast someone is watching and sends the
+// user after their network. What is left is exactly what is honest here: an upstream that has
+// stopped landing bytes while the renderer has nothing buffered, and a renderer that never came.
+func (s *session) watchTheEncode(ctx context.Context, d Delivery) error {
+	return watch.Watch(ctx, watch.Monitor{
+		Subject:   "the playing cast",
+		Window:    watch.Playing,
+		Producer:  encoderOutput{proc: s.proc, ended: s.mech.Drained()},
+		Landed:    s.mech.Artifact().Landed,
+		Consumer:  d.Consumer,
+		Delivered: d.Delivered,
+	})
+}
+
+// streamed serves a single growing output over the replay-from-zero server: the encoder writes
+// pipe:1, which the server spools and replays to every client from byte 0. The URL is handed
+// over once the muxer has produced a byte, or once this delivery's own patience for one runs out.
+//
+// This mechanism never takes back a byte it produced (the spool is not truncated and every
+// connection replays it from 0), so everything the encoder has written is still fetchable: its
+// whole position is the honest answer to what a paused renderer has left to play, and what the
+// renderer was handed can be weighed against what was made, which is arithmetic only where
+// nothing made was ever withdrawn.
+type streamed struct {
+	srv  *replay.Server
+	made func() media.Progress
+}
+
+func newStreamed(o opening) (mechanism, error) {
+	// The replay spool is this delivery's artifact as well as its buffer: it is the complete
+	// output the renderer was handed, byte for byte.
+	format := o.p.Opts.Format
+	srv, err := replay.New(replay.Config{
+		LocalIP:     o.p.LocalIP,
+		ContentType: format.ContentType,
+		Extension:   format.Extension,
+		Headers:     o.headers,
+		SpoolPath:   filepath.Join(o.dir, "out"+format.Extension),
+	}, o.out)
+	if err != nil {
+		return nil, fmt.Errorf("starting stream server: %w", err)
+	}
+	return streamed{srv: srv, made: o.made}, nil
+}
+
+func (m streamed) URL() *url.URL                  { return m.srv.URL() }
+func (m streamed) Wait(ctx context.Context) error { return m.srv.Wait(ctx) }
+func (m streamed) Drained() <-chan struct{}       { return m.srv.ProducerDone() }
+func (m streamed) Close() error                   { return m.srv.Close() }
+
+func (m streamed) Artifact() Artifact {
+	return Artifact{
+		Subject: "the stream output",
+		Landed:  func() int64 { n, _ := m.srv.Spooled(); return n },
+		Grace:   firstBytesTimeout,
+	}
+}
+
+func (m streamed) InFlight() *Delivery {
+	return inFlight(m.srv, func() time.Duration { return m.made().Position })
+}
+
+func (m streamed) Settled() error {
+	// The recency the server states beside it is the in-flight window's business (see
+	// watch.Consumer) and no term of this arithmetic: what is being answered here is how much of
+	// the program got through, and a clock on either side of that subtraction is what convicted
+	// casts watched to their last byte (see undelivered).
+	handed, _ := m.srv.Handed()
+	return undelivered(handed, m.made())
+}
+
+// segmented serves a live HLS directory: the encoder writes the playlist and rolling segments
+// into the delivery's own directory, which the HLS server fronts. Because the output is files
+// (not pipe:1), stdout carries nothing and is drained here to EOF, which is also what says the
+// producer has ended. The device is handed the playlist only once the muxer has written
+// something into it: a zero-byte playlist is a 200 no renderer can parse, and it does not come
+// back for a second look.
+//
+// Both of the narrower answers it gives are measurements rather than omissions, and they have
+// one cause: it deletes behind its own live edge. It reports no fetchable buffer (see InFlight)
+// and states no SHARE of what it produced, only whether anything at all got through (see
+// unfetched).
+type segmented struct {
+	srv      *hlsserve.Server
+	made     func() media.Progress
+	playlist string
+
+	// drained is closed once the encoder's output has ended, which for this mechanism is the end
+	// of a stdout nobody wanted: the artifacts are files.
+	drained chan struct{}
+	reader  sync.WaitGroup
+}
+
+func newSegmented(o opening) (mechanism, error) {
+	// The renderer's own headers travel with a segmented delivery too. Discarding them
+	// meant a family that only fetches what its transfer-mode header asks for was
+	// served a playlist it had no reason to accept, on the one delivery where the fault
+	// is invisible: the playlist 200s, every segment 200s, and the renderer simply never
+	// asks for the second one.
+	srv, err := hlsserve.New(hlsserve.Config{
+		LocalIP:  o.p.LocalIP,
+		Dir:      o.dir,
+		Playlist: media.HLSPlaylistName,
+		Headers:  o.headers,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("starting HLS server: %w", err)
+	}
+
+	m := &segmented{
+		srv:      srv,
+		made:     o.made,
+		playlist: filepath.Join(o.dir, media.HLSPlaylistName),
+		drained:  make(chan struct{}),
+	}
+	m.reader.Go(func() {
+		// Drained to EOF whatever is on it: an unread output pipe stops ffmpeg dead once the
+		// kernel buffer fills. Its end is the producer's end, which is what lets the server's
+		// idle grace start running and what the artifact gate watches.
+		defer close(m.drained)
+		_, _ = io.Copy(io.Discard, o.out)
+		srv.ProducerEnded()
+	})
+	return m, nil
+}
+
+func (m *segmented) URL() *url.URL                  { return m.srv.URL() }
+func (m *segmented) Wait(ctx context.Context) error { return m.srv.Wait(ctx) }
+func (m *segmented) Drained() <-chan struct{}       { return m.drained }
+func (m *segmented) Settled() error                 { return unfetched(m.srv.Served(), m.made()) }
+
+func (m *segmented) Artifact() Artifact {
+	// No patience: the alternative is pointing a renderer at a playlist with nothing in it.
+	return Artifact{Subject: "the HLS playlist", Landed: written(m.playlist)}
+}
+
+// InFlight is nil, and it is the same measurement as the missing share. This muxer rolls a
+// window and deletes behind it (ffmpeg.HLSWindow), so media the encoder wrote a minute ago is
+// gone from the playlist: the most this delivery can ever have in hand is that window, which is
+// a fraction of the silence either in-flight rule waits out
+// (TestARollingWindowKeepsNothingASupervisorCouldHoldACastOpenOver). A supervisor here would
+// have to weigh a renderer's silence against a buffer that is never there, and would answer with
+// a stall on every cast this mechanism serves, two and a half minutes in. What can be said is
+// said at the end, where zero is zero however much was deleted (see Settled).
+func (m *segmented) InFlight() *Delivery { return nil }
+
+func (m *segmented) Close() error {
+	err := m.srv.Close()
+	m.reader.Wait()
+	return err
 }
 
 // Undelivered is a cast that ran its course while the renderer stopped taking the stream:
@@ -339,9 +662,9 @@ func (u *Undelivered) Error() string {
 const handedAtLeast = 0.5
 
 // undelivered states whether the renderer took what this delivery made, from the two counts
-// that answer it: the bytes the sink handed over (sent, the most any one connection got) and
-// the bytes the encoder says it wrote (made, its last progress sample). Both are counts of the
-// same kind, they are compared against each other, and there is nothing else in the
+// that answer it: the bytes the mechanism handed over (sent, the most any one connection got)
+// and the bytes the encoder says it wrote (made, its last progress sample). Both are counts of
+// the same kind, they are compared against each other, and there is nothing else in the
 // arithmetic.
 //
 // NO CLOCK, and this is the whole shape of the measurement rather than a detail of it. The
@@ -356,8 +679,7 @@ const handedAtLeast = 0.5
 //   - Castor's own encoding pace. A burn-in pinned just above realtime averaging 0.9x, or a
 //     remux binding the height ceiling on a software-only host, makes two hours of media in
 //     two hours and thirteen minutes. The renderer takes every byte and was convicted for
-//     minutes that were castor's own doing, on the leg that has no supervisor to have caught
-//     the misattribution earlier.
+//     minutes that were castor's own doing.
 //
 // No tolerance answers either, because neither is bounded by anything a tolerance could be
 // derived from: pauses accumulate, and how long an encode runs is a property of the host.
@@ -399,8 +721,8 @@ func undelivered(sent int64, made media.Progress) error {
 }
 
 // unfetched states whether any of what this delivery produced reached the renderer at all,
-// from the count of artifacts the sink handed over and the encoder's last progress sample. It
-// is the completeness statement of a mechanism that deletes what it produced.
+// from the count of artifacts the mechanism handed over and the encoder's last progress sample.
+// It is the completeness statement of a mechanism that deletes what it produced.
 //
 // NOT A SHARE, and no threshold: this mechanism has no share to state. Its muxer rolls a
 // window and deletes behind it (ffmpeg.HLSWindow), so a renderer that fetched every segment it
@@ -411,11 +733,10 @@ func undelivered(sent int64, made media.Progress) error {
 // needs no allowance and can have none widened.
 //
 // WHAT IT NAMES, and it is the failure this whole layer claims to own surviving in the one
-// place nothing watched: the segmented delivery is reached by the leg that hands over no
-// supervisor, so nothing judges its renderer in flight. The renderer accepts the playlist URL,
-// never asks for a segment, the encoder runs the title to its end, the sink's idle grace
-// expires against a timestamp seeded when it was created, its Wait returns nil, and castor
-// exited 0 having cast nothing.
+// place nothing watches: this mechanism cannot be judged in flight at all (see
+// segmented.InFlight). The renderer accepts the playlist URL, never asks for a segment, the
+// encoder runs the title to its end, the server's idle grace expires against a timestamp seeded
+// when it was created, its Wait returns nil, and castor exited 0 having cast nothing.
 //
 // WHAT IT MUST NOT NAME, and does not: a cast the user stopped, whose Wait returns the
 // context's error so this is never asked at all; a live source, whose producer never ends, so
@@ -432,174 +753,6 @@ func unfetched(served int, made media.Progress) error {
 		return nil
 	}
 	return &Undelivered{Produced: made.Position}
-}
-
-// openStream serves a single growing output over the replay-from-zero server: the
-// encoder writes pipe:1, which the server spools and replays to every client from
-// byte 0. The URL is handed over once the muxer has produced a byte, or once this
-// delivery's own patience for one runs out. Teardown closes the server then the encoder,
-// so nothing is left writing when the caller removes the work directory.
-func openStream(ctx context.Context, p OpenParams, headers map[string]string) (*session, error) {
-	// This mechanism never takes back a byte it produced (the spool is not truncated and
-	// every connection replays it from 0), so everything the encoder has written is still
-	// fetchable and its whole position is the honest answer to what a paused renderer has
-	// left to play. Followed here rather than inside startEncoder because it is this
-	// mechanism's guarantee that makes the figure true, and it is the same guarantee that
-	// makes the completeness statement below arithmetic: what the renderer was handed can be
-	// compared against what was made only where nothing made was ever withdrawn.
-	follow, made := produced(p.OnProgress)
-	p.OnProgress = follow
-	proc, joinProgress, err := startEncoder(ctx, p)
-	if err != nil {
-		return nil, err
-	}
-
-	// The replay spool is this delivery's artifact as well as its buffer: it is the
-	// complete output the renderer was handed, byte for byte, so probing it asks
-	// what the muxer really wrote rather than what it was asked to write.
-	format := p.Opts.Format
-	artifact := filepath.Join(p.WorkDir, "out"+format.Extension)
-	srv, err := replay.New(replay.Config{
-		LocalIP:     p.LocalIP,
-		ContentType: format.ContentType,
-		Extension:   format.Extension,
-		Headers:     headers,
-		SpoolPath:   artifact,
-	}, proc.Stdout)
-	if err != nil {
-		_ = finishEncoder(ctx, proc)
-		joinProgress()
-		return nil, fmt.Errorf("starting stream server: %w", err)
-	}
-
-	return &session{
-		sink:      srv,
-		consumer:  srv,
-		delivered: func() time.Duration { return made().Position },
-		settled: func() error {
-			// The recency the sink states beside it is the in-flight window's business (see
-			// watch.Consumer) and no term of this arithmetic: what is being answered here is how
-			// much of the program got through, and a clock on either side of that subtraction is
-			// what convicted casts watched to their last byte (see undelivered).
-			handed, _ := srv.Handed()
-			return undelivered(handed, made())
-		},
-		ready: func(ctx context.Context) error {
-			return watch.Watch(ctx, watch.Monitor{
-				Subject:  "the stream output",
-				Window:   watch.Opening,
-				Producer: producedBy(proc, srv.ProducerDone()),
-				Landed:   srv.Produced,
-				Grace:    firstBytesTimeout,
-			})
-		},
-		teardown: sync.OnceValue(func() error {
-			_ = srv.Close()
-			err := finishEncoder(ctx, proc)
-			joinProgress()
-			return err
-		}),
-	}, nil
-}
-
-// openSegmented serves a live HLS directory: the encoder writes the playlist and
-// rolling segments into the work directory, which the HLS server fronts. Because
-// the output is files (not pipe:1), this fully owns the encoder lifecycle: a
-// single goroutine drains the unused stdout to EOF and only then Waits (honoring
-// os/exec's no-Wait-before-reads contract), then signals the server and the
-// readiness gate. The device is handed the playlist only once the muxer has written
-// something into it (the gate fails fast if the encoder dies first, and a zero-byte
-// playlist is a 200 no renderer can parse). Teardown kills the encoder, joins the
-// goroutine, then closes the server, so nothing writes into the work directory
-// after the caller removes it.
-//
-// It reports no fetchable buffer, and that is a measurement rather than an omission. This
-// muxer rolls a window and deletes behind it (ffmpeg.HLSWindow), so media the encoder wrote
-// a minute ago is gone from the playlist: the most this delivery can ever have in hand is
-// that window, which is a fraction of the silence either in-flight rule waits out
-// (TestARollingWindowKeepsNothingASupervisorCouldHoldACastOpenOver), so there is nothing
-// here to hold a cast open with. A renderer that stops fetching this for two and a half
-// minutes has genuinely lost the segments it would resume from.
-//
-// For the same reason it states no SHARE of what it produced: what a renderer was handed cannot
-// be weighed against what was made when most of what was made has been deleted, and a client
-// that fetched every segment it was ever offered has still taken a fraction of the program's
-// bytes. What it does state is whether anything at all got through (see unfetched), which no
-// amount of deleting excuses and which is the whole of the failure this leg used to hide: it is
-// reached by the composition that hands over no supervisor, so a renderer that took the URL and
-// never asked for a segment was judged by nobody, in flight or afterwards.
-func openSegmented(ctx context.Context, p OpenParams, headers map[string]string) (*session, error) {
-	// Followed for one figure only: how much media this cast produced, which is what the
-	// completeness statement below reports a renderer against. The segments themselves cannot
-	// answer it, since the directory never holds more than a window of them.
-	follow, made := produced(p.OnProgress)
-	p.OnProgress = follow
-	proc, joinProgress, err := startEncoder(ctx, p, ffmpeg.WithWorkDir(p.WorkDir))
-	if err != nil {
-		return nil, err
-	}
-
-	// The renderer's own headers travel with a segmented delivery too. Discarding them
-	// here meant a family that only fetches what its transfer-mode header asks for was
-	// served a playlist it had no reason to accept, on the one delivery where the fault
-	// is invisible: the playlist 200s, every segment 200s, and the renderer simply never
-	// asks for the second one.
-	srv, err := hlsserve.New(hlsserve.Config{
-		LocalIP:  p.LocalIP,
-		Dir:      p.WorkDir,
-		Playlist: media.HLSPlaylistName,
-		Headers:  headers,
-	})
-	if err != nil {
-		proc.Kill()
-		_ = proc.Wait()
-		joinProgress()
-		return nil, fmt.Errorf("starting HLS server: %w", err)
-	}
-
-	var (
-		wg       sync.WaitGroup
-		exitErr  error
-		exited   = make(chan struct{})
-		producer = func() {
-			// The output is files, not pipe:1, so stdout carries nothing; drain it to
-			// EOF before Wait to honour os/exec's no-Wait-before-reads contract.
-			_, _ = io.Copy(io.Discard, proc.Stdout)
-			exitErr = encoderResult(ctx, proc, proc.Wait())
-			srv.ProducerEnded()
-			close(exited)
-		}
-	)
-	wg.Go(producer)
-
-	playlist := filepath.Join(p.WorkDir, media.HLSPlaylistName)
-	return &session{
-		sink: srv,
-		// No consumer and no fetchable buffer: this mechanism is judged once its delivery has run
-		// its course rather than while it runs, and both absences are the same measurement. A
-		// supervisor here would have to read a buffer this muxer cannot state and a landed figure
-		// that stops changing the moment the window is full, and the in-flight rules answer that
-		// pair with a stall on every cast this mechanism serves, two and a half minutes in. What
-		// can be said is said at the end, where zero is zero however much was deleted.
-		settled: func() error {
-			return unfetched(srv.Served(), made())
-		},
-		ready: func(ctx context.Context) error {
-			return watch.Watch(ctx, watch.Monitor{
-				Subject:  "the HLS playlist",
-				Window:   watch.Opening,
-				Producer: producedBy(proc, exited),
-				Landed:   written(playlist),
-			})
-		},
-		teardown: sync.OnceValue(func() error {
-			proc.Kill()
-			wg.Wait()
-			joinProgress()
-			_ = srv.Close()
-			return exitErr
-		}),
-	}, nil
 }
 
 // produced follows what the encoder says it has written and hands back the latest sample of
@@ -633,21 +786,26 @@ func produced(report func(media.Progress)) (func(media.Progress), func() media.P
 }
 
 // startEncoder builds and launches the encode and takes ownership of the feed it
-// reports itself on. extra are start options this delivery adds to the caller's.
+// reports itself on. dir is where a muxer that writes files puts them, and where a
+// relative output name resolves.
 //
-// The returned join blocks until the last sample has been delivered, and every
-// teardown calls it after reaping the process. That ordering is what a progress
-// consumer needs to be safe: the spool path's consumer writes a cue file into the
-// work directory its caller removes as soon as Serve returns, so "the encoder has
-// exited" is not on its own enough to say nobody is still writing.
-func startEncoder(ctx context.Context, p OpenParams, extra ...ffmpeg.StartOption) (*ffmpeg.Process, func(), error) {
+// The returned join blocks until the last sample has been delivered, and the teardown calls it
+// after reaping the process. That ordering is what a progress consumer needs to be safe: the
+// spool path's consumer writes a cue file into the work directory its caller removes as soon as
+// Serve returns, so "the encoder has exited" is not on its own enough to say nobody is still
+// writing.
+func startEncoder(ctx context.Context, p OpenParams, dir string) (*ffmpeg.Process, func(), error) {
 	args, err := ffmpeg.EncodeArgs(p.Opts)
 	if err != nil {
 		return nil, nil, fmt.Errorf("building encode args: %w", err)
 	}
-	startOpts := slices.Concat(p.StartOpts, extra, []ffmpeg.StartOption{
+	startOpts := []ffmpeg.StartOption{
+		ffmpeg.WithWorkDir(dir),
 		ffmpeg.WithExtraPipes(ffmpeg.EncodeExtraPipes),
-	})
+	}
+	if p.Input != nil {
+		startOpts = slices.Insert(startOpts, 0, ffmpeg.WithStdin(p.Input))
+	}
 	proc, err := ffmpeg.Start(ctx, p.FFmpegPath, args, startOpts...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("starting transcode: %w", err)
@@ -671,14 +829,6 @@ func startEncoder(ctx context.Context, p OpenParams, extra ...ffmpeg.StartOption
 	return proc, func() { <-drained }, nil
 }
 
-// finishEncoder tears down a pipe-fed encoder and reports why it stopped: close
-// its output (the encoder gets EPIPE and exits), wait for exit, and judge what it
-// left behind, because exit 0 is not evidence the output was playable.
-func finishEncoder(ctx context.Context, proc *ffmpeg.Process) error {
-	_ = proc.Stdout.Close()
-	return encoderResult(ctx, proc, proc.Wait())
-}
-
 // encoderResult turns an encoder's exit into the cast's verdict on it. waitErr is
 // what os/exec reported; a clean exit is still a failure when ffmpeg printed one
 // of the lines that mean the output is not playable (see Process.SilentFailure),
@@ -700,29 +850,20 @@ func encoderResult(ctx context.Context, proc *ffmpeg.Process, waitErr error) err
 // byte) announces itself in milliseconds.
 const firstBytesTimeout = 10 * time.Second
 
-// encoderOutput is a delivery's own producer as a health rule reads it, so the wait for
-// an artifact to appear is judged by the same table as everything else about a cast.
+// encoderOutput is the encode behind a delivery as a health rule reads it: whether its output
+// has ended, and what it printed.
 //
-// Progress is deliberately empty. What this window judges is whether the artifact
-// exists, and the encoder's own pace is not a statement about a link's carrying capacity:
-// the subtitle-burning encode is pinned just above realtime by design, so offering its
-// speed here is offering a number the deliverability rule would have to be taught to
-// ignore. Err is nil for the same reason of ownership: the encoder's verdict belongs to
-// this delivery's teardown, and Serve joins it into the result, so a gate that
-// duplicated it would report one failure twice and could disagree about it.
+// Two facts and not four. It answers no telemetry at all, which is the point: those two methods
+// used to exist and return constants (an empty progress sample, a nil error), and the
+// reachability model credited them as facts this window supplied. The reasons the encoder has
+// neither to offer are written once, where the port is declared (see watch.Telemetry).
 type encoderOutput struct {
 	proc  *ffmpeg.Process
 	ended <-chan struct{}
 }
 
-func producedBy(proc *ffmpeg.Process, ended <-chan struct{}) encoderOutput {
-	return encoderOutput{proc: proc, ended: ended}
-}
-
-func (o encoderOutput) Progress() media.Progress { return media.Progress{} }
-func (o encoderOutput) Done() <-chan struct{}    { return o.ended }
-func (o encoderOutput) Err() error               { return nil }
-func (o encoderOutput) Evidence() []string       { return o.proc.Evidence().Lines }
+func (o encoderOutput) Done() <-chan struct{} { return o.ended }
+func (o encoderOutput) Evidence() []string    { return o.proc.Evidence().Lines }
 
 // written reports how much of a file the muxer has put on disk, which is what a
 // segmented delivery's artifact gate is waiting for. It is the SIZE and not merely the

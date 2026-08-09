@@ -144,15 +144,18 @@ type castCase struct {
 	source  func(*testing.T, string) fixtureOrigin
 	headers http.Header
 
-	// declared is the height the SOURCE published for the rung this cast reads (an HLS
-	// RESOLUTION, carried on the attempt as media.Rendition.Height). It is the only thing a
-	// cast knows about its own height before it reads a byte, so it is what the composition
-	// asks the ceiling about, and 0 (the ordinary case) means the source declared nothing.
+	// declared and measured are the two ways a cast can know its own height before it reads a
+	// byte, and the composition asks the ceiling about whichever it has: declared is the
+	// RESOLUTION the source published for the rung being read (carried on the attempt as
+	// media.Rendition.Height), measured is what a probe of the link established while
+	// candidates were ranked (carried on the stream, see media.Stream.Height). Both 0 means
+	// nothing established either, which is a URL cast by hand that nobody probed.
 	declared int
+	measured int
 
 	// ceiling raises the cast's configured max_height for a row about what the ceiling
 	// ADMITS rather than what it refuses, 0 to keep the suite's 1080.
-	ceiling int
+	ceiling media.HeightCap
 
 	// The renderer: a family, which fixes when castor connects, and the
 	// capabilities it negotiates.
@@ -379,13 +382,29 @@ func TestCastMatrix(t *testing.T) {
 		served:   media.MP4,
 		height:   1080,
 	}, {
-		// The carve-out, end to end, and it is required rather than a softening of the row
-		// above. This is the identical cast whose source declared no height, which is what
-		// nearly every pass-through looks like (a direct file, a media playlist with no
-		// RESOLUTION), and a pass-through measures nothing ever, so absence of evidence is all
-		// castor will ever have. Convicting on it would cost castor its cheapest leg almost
-		// entirely, to bound a picture that in all likelihood already fits.
-		name:   "a source that declared no height is handed over untouched under the same ceiling",
+		// The same 1440 lines with nothing DECLARED and the ranker's own measurement instead,
+		// which is what nearly every candidate arrives with: a direct file and a media playlist
+		// both declare no RESOLUTION, and the height was paid for while the pool was being
+		// ranked. The measurement used to stop at the ranker's package boundary, so this cast
+		// reached the composition as a height of 0, passed the ceiling as "nothing established"
+		// and delivered 1440 lines to an operator who asked for 1080. The height was never
+		// unknown; it was uncarried, and a test that asserted the URL was handed over was
+		// asserting that.
+		name:     "a source measured above the cast's ceiling is served scaled, not handed over",
+		source:   serveTallFixture,
+		measured: 1440,
+		family:   device.TypeChromecast,
+		caps:     chromecastLike(media.MKV),
+		served:   media.MP4,
+		height:   1080,
+	}, {
+		// The carve-out, end to end, and it is required rather than a softening of the two rows
+		// above: with neither witness there is nothing to convict on. This is a URL cast by
+		// hand, the one cast that reaches a renderer with no measurement behind it at all
+		// (nothing ranked it, and the pass-through leg probes nothing ever), and refusing it on
+		// absence of evidence would cost castor its cheapest leg to bound a picture that in all
+		// likelihood already fits.
+		name:   "a source nothing established a height for is handed over untouched under the same ceiling",
 		source: serveTallFixture,
 		family: device.TypeChromecast,
 		caps:   chromecastLike(media.MKV),
@@ -429,6 +448,9 @@ func TestCastMatrix(t *testing.T) {
 			origin := tt.source(t, ffmpegPath)
 			source := origin.stream()
 			source.Headers = tt.headers
+			// What a probe of this link measured, which for a ranked candidate is established
+			// before any leg runs and travels on the stream itself.
+			source.Height = tt.measured
 
 			// Capture what the renderer receives, so the assertions read the bytes a
 			// player would have had to decode rather than castor's account of them.
@@ -660,13 +682,9 @@ func TestADeadReadIsReportedAsTheReadsOwnFailure(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), castTimeout)
 	defer cancel()
 
-	policy, err := read.For(read.ShapeOf(media.Origin{}), 30*time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
 	cfg := castConfig(device.TypeDLNA, ffmpegPath, ffprobePath)
-	out := NewExecutor(cfg, connectTo(dev), "127.0.0.1").Run(ctx, attempt.Attempt{
-		Try: 1, Source: source, Read: policy,
+	out := NewExecutor(cfg, connectTo(dev), noStage, "127.0.0.1").Run(ctx, attempt.Attempt{
+		Try: 1, Source: source, Read: sourcePolicy(t, 30*time.Second),
 	})
 
 	if out.Err == nil {
@@ -747,7 +765,7 @@ func TestAReadThatDiesWithARendererPlayingIsNeverCastAgain(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), castTimeout)
 	defer cancel()
 
-	runner := &tally{run: NewExecutor(castConfig(device.TypeDLNA, ffmpegPath, ffprobePath), connectTo(dev), "127.0.0.1")}
+	runner := &tally{run: NewExecutor(castConfig(device.TypeDLNA, ffmpegPath, ffprobePath), connectTo(dev), noStage, "127.0.0.1")}
 	done := make(chan error, 1)
 	go func() { done <- attempt.Cast(ctx, in, runner, asPublished{}) }()
 
@@ -931,22 +949,29 @@ func castOnce(ctx context.Context, t *testing.T, cfg core.Config, connect Connec
 // the composition question: what the source said, before castor has read a byte of it.
 func castRung(ctx context.Context, t *testing.T, cfg core.Config, connect ConnectFunc, source *media.Stream, rung media.Rendition) error {
 	t.Helper()
-	policy, err := read.For(read.ShapeOf(media.Origin{}), cfg.Transcode.RWTimeout)
-	if err != nil {
-		t.Fatalf("read policy: %v", err)
-	}
 	// The operator's preference reaches the executor on the ATTEMPT and nowhere else,
 	// which is where a recovery would change it: an executor reading its own configuration
 	// instead would be answering a question that has since been asked again.
 	delivery := cfg.Delivery
 	cfg.Delivery = core.DeliveryAuto
-	return NewExecutor(cfg, connect, "127.0.0.1").Run(ctx, attempt.Attempt{
+	return NewExecutor(cfg, connect, noStage, "127.0.0.1").Run(ctx, attempt.Attempt{
 		Try:       1,
 		Source:    source,
 		Rendition: rung,
-		Read:      policy,
+		Read:      sourcePolicy(t, cfg.Transcode.RWTimeout),
 		Delivery:  delivery,
 	}).Err
+}
+
+// sourcePolicy is how a source no document was read for is fetched, which is what every cast
+// here drives: they call the executor directly, so no resolution ran.
+func sourcePolicy(t *testing.T, rwTimeout time.Duration) read.Policy {
+	t.Helper()
+	policy, err := read.For(read.ShapeOf(media.Origin{}), rwTimeout)
+	if err != nil {
+		t.Fatalf("read policy: %v", err)
+	}
+	return policy
 }
 
 // castTimeout bounds every cast this suite drives. It is a backstop, not a

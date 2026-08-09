@@ -161,11 +161,13 @@ var DegradeRendition = Strategy{
 
 		// The same link at a different rung, so everything that link was measured with (the
 		// headers it only answers to, the leniency its segments needed, its companion audio
-		// rendition) travels with it. Only what identifies the rung changes.
+		// rendition, the runtime of the one program all its rungs carry) travels with it.
+		// The height does not: it described the rung that just failed, and carrying a taller
+		// picture's measurement is what would convict the new rung under the cast's ceiling.
 		rung := lighter[0]
 		source := *a.Source
 		source.URL = rung.URL
-		source.Bandwidth = int64(rung.Bitrate)
+		source.Height = rung.Height
 		a.Source, a.Rendition = &source, rung
 		return a, true
 	},

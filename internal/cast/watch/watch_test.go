@@ -48,11 +48,12 @@ func TestWatchCountsOnlyStatedSpeeds(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 1500*time.Millisecond)
 	defer cancel()
 	err := Watch(ctx, Monitor{
-		Subject:  "playback gate",
-		Window:   BeforePlay,
-		Producer: producer,
-		Landed:   func() int64 { return 33088 },
-		Headroom: 2,
+		Subject:   "playback gate",
+		Window:    BeforePlay,
+		Producer:  producer,
+		Telemetry: producer,
+		Landed:    func() int64 { return 33088 },
+		Headroom:  2,
 	})
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Watch = %v; a read that has stated no speed at all must neither open the gate nor be convicted by it", err)
@@ -87,11 +88,12 @@ func TestWatchHoldsAStarvingReadUntilTheDeficitOutlastsTheBackoff(t *testing.T) 
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
 	err := Watch(ctx, Monitor{
-		Subject:  "playback gate",
-		Window:   BeforePlay,
-		Producer: producer,
-		Landed:   func() int64 { return 33088 },
-		Headroom: 2,
+		Subject:   "playback gate",
+		Window:    BeforePlay,
+		Producer:  producer,
+		Telemetry: producer,
+		Landed:    func() int64 { return 33088 },
+		Headroom:  2,
 	})
 
 	var fault *Fault
@@ -118,6 +120,46 @@ func TestWatchHoldsAStarvingReadUntilTheDeficitOutlastsTheBackoff(t *testing.T) 
 	}
 }
 
+// TestWatchHoldsACastShortOfItsTranscription drives the lead port through the real loop, which
+// nothing in this package did: it was exercised only from the executor, the one package that
+// could not be built without a compiled whisper submodule.
+//
+// What it pins is the "subs never show" failure as the loop sees it: a burn-in encoder that
+// starts ahead of the committed frontier draws nothing on the frames it produces, so bytes
+// alone must not open this gate, while the ABSENCE of a transcription is what makes the same
+// bytes playable.
+func TestWatchHoldsACastShortOfItsTranscription(t *testing.T) {
+	// A read granted no pace, so the deliverability question is not asked (see Health.measured)
+	// and the transcription is the only thing this gate can be holding for.
+	gate := func(lead Lead) error {
+		ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+		defer cancel()
+		return Watch(ctx, Monitor{
+			Subject: "playback gate",
+			Window:  BeforePlay,
+			Landed:  func() int64 { return 33088 },
+			Lead:    lead,
+		})
+	}
+
+	if err := gate(fakeLead{latest: transcriptionLeadSeconds - 1}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Watch = %v; a cast whose cues have not reached the frame being encoded was handed over, which is a picture with nothing drawn on it", err)
+	}
+	if err := gate(fakeLead{latest: transcriptionLeadSeconds}); err != nil {
+		t.Errorf("Watch = %v, want the gate to open once the transcription leads the encoder", err)
+	}
+	// A short source finishes before it ever builds that lead, and then there is nothing left
+	// to wait for.
+	if err := gate(fakeLead{done: true}); err != nil {
+		t.Errorf("Watch = %v, want the gate to open on a finished transcription", err)
+	}
+	// And a cast that burns none is playable on the same bytes, which is the answer a nil port
+	// gives and a stage reporting zero could not.
+	if err := gate(nil); err != nil {
+		t.Errorf("Watch = %v, want a subtitle-less cast to be playable on its bytes alone", err)
+	}
+}
+
 // TestWatchCarriesTheProducersOwnError is the attribution property: a cast whose reader
 // died must fail WITH that error rather than with a description of the stage that noticed.
 // "encoder: spool producer failed: upstream pull: exit status 183" is what the alternative
@@ -133,7 +175,13 @@ func TestWatchCarriesTheProducersOwnError(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	err := Watch(ctx, Monitor{Subject: "playback gate", Window: BeforePlay, Producer: producer, Landed: func() int64 { return 1 }})
+	err := Watch(ctx, Monitor{
+		Subject:   "playback gate",
+		Window:    BeforePlay,
+		Producer:  producer,
+		Telemetry: producer,
+		Landed:    func() int64 { return 1 },
+	})
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("Watch = %v, want the reader's own error to survive to the caller", err)
 	}
@@ -193,8 +241,13 @@ func TestWatchLeavesAPausedViewerTheCastTheyArePausing(t *testing.T) {
 		name:      "a pause over twenty fetchable minutes",
 		delivered: func() time.Duration { return 20 * time.Minute },
 	}, {
-		name:      "a pause the delivery can say nothing about",
-		delivered: nil,
+		// The same silence over a delivery with nothing to show for itself yet: the encoder
+		// states its position on its own cadence, so a watch that opens the instant Play returns
+		// reads zero. The row used to leave the port nil, which a delivery cannot do (both facts
+		// travel as one value, see core.Delivery), so it was asserting about a state production
+		// has no way to be in.
+		name:      "a pause before the encoder has stated a position",
+		delivered: func() time.Duration { return 0 },
 	}} {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)

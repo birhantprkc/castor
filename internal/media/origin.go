@@ -16,7 +16,7 @@ import (
 
 // Reach is how far an attempt to read a source got, as a fact about the ORIGIN
 // rather than about the media: it answers "did anybody answer, and what did they
-// say", where StreamInfo answers "what is inside it".
+// say", where ProbeInfo answers "what is inside it".
 //
 // It exists because the two ways a measurement fails call for opposite decisions
 // and used to arrive as one indistinguishable error. An origin answering 403
@@ -176,6 +176,11 @@ type Origin struct {
 
 	// Live reports that the source has no end: an HLS media playlist with no
 	// EXT-X-ENDLIST is still being appended to.
+	//
+	// It is established by ONE witness and never by a vote, because the two that exist are not
+	// comparable: the document listing the segments knows, while a probe reporting no duration
+	// is proof of nothing (see resolve, which establishes it, and watch.Health, which is what a
+	// wrong answer here switches off).
 	Live bool
 
 	// Encrypted reports that segments are delivered under an EXT-X-KEY with a real

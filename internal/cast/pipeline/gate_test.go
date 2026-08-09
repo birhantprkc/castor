@@ -168,29 +168,23 @@ func TestSuperviseLeavesAPausedViewerTheCastTheyArePausing(t *testing.T) {
 	const noPace = 0
 	stopped := stoppedRenderer{handed: 8 << 20, last: time.Now().Add(-watch.StallWindow - time.Second)}
 
-	for _, tt := range []struct {
-		name     string
-		delivery core.Delivery
-	}{{
-		name:     "a pause over twenty fetchable minutes",
-		delivery: core.Delivery{Consumer: stopped, Delivered: func() time.Duration { return 20 * time.Minute }},
-	}, {
-		name:     "a pause with nothing the delivery can prove is left",
-		delivery: core.Delivery{Consumer: stopped},
-	}} {
-		t.Run(tt.name, func(t *testing.T) {
-			sp, pl := gateFixture(t, noPace)
-			ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
-			defer cancel()
-			err := supervise(ctx, sp, pl, tt.delivery)
-			var fault *watch.Fault
-			if errors.As(err, &fault) {
-				t.Fatalf("the cast a viewer paused was ended as %s: %v", fault.Kind, err)
-			}
-			if !errors.Is(err, context.DeadlineExceeded) {
-				t.Fatalf("supervise = %v, want the cast to keep running while its viewer is paused", err)
-			}
-		})
+	// One row, because a delivery cannot hand over half of what it is judged on: the two facts
+	// travel as one value built by one constructor (see core.Delivery). The row that used to sit
+	// beside this one supervised a delivery reporting a renderer with no buffer behind it, which
+	// core has no way to produce.
+	sp, pl := gateFixture(t, noPace)
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	defer cancel()
+	err := supervise(ctx, sp, pl, core.Delivery{
+		Consumer:  stopped,
+		Delivered: func() time.Duration { return 20 * time.Minute },
+	})
+	var fault *watch.Fault
+	if errors.As(err, &fault) {
+		t.Fatalf("the cast a viewer paused was ended as %s: %v", fault.Kind, err)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("supervise = %v, want the cast to keep running while its viewer is paused", err)
 	}
 }
 

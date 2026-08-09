@@ -5,9 +5,8 @@
 // here chooses which cast to make.
 //
 // What a cast is MADE of is data too. An ordered table of compositions carries the rule that
-// selects each shape, when the renderer is acquired for it, and how much its copy may
-// refuse, and each row's wiring holds no decision of its own. Three rows cover every cast
-// castor makes:
+// selects each shape and how much its copy may refuse, and each row's wiring holds no decision
+// of its own. Three rows cover every cast castor makes:
 //
 //   - read-once: a renderer that never fetches for itself, so one reader lands the program in
 //     a local buffer an encoder tails, with an optional whisper burn-in. Chosen from the
@@ -18,14 +17,15 @@
 //   - remux: the renderer fetches for itself but cannot be handed this source, so one ffmpeg
 //     reads the upstream and serves a container it takes.
 //
-// The one thing a device family shapes here is WHEN the renderer is connected, and it is a
-// column of that table rather than a branch: a cast whose shape is already fixed reads first
-// and connects alongside, so slow discovery does not age a short-lived signed URL, while a
-// cast whose shape depends on what the renderer negotiates has to connect to be composed at
-// all.
+// The one thing a device family shapes here is WHEN the renderer is connected, and that
+// follows from which pass answered rather than from a branch or a column of its own: a cast
+// whose shape is already fixed by the family's static profile reads first and connects
+// alongside, so slow discovery does not age a short-lived signed URL, while a cast whose shape
+// depends on what the renderer negotiates has to connect to be composed at all.
 package pipeline
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -54,12 +54,13 @@ type ConnectFunc func(context.Context, core.Config) (device.Device, error)
 type Executor struct {
 	cfg     core.Config
 	connect ConnectFunc
+	stage   StageFunc
 	localIP string
 }
 
 // NewExecutor binds an executor to its host.
-func NewExecutor(cfg core.Config, connect ConnectFunc, localIP string) *Executor {
-	return &Executor{cfg: cfg, connect: connect, localIP: localIP}
+func NewExecutor(cfg core.Config, connect ConnectFunc, stage StageFunc, localIP string) *Executor {
+	return &Executor{cfg: cfg, connect: connect, stage: stage, localIP: localIP}
 }
 
 // Compile-time proof that the resilience loop needs nothing of this package but this.
@@ -74,7 +75,7 @@ func (e *Executor) Run(ctx context.Context, a attempt.Attempt) attempt.Outcome {
 	// been asked again.
 	cfg.Delivery = a.Delivery
 
-	return run(ctx, cfg, configured{cfg: cfg, connect: e.connect}, a, e.localIP).outcome(ctx)
+	return run(ctx, cfg, configured{cfg: cfg, connect: e.connect}, e.stage, a, e.localIP).outcome(ctx)
 }
 
 // configured is the production Target: the renderer named in configuration, profiled from
@@ -116,6 +117,10 @@ type cast struct {
 
 	// renderer is the connected renderer, acquired at most once however many parties ask.
 	renderer func(ctx context.Context) (Renderer, error)
+
+	// stage builds the optional work this cast runs beside its read, in this cast's own work
+	// directory. Only the composition that produces the picture asks for one.
+	stage StageFunc
 }
 
 // run composes one cast, wires its lifecycle, and lets its composition run.
@@ -126,7 +131,7 @@ type cast struct {
 // the connect goroutine to have finished, so it cannot race one still acquiring), and only
 // then is the work directory removed, so nothing is still writing a file into a directory
 // being deleted.
-func run(parent context.Context, cfg core.Config, t Target, a attempt.Attempt, localIP string) landing {
+func run(parent context.Context, cfg core.Config, t Target, stage StageFunc, a attempt.Attempt, localIP string) landing {
 	workDir, err := os.MkdirTemp("", "castor-")
 	if err != nil {
 		return landing{err: fmt.Errorf("creating work directory: %w", err)}
@@ -143,24 +148,34 @@ func run(parent context.Context, cfg core.Config, t Target, a attempt.Attempt, l
 	row, shape, err := compose(ctx, compositions, t, renderer, core.Shape{
 		Source:   a.Source,
 		Delivery: cfg.Delivery,
-		// The rung the SOURCE declared for this attempt, which is the only thing a cast knows
-		// about its own height before it reads a byte: the pass-through composition probes
-		// nothing, ever, so a height it does not arrive with is a height it will never have.
-		// Zero is the ordinary answer and stays lenient (see core.Shape.Passthrough).
-		Height:    a.Rendition.Height,
+		// Whatever was established about this attempt's picture, and both witnesses have to
+		// arrive because the pass-through composition probes nothing ever: a height it is not
+		// handed is a height it will never have (see media.Stream.Height). The declaration
+		// leads where the source made one, since it describes the rung this cast will read
+		// while a probe of a master reports whichever variant ffprobe opened.
+		Height:    cmp.Or(a.Rendition.Height, a.Source.Height),
 		MaxHeight: cfg.Resolver.MaxHeight,
 	})
 	if err != nil {
 		return landing{err: err}
 	}
+	// When the renderer is acquired is a function of what the row's rule reads rather than a
+	// column of its own: a row chosen from the family's static profile has connected nobody
+	// yet, and a row chosen from what a renderer negotiated could only be chosen because
+	// acquiring one is what answered it.
+	concurrent := row.needs == profileOnly
+	connected := "before the read"
+	if concurrent {
+		connected = "concurrently with the read"
+	}
 	slog.InfoContext(ctx, "cast composition",
 		"composition", row.name,
 		"why", row.why,
-		"connect", row.connect.String(),
+		"connect", connected,
 		"shape", shape.String(),
 	)
 
-	if row.connect == connectConcurrent {
+	if concurrent {
 		// Nothing needs the renderer until the buffer is playable, and discovery plus connect
 		// can take seconds the single-use source URL cannot spare, so it is acquired in the
 		// group: a connect failure cancels the group with its own error as the cause, which is
@@ -176,6 +191,7 @@ func run(parent context.Context, cfg core.Config, t Target, a attempt.Attempt, l
 		workDir:  workDir,
 		group:    g,
 		renderer: renderer.get,
+		stage:    stage,
 	})
 }
 
@@ -312,8 +328,9 @@ func (c *cast) encode(ctx context.Context, caps media.Renderer, into media.Forma
 
 // serve hands one produced stream to the renderer, filling in what every delivery of this cast
 // shares: the binary that produces it, the address it is reachable at, and the directory it is
-// produced in. What differs (the encode, how it is fed, who follows it, who judges it) is the
-// caller's to state.
+// produced in. What differs (the encode, how it is fed, who follows it) is the caller's to state,
+// and so is the supervisor, which is a parameter rather than a field of the params so that a leg
+// states what watches its read instead of being able to omit one.
 //
 // It reports how far the cast got as well as what it ended with, and that phase is the whole
 // input to decision 1: PhasePlaying once the renderer has accepted the URL, and otherwise
@@ -321,7 +338,7 @@ func (c *cast) encode(ctx context.Context, caps media.Renderer, into media.Forma
 // established. Everything a delivery does after Play (the wait, the supervisor, the encoder's
 // teardown) fails with a viewer watching, and a leg that reported those as reading is what let
 // a reader's exit 1 forty minutes into a film be answered by casting it again from zero.
-func (c *cast) serve(ctx context.Context, dev Renderer, before attempt.Phase, p core.OpenParams) (attempt.Phase, error) {
+func (c *cast) serve(ctx context.Context, dev Renderer, before attempt.Phase, p core.OpenParams, supervise core.Supervisor) (attempt.Phase, error) {
 	p.FFmpegPath = c.cfg.Transcode.FFmpegPath
 	p.LocalIP = c.localIP
 	p.WorkDir = c.workDir
@@ -331,7 +348,7 @@ func (c *cast) serve(ctx context.Context, dev Renderer, before attempt.Phase, p 
 	reached := before
 	p.OnPlaying = func() { reached = attempt.PhasePlaying }
 
-	err := core.Serve(ctx, dev, p)
+	err := core.Serve(ctx, dev, p, supervise)
 	return reached, err
 }
 

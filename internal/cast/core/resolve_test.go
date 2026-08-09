@@ -141,7 +141,7 @@ func TestDecideVideo(t *testing.T) {
 		name   string
 		caps   media.Renderer
 		src    media.ProbeInfo
-		maxH   int
+		maxH   media.HeightCap
 		burnIn string
 	}{
 		{name: "a source above the height cap re-encodes", caps: h264Renderer, src: copyable, maxH: 480},
@@ -313,37 +313,6 @@ func TestDecideVideo(t *testing.T) {
 			}
 		}
 	})
-}
-
-// TestWithinMaxHeightConvictsOnlyAMeasuredSourceOverTheCeiling pins the one asymmetry
-// left in the predicate, now that the ceiling has no sentinel to be absent through.
-//
-// An unmeasured height is not a tall source. A probe that failed or a container that
-// states no height is an ordinary thing for a hostile upstream to be, and reading that
-// silence as a conviction spends a decode, a scale and a re-encode on every unmeasured
-// cast to bound a height that may already fit. It is the same leniency an unproven
-// media.Reach and an unmeasured height in resolve.preference already carry: nothing
-// established may convict.
-//
-// The other direction has no zero case to pin, deliberately: max_height is
-// `validate:"required,min=1"`, so there is no configuration in which the ceiling is
-// missing, and inventing a sentinel for it would be re-introducing the very thing this
-// predicate no longer lets a policy do.
-//
-// It is asserted over bare heights because both callers of the ceiling ask it that way: the
-// encode decision asks it of a height its leg measured, and the composition asks it of a
-// height the source declared before anything was read. One of those restating this leniency
-// on its own is how the ceiling used to mean different things on different delivery paths.
-func TestWithinMaxHeightConvictsOnlyAMeasuredSourceOverTheCeiling(t *testing.T) {
-	if !withinMaxHeight(0, 1080) {
-		t.Error("an unmeasured height must pass rather than force a transcode on missing metadata")
-	}
-	if !withinMaxHeight(1080, 1080) {
-		t.Error("the ceiling is inclusive: a source at exactly the configured height is what the user asked for")
-	}
-	if withinMaxHeight(2160, 1080) {
-		t.Error("a source above the ceiling must not be copy-eligible")
-	}
 }
 
 // TestTheCeilingsForcedTranscodeIsAttributable pins the line, because the line is half the

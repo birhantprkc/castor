@@ -49,14 +49,18 @@ type Rule struct {
 // window ends in a row that always matches. Adding a pathology is one row here plus one
 // case in rules_test.go, where the case builds a Health directly.
 //
-// EVERY ROW NAMES THE PRODUCTION MONITOR IT IS REACHED THROUGH, at file:line, and that is
-// not documentation: a row is only worth its place if the shipping program can reach it,
-// and a Health built by hand proves nothing about that. A rule keyed on a fact no monitor
-// in its window fills reads that fact's zero value on every real cast, so it fails
-// nothing while reading as coverage of a pathology nobody is judging. The citations are
+// EVERY ROW NAMES THE PRODUCTION MONITOR IT IS REACHED THROUGH, as the file and the FUNCTION
+// that opens it, and that is not documentation: a row is only worth its place if the shipping
+// program can reach it, and a Health built by hand proves nothing about that. A rule keyed on a
+// fact no monitor in its window fills reads that fact's zero value on every real cast, so it
+// fails nothing while reading as coverage of a pathology nobody is judging. The citations are
 // resolved and checked against the wiring (see TestEveryRuleNamesTheProductionMonitorThatReachesIt);
 // a row that cannot name one is either mis-scoped or dead, and the answer to a dead row is
 // to delete it.
+//
+// The function and not the line: a citation into two other packages that named a line number
+// broke on every unrelated edit above it, and repairing this file by re-typing line numbers is
+// how a checked citation turns into a stale one.
 var rules = []Rule{{
 	// Any read failure before playback starts is fatal: casting whatever fragment made
 	// it into the buffer would play a few seconds and stop mid-scene, which reads as a
@@ -65,7 +69,7 @@ var rules = []Rule{{
 	// the playing window: the reader's terminal error travels out through the encoder's
 	// input and is joined into the cast's result there.
 	//
-	// Production path: the playback gate over the source read (pipeline/gate.go:37).
+	// Production path: the playback gate over the source read (pipeline/gate.go:waitForPlayable).
 	Name:    "read-failed",
 	Why:     "the source read reached a terminal error before playback could start",
 	Windows: []Window{BeforePlay},
@@ -78,9 +82,9 @@ var rules = []Rule{{
 	// track it cannot carry at header-write time, before a single byte, and an ADTS AAC
 	// copy into the mp4 muxer exits 255 having written audio:0KiB.
 	//
-	// Production path: the artifact gate of each delivery mechanism, which is the only place a
-	// producer is watched with nobody yet pointed at what it makes (core/deliver.go:488,
-	// core/deliver.go:588).
+	// Production path: the artifact gate every delivery mechanism is opened behind, which is the
+	// only place a producer is watched with nobody yet pointed at what it makes
+	// (core/deliver.go:ready).
 	Name:    "produced-nothing",
 	Why:     "the producer ended without writing anything a renderer could fetch",
 	Windows: []Window{Opening},
@@ -107,9 +111,11 @@ var rules = []Rule{{
 	// playback, or that shortens this window towards the reconnect ceiling the reader was
 	// handed, takes that bound away.
 	//
-	// Production path: the playback gate (pipeline/gate.go:37) and the playing cast
-	// (pipeline/gate.go:61). The buffer term is supplied by the second alone, which is what makes
-	// it vacuous before playback rather than merely unused there.
+	// Production path: the playback gate (pipeline/gate.go:waitForPlayable) and the playing cast, on
+	// both compositions that serve one: the leg with a read of its own (pipeline/gate.go:supervise)
+	// and the leg whose encode IS the read, judged by the delivery driver that started it
+	// (core/deliver.go:watchTheEncode). The buffer term is supplied by those two alone, which is
+	// what makes it vacuous before playback rather than merely unused there.
 	Name:    "stalled",
 	Why:     "the producer stopped delivering entirely and the renderer has played everything that reached it; the likeliest cause is a signed playlist whose segments have expired (they answer 404), and re-extracting the link is what gets a fresh token",
 	Windows: []Window{BeforePlay, Playing},
@@ -129,7 +135,7 @@ var rules = []Rule{{
 	// goroutine draining the PCM tee looked like: a cast refused, and then every other
 	// admitted link walked and burned for a fault none of them caused.
 	//
-	// Production path: the playback gate (pipeline/gate.go:37), whose pace is the read's own
+	// Production path: the playback gate (pipeline/gate.go:waitForPlayable), whose pace is the read's own
 	// answer about itself.
 	Name:    "undeliverable",
 	Why:     "the source has delivered fewer media seconds per wall-clock second than playback consumes for longer than a reconnect ceiling, so the cast can never catch up however long it is given",
@@ -151,7 +157,7 @@ var rules = []Rule{{
 	// nothing: a read allowed 2x with a wire-speed burst reports multiples of realtime
 	// (a real one measured 2.100x) and never matches this at all.
 	//
-	// Production path: the playback gate (pipeline/gate.go:37).
+	// Production path: the playback gate (pipeline/gate.go:waitForPlayable).
 	Name:    "under-playback-rate",
 	Why:     "the read is delivering less than playback consumes, and the deficit has not yet outlasted the backoff this read was handed",
 	Windows: []Window{BeforePlay},
@@ -169,7 +175,7 @@ var rules = []Rule{{
 	// condition under which the renderer's buffer must drain. A read that was healthy
 	// for an hour and then stops dead is named by the stall row above, sooner.
 	//
-	// Production path: the playing cast (pipeline/gate.go:61).
+	// Production path: the playing cast (pipeline/gate.go:supervise).
 	Name:    "undeliverable-in-flight",
 	Why:     "the source has been delivering less than playback consumes for longer than two reconnect ceilings, so the renderer's buffer cannot be refilled",
 	Windows: []Window{Playing},
@@ -177,11 +183,11 @@ var rules = []Rule{{
 	Kind:    Undeliverable,
 }, {
 	// The renderer accepted Play and never came for the bytes. Without this the cast is
-	// reported as SUCCESS: castor encodes the whole title, the sink's idle grace expires
+	// reported as SUCCESS: castor encodes the whole title, the delivery's idle grace expires
 	// with no client having ever arrived, and Wait returns nil.
 	//
 	// Keyed on what the renderer was HANDED and not on whether it asked, because asking is
-	// free and the sink counts it before a byte of the response is written. A renderer's first
+	// free and the delivery counts it before a byte of the response is written. A renderer's first
 	// move on a stream URL is a probe (a HEAD, then a short GET, then the real GET), so a row
 	// reading a request count is answered "it fetched" by a renderer that came to the door and
 	// took nothing, which is the observed run exactly: the URL accepted, a request in the log,
@@ -198,8 +204,9 @@ var rules = []Rule{{
 	// made for it is stated once, at the end of the cast, where the answer is arithmetic
 	// rather than a guess about how long people pause for (see core.Undelivered).
 	//
-	// Production path: the playing cast (pipeline/gate.go:61), which is the only monitor handed
-	// what the delivery knows about the renderer's fetching.
+	// Production path: the playing cast, in both shapes it has (pipeline/gate.go:supervise and
+	// core/deliver.go:watchTheEncode), which are the only monitors handed what the delivery knows
+	// about the renderer's fetching.
 	Name:    "unfetched",
 	Why:     "the renderer accepted the stream URL and was never handed a byte of what this cast produced for it",
 	Windows: []Window{Playing},
@@ -214,7 +221,7 @@ var rules = []Rule{{
 	// (its PCM hits EOF) before the read's error lands, and the gate must not open onto
 	// an empty buffer in that window.
 	//
-	// Production path: the playback gate (pipeline/gate.go:37), the only monitor a transcription
+	// Production path: the playback gate (pipeline/gate.go:waitForPlayable), the only monitor a transcription
 	// is handed to.
 	Name:    "burn-in-ready",
 	Why:     "the buffer holds media, the read has proved it can deliver it, and the transcription is far enough ahead of the encoder",
@@ -227,7 +234,7 @@ var rules = []Rule{{
 	// An ended read opens this gate even empty: there is nothing left to wait for, and
 	// the read's own error is read by the caller immediately after.
 	//
-	// Production path: the playback gate (pipeline/gate.go:37).
+	// Production path: the playback gate (pipeline/gate.go:waitForPlayable).
 	Name:    "ready",
 	Why:     "the buffer holds media and the read has proved it can deliver it",
 	Windows: []Window{BeforePlay},
@@ -240,24 +247,25 @@ var rules = []Rule{{
 	// this long to yield a first byte, and the delivery is better off proceeding and
 	// letting the renderer's own buffering wait.
 	//
-	// Production path: the stream delivery's artifact gate, which is the one that states a
-	// patience to run out of (core/deliver.go:488), and the segmented one, which states none and
-	// so opens on the playlist alone (core/deliver.go:588).
+	// Production path: the artifact gate (core/deliver.go:ready), over the patience each mechanism
+	// states for itself: the stream delivery has one to run out of, and the segmented one states
+	// none and so opens on the playlist alone.
 	Name:    "artifact-ready",
 	Why:     "the artifact a renderer fetches exists, or this delivery has waited as long as it is willing to",
 	Windows: []Window{Opening},
 	When:    func(h Health) bool { return h.playable() || h.Overdue },
 	Kind:    Ready,
 }, {
-	// Production path: every monitor opened before a renderer holds a URL (pipeline/gate.go:37,
-	// core/deliver.go:488, core/deliver.go:588).
+	// Production path: every monitor opened before a renderer holds a URL
+	// (pipeline/gate.go:waitForPlayable, core/deliver.go:ready).
 	Name:    "starting",
 	Why:     "nothing has been established yet",
 	Windows: []Window{BeforePlay, Opening},
 	When:    func(Health) bool { return true },
 	Kind:    Starting,
 }, {
-	// Production path: the playing cast (pipeline/gate.go:61).
+	// Production path: the playing cast (pipeline/gate.go:supervise,
+	// core/deliver.go:watchTheEncode).
 	Name:    "healthy",
 	Why:     "nothing is against this cast",
 	Windows: []Window{Playing},

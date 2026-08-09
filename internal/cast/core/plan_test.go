@@ -36,7 +36,7 @@ func TestPassthrough(t *testing.T) {
 		demuxed     bool
 		leniency    bool
 		height      int
-		maxHeight   int
+		maxHeight   media.HeightCap
 		preference  DeliveryPreference
 		passthrough bool
 	}{{

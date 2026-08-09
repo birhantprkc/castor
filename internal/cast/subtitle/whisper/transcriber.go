@@ -32,10 +32,9 @@ import (
 )
 
 const (
-	// SampleRate is the PCM sample rate whisper expects. The audio fed to
-	// Run must be mono s16le at this rate.
-	SampleRate  = 16000
-	bytesPerSec = SampleRate * 2 // mono, s16le
+	// bytesPerSec of the feed Run reads, which is mono s16le at the rate the
+	// party producing it was told to use (subtitle.SampleRate).
+	bytesPerSec = subtitle.SampleRate * 2
 
 	// stepSeconds is how much new audio each iteration waits for before
 	// re-transcribing the buffer. Smaller steps commit words sooner but run
@@ -161,7 +160,7 @@ func (t *Transcriber) Run(ctx context.Context, pcm io.Reader, sink *cue.Builder)
 		var agreed []word
 		// whisper rejects windows under 100ms; with less than that at EOF
 		// there is nothing left to transcribe.
-		if len(buf) >= SampleRate/10 {
+		if len(buf) >= subtitle.SampleRate/10 {
 			words, err := t.transcribeBuffer(ctx, model, buf, bufStart, prompt)
 			if err != nil {
 				slog.WarnContext(ctx, "whisper inference failed", "error", err)
@@ -189,7 +188,7 @@ func (t *Transcriber) Run(ctx context.Context, pcm io.Reader, sink *cue.Builder)
 		// While a tail is still pending, only the frontier is settled.
 		settledTo := frontier
 		if len(prev) == 0 {
-			settledTo = bufStart + float64(len(buf))/SampleRate
+			settledTo = bufStart + float64(len(buf))/subtitle.SampleRate
 		}
 		sink.Commit(agreed, settledTo)
 
@@ -206,7 +205,7 @@ func (t *Transcriber) Run(ctx context.Context, pcm io.Reader, sink *cue.Builder)
 		if time.Since(lastProgress) >= 15*time.Second {
 			slog.InfoContext(ctx, "transcription progress",
 				"committed_seconds", int(frontier),
-				"buffered_seconds", int(float64(len(buf))/SampleRate),
+				"buffered_seconds", int(float64(len(buf))/subtitle.SampleRate),
 			)
 			lastProgress = time.Now()
 		}
@@ -327,7 +326,7 @@ func isNoise(s string) bool {
 // invisible to the model anyway). Text trimmed out of the buffer moves into
 // the prompt so the decoder keeps its left context.
 func trimBuffer(ctx context.Context, buf []float32, bufStart float64, history []word, prompt string, frontier float64) ([]float32, float64, []word, string) {
-	dur := float64(len(buf)) / SampleRate
+	dur := float64(len(buf)) / subtitle.SampleRate
 	if dur <= trimAfterSeconds {
 		return buf, bufStart, history, prompt
 	}
@@ -352,9 +351,9 @@ func trimBuffer(ctx context.Context, buf []float32, bufStart float64, history []
 		return buf, bufStart, history, prompt
 	}
 
-	n := min(int((cut-bufStart)*SampleRate), len(buf))
+	n := min(int((cut-bufStart)*subtitle.SampleRate), len(buf))
 	buf = append(buf[:0], buf[n:]...)
-	bufStart += float64(n) / SampleRate
+	bufStart += float64(n) / subtitle.SampleRate
 
 	// Fold the words that left the buffer into the prompt tail.
 	var b strings.Builder

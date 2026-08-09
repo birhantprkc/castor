@@ -124,7 +124,7 @@ type EncodeOptions struct {
 // skipped the cap asks a veryfast software encoder for 3840x2160 in realtime. It does not
 // hold it, and a read that cannot hold realtime is one the deliverability judgement
 // convicts as a starving source (speed=0.0627 is what that looks like).
-func scaleFilter(maxHeight int) string {
+func scaleFilter(maxHeight media.HeightCap) string {
 	if maxHeight <= 0 {
 		return ""
 	}
@@ -740,7 +740,7 @@ type PullOptions struct {
 	// downstream of this buffer scales to it anyway, so a floor encode that produced the
 	// source's own 2160p would spend an encoder castor cannot afford on pixels the next
 	// process throws away.
-	MaxHeight int
+	MaxHeight media.HeightCap
 
 	// Verbose selects -loglevel verbose (playlist/segment URLs, connection
 	// lines) instead of the default warning level.

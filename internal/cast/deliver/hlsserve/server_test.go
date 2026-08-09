@@ -9,19 +9,36 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/stupside/castor/internal/media"
 )
 
-func TestContentTypeFor(t *testing.T) {
-	tests := map[string]string{
-		"/stream.m3u8":   "application/vnd.apple.mpegurl",
-		"/seg_00001.m4s": "video/iso.segment",
-		"/init.mp4":      "video/mp4",
-		"/unknown.txt":   "",
+// TestThePlaylistIsServedAsWhatTheRendererWasToldToExpect is one file with one name for what it
+// is. This server kept a table of its own and answered a playlist with a different spelling of the
+// HLS type from the one the cast announces at Play, so the renderer was told to expect one thing
+// and handed another by the same program.
+func TestThePlaylistIsServedAsWhatTheRendererWasToldToExpect(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, media.HLSPlaylistName), []byte("#EXTM3U\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	for path, want := range tests {
-		if got := contentTypeFor(path); got != want {
-			t.Errorf("contentTypeFor(%q) = %q, want %q", path, got, want)
-		}
+	srv, err := New(Config{LocalIP: "127.0.0.1", Dir: dir, Playlist: media.HLSPlaylistName})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer srv.Close()
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL().String(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if got := resp.Header.Get("Content-Type"); got != media.HLS {
+		t.Errorf("the playlist is served as %q while the renderer is played %q: the same file has two names for what it is", got, media.HLS)
 	}
 }
 
@@ -41,7 +58,7 @@ func TestServe(t *testing.T) {
 		name:       "a playlist that exists is served with the type a player expects",
 		write:      "#EXTM3U\n",
 		wantStatus: http.StatusOK,
-		wantType:   "application/vnd.apple.mpegurl",
+		wantType:   media.HLS,
 	}, {
 		name:       "a playlist the encoder has not written yet is a 404",
 		wantStatus: http.StatusNotFound,
@@ -369,7 +386,7 @@ func TestHeadersTheRendererAskedForTravelWithEverySegment(t *testing.T) {
 	}
 	// What a .m3u8 IS cannot be overridden by a device's preferences, so the artifact's own
 	// type wins the collision.
-	if got := resp.Header.Get("Content-Type"); got != "application/vnd.apple.mpegurl" {
+	if got := resp.Header.Get("Content-Type"); got != media.HLS {
 		t.Errorf("content-type = %q, want the playlist's own type", got)
 	}
 }

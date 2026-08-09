@@ -157,10 +157,10 @@ func TestLoad(t *testing.T) {
 		wantErr: true,
 	}, {
 		// The height ceiling has no "off" value, and this is the row the copy decision's
-		// arithmetic rests on: core.withinMaxHeight carries no zero case, so a ceiling that
-		// could arrive as 0 would refuse every measured source and force a decode, a scale
-		// and a re-encode on every cast castor makes. To lift the ceiling, set it above
-		// anything you own.
+		// arithmetic rests on: media.HeightCap carries no zero case, so a ceiling that could
+		// arrive as 0 would refuse every measured source and force a decode, a scale and a
+		// re-encode on every cast castor makes. To lift the ceiling, set it above anything
+		// you own.
 		name:    "a height ceiling of zero is refused rather than read as no ceiling",
 		yaml:    "device:\n  name: tv\n  type: chromecast\nresolver:\n  max_height: 0\n",
 		wantErr: true,

@@ -12,13 +12,11 @@ package ffprobe
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os/exec"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -44,25 +42,23 @@ func New(ffprobePath string, timeout time.Duration) *Prober {
 // Measure runs ffprobe and reports what the source carries: its container, its
 // duration, its bit rate and whether there is a castable program in it.
 //
+// What is this package's is the binary, the flags an input needs to be opened at all and the
+// budget one measurement gets; what the answer MEANS is media.DecodeProbe's.
+//
 // The media.Reach travels out alongside, on every path including the failing ones,
 // because the caller's decision turns on it: a measurement that failed because the
 // origin refused the link and one that failed because castor ran out of budget are
 // the same error and opposite facts (see media.Reach). It is reported even when the
 // error came after a successful read (unparseable JSON, no format name), since the
 // origin did serve the source in that case and only the answer was unusable.
-func (p *Prober) Measure(ctx context.Context, s *media.Stream) (*media.StreamInfo, media.Reach, error) {
+func (p *Prober) Measure(ctx context.Context, s *media.Stream) (*media.ProbeInfo, media.Reach, error) {
 	args := []string{
 		// Suppress non-error output so only JSON is written to stdout.
 		// Use "error" (not "quiet") so stderr captures failure details.
 		"-v", "error",
 		// Output as JSON for structured parsing
 		"-print_format", "json",
-		// Format name + bit rate identify the container and rank quality;
-		// duration separates a feature title from a spliced-in pre-roll ad;
-		// the per-stream codec/type/dimensions let us reject decoy playlists
-		// (image-only "video", no audio) that would crash the puller's
-		// stream mapping.
-		"-show_entries", "format=format_name,bit_rate,duration:stream=codec_type,codec_name,width,height",
+		"-show_entries", media.ProbeEntries,
 	}
 
 	// Forward any HTTP headers (e.g. Referer, User-Agent) to the stream server
@@ -77,71 +73,20 @@ func (p *Prober) Measure(ctx context.Context, s *media.Stream) (*media.StreamInf
 		return nil, reach, err
 	}
 
-	var result struct {
-		Streams []struct {
-			Width     int    `json:"width"`
-			Height    int    `json:"height"`
-			CodecName string `json:"codec_name"`
-			CodecType string `json:"codec_type"`
-		} `json:"streams"`
-		Format struct {
-			BitRate    string `json:"bit_rate"`
-			FormatName string `json:"format_name"`
-			Duration   string `json:"duration"`
-		} `json:"format"`
+	info, err := media.DecodeProbe(out)
+	if err != nil {
+		return nil, reach, err
 	}
-	if err := json.Unmarshal(out, &result); err != nil {
-		return nil, reach, fmt.Errorf("parsing ffprobe output: %w", err)
-	}
-
-	if result.Format.FormatName == "" {
-		return nil, reach, fmt.Errorf("ffprobe returned no format name")
-	}
-
 	// A container castor has no name for is not a failure: the answer is only used
 	// to choose input flags and to decide whether the renderer might be handed the
 	// URL, and an empty content type answers both of those the safe way. Aborting
 	// here meant a raw MPEG-TS stream could not be cast at all, even though castor
 	// muxes MPEG-TS itself.
-	contentType := media.FormatToContentType(result.Format.FormatName)
-	if contentType == "" {
+	if info.ContentType == "" {
 		slog.DebugContext(ctx, "unrecognised container; the source will be read rather than handed over",
-			"format_name", result.Format.FormatName)
+			"url", s.URL.String())
 	}
-
-	var bitRate int64
-	if result.Format.BitRate != "" {
-		var err error
-		bitRate, err = strconv.ParseInt(result.Format.BitRate, 10, 64)
-		if err != nil {
-			slog.WarnContext(ctx, "ffprobe returned non-numeric bit_rate, defaulting to 0", "bit_rate", result.Format.BitRate)
-		}
-	}
-
-	info := &media.StreamInfo{BitRate: bitRate, ContentType: contentType}
-
-	// Fractional seconds ("5405.400000"), or absent/"N/A" for live streams.
-	// Unparseable stays zero, which callers read as "unknown", not "short".
-	if secs, err := strconv.ParseFloat(result.Format.Duration, 64); err == nil && secs > 0 {
-		info.Duration = time.Duration(secs * float64(time.Second))
-	}
-
-	for _, s := range result.Streams {
-		switch s.CodecType {
-		case "video":
-			// A real video track has dimensions and a non-image codec. Decoy
-			// playlists carry a single png/mjpeg "video" with no size.
-			if s.Width > 0 && s.Height > 0 && !isImageCodec(s.CodecName) {
-				info.HasVideo = true
-				if info.VideoHeight == 0 {
-					info.VideoHeight = s.Height
-				}
-			}
-		case "audio":
-			info.HasAudio = true
-		}
-	}
-	return info, reach, nil
+	return &info, reach, nil
 }
 
 // OpensUnaided reports whether ffprobe can open the source using its own default
@@ -225,12 +170,3 @@ func classifyReach(stderr string) media.Reach {
 	}
 	return media.ReachUnproven
 }
-
-// imageCodecs are ffmpeg codec names that decode to a still image rather than
-// motion video. A playlist whose only "video" track is one of these is a decoy.
-var imageCodecs = map[string]bool{
-	"png": true, "apng": true, "mjpeg": true, "jpeg": true, "jpegls": true,
-	"bmp": true, "gif": true, "tiff": true, "webp": true, "ppm": true,
-}
-
-func isImageCodec(name string) bool { return imageCodecs[name] }

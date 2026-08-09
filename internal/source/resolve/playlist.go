@@ -72,11 +72,10 @@ type hlsDocument struct {
 	Encrypted bool
 
 	// Duration is the EXTINF sum, and only for a document that ended: it is the real
-	// runtime of a VOD program, which is the number ffprobe routinely cannot report
-	// for a playlist (it reports none, which is then read as "live"). It stays 0 on a
-	// sliding window, where the sum is the length of the window and not of the
-	// program, and reporting that as a runtime would call a two hour title five
-	// minutes long.
+	// runtime of a VOD program, and the number ffprobe routinely cannot report for a
+	// playlist it read perfectly well. It stays 0 on a sliding window, where the sum is
+	// the length of the window and not of the program, and reporting that as a runtime
+	// would call a two hour title five minutes long.
 	Duration time.Duration
 }
 

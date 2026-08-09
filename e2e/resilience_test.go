@@ -237,7 +237,7 @@ func TestAHostileOriginIsRefusedRatherThanCast(t *testing.T) {
 			defer cancel()
 
 			started := time.Now()
-			out := pipeline.NewExecutor(hostileConfig(tl), connectTo(dev), "127.0.0.1").
+			out := pipeline.NewExecutor(hostileConfig(tl), connectTo(dev), noStage, "127.0.0.1").
 				Run(ctx, attempt.Attempt{Try: 1, Source: hostileStream(t, origin), Read: policy})
 			ruled := time.Since(started)
 
@@ -351,22 +351,20 @@ func assertStarving(t *testing.T, h watch.Health) {
 // recovery may cross, and a second attempt is a fresh work directory, a fresh connect and a
 // fresh Play: the film from the beginning at minute ten.
 //
-// WHAT THIS CASE FOUND, and the reason it cancels the cast instead of waiting for it to end:
-// castor reaches the verdict on time and then does not return. Measured here, with the stack
-// captured while it was hung: the verdict landed 154 seconds in ("cast abandoned ... window=playing
-// verdict=stalled revisable=false"), and Executor.Run stayed inside the delivery's teardown for
-// another 5 minutes 27 seconds, until the CALLER's context expired. The stream delivery's
-// teardown closes the server and then waits for the encoder (core/deliver.go:496, through
-// finishEncoder), and nothing has killed that encoder: the cast's own context is cancelled by a
-// defer in pipeline.run, which cannot run until the leg returns, and the leg is inside the wait.
-// The encoder is parked reading a buffer that will never grow again, so the wait never ends. The
-// segmented delivery's teardown kills its process first (core/deliver.go:595) and does not have
-// this shape. In production the cast context ends only on Ctrl+C or SIGTERM (main.go), so a
-// supervised cast that stalls prints its fault and then hangs indefinitely.
+// WHAT THIS CASE FOUND, and now asserts: castor used to reach the verdict on time and then not
+// return. Measured here, with the stack captured while it was hung: the verdict landed 154 seconds
+// in ("cast abandoned ... window=playing verdict=stalled revisable=false") and Executor.Run stayed
+// inside the delivery's teardown for another 5 minutes 27 seconds, until the CALLER's context
+// expired. The teardown closed the server and then waited for an encoder nothing had killed, and
+// killing it would not have been enough either: os/exec's Wait also waits for the goroutine
+// copying the encoder's stdin, which was parked in a read of the buffer that had stopped growing.
+// The one thing that would have freed it, the cast's own context, is cancelled by a defer in
+// pipeline.run that cannot run until the leg returns. In production the cast context ends only on
+// Ctrl+C or SIGTERM (main.go), so a supervised cast that stalled printed its fault and hung.
 //
-// So this case asserts what castor does establish (the verdict, its measurements and its
-// refusal to revise) and states the timing claim against the verdict rather than against the
-// return, which is why it cancels rather than waiting. Fixing the teardown is not this phase.
+// So the cast has to come back on its own, and the bound below is the assertion: everything past
+// the verdict is stopping an encoder, a server and a progress feed, which waits on nothing but the
+// process it has just killed.
 func TestAStallInFlightEndsTheCastRatherThanRestartingIt(t *testing.T) {
 	t.Parallel()
 	tl := newTools(t)
@@ -386,14 +384,14 @@ func TestAStallInFlightEndsTheCastRatherThanRestartingIt(t *testing.T) {
 	// the wrong verdict entirely.
 	dev := &servedRenderer{drain: true, played: make(chan string, 1)}
 
-	// A backstop and not a schedule: it has to outlast the whole case, including the teardown
-	// this cast does not come back from on its own, so nothing is asserted by reaching it.
+	// A backstop and not a schedule: the cast comes back on its own, and this exists only so a
+	// case that fails leaves no reader running.
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	done := make(chan attempt.Outcome, 1)
 	go func() {
-		done <- pipeline.NewExecutor(hostileConfig(tl), connectTo(dev), "127.0.0.1").
+		done <- pipeline.NewExecutor(hostileConfig(tl), connectTo(dev), noStage, "127.0.0.1").
 			Run(ctx, attempt.Attempt{Try: 1, Source: hostileStream(t, origin), Read: policy})
 	}()
 
@@ -414,11 +412,10 @@ func TestAStallInFlightEndsTheCastRatherThanRestartingIt(t *testing.T) {
 	}
 	playing := time.Now()
 
-	// The verdict has to be reached within the window that licenses it, plus a margin for the
-	// watch's own polling cadence. The cast is then cancelled, because it will not return by
-	// itself (see the teardown finding above) and the verdict is already on the outcome either
-	// way: a cancellation cannot manufacture one, since Verdict and Health are filled in from a
-	// fault or not at all.
+	// The verdict has to be reached within the window that licenses it, and the cast has to RETURN
+	// within it: the margin covers the watch's own polling cadence and the teardown behind the
+	// verdict, and both are bounded by castor rather than by the origin, which is still holding a
+	// fragment half written and will do so forever.
 	var out attempt.Outcome
 	select {
 	case out = <-done:
@@ -426,7 +423,7 @@ func TestAStallInFlightEndsTheCastRatherThanRestartingIt(t *testing.T) {
 	case <-time.After(watch.StallWindow + verdictMargin):
 		cancel()
 		out = <-done
-		t.Logf("the cast had to be cancelled %s after playback started; it had already reached its verdict",
+		t.Errorf("the cast reached its verdict and did not return until it was cancelled, %s after playback started: its encoder is parked reading a buffer nothing will grow, and the teardown is waiting for it",
 			time.Since(playing).Round(time.Second))
 	}
 	t.Logf("castor ruled %s: %s", out.Evidence.Verdict, out.Evidence.Health)
@@ -490,7 +487,7 @@ func TestAHealthyOriginPointsTheRendererAtTheBuffer(t *testing.T) {
 
 	done := make(chan attempt.Outcome, 1)
 	go func() {
-		done <- pipeline.NewExecutor(hostileConfig(tl), connectTo(dev), "127.0.0.1").
+		done <- pipeline.NewExecutor(hostileConfig(tl), connectTo(dev), noStage, "127.0.0.1").
 			Run(ctx, attempt.Attempt{Try: 1, Source: hostileStream(t, origin), Read: policy})
 	}()
 
@@ -586,6 +583,11 @@ func (d *servedRenderer) snapshot() []string {
 func connectTo(dev device.Device) pipeline.ConnectFunc {
 	return func(context.Context, core.Config) (device.Device, error) { return dev, nil }
 }
+
+// noStage is the optional work these casts run beside their read: none. Subtitles are opt-in
+// configuration and no case here asks for them, and the transcription is the one mechanism that
+// would put a cgo build between this suite and a hostile origin.
+func noStage(context.Context, core.Config, string) pipeline.Stage { return nil }
 
 // rwTimeout is the configured mid-read deadline, at the value castor ships. It is the one
 // term of a read an operator still owns, and one of these cases is about the row that keeps

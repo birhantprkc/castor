@@ -45,9 +45,9 @@ type VideoEncode struct {
 	Maxrate string
 	Bufsize string
 
-	// MaxHeight caps the output height while preserving aspect ratio. 0 keeps the
-	// source height.
-	MaxHeight int
+	// MaxHeight caps the output height while preserving aspect ratio. It is the cast's own
+	// ceiling, carried as the type every party that honours it reads (see media.HeightCap).
+	MaxHeight media.HeightCap
 
 	// KeyframeIntervalSec caps the GOP length in seconds via force_key_frames, so
 	// a renderer joining mid-stream resyncs within this bound regardless of source

@@ -7,6 +7,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/stupside/castor/internal/cast/core"
 	"github.com/stupside/castor/internal/cast/watch"
 	"github.com/stupside/castor/internal/media"
 )
@@ -49,10 +50,20 @@ type Renderer interface {
 	Close() error
 }
 
+// StageFunc builds the optional stage one cast runs beside its read, in that cast's own work
+// directory, or answers nil for a cast that runs none. It is injected rather than constructed
+// here because the only implementation is cgo, which this package may not name (see
+// internal/cast/burnin).
+type StageFunc func(ctx context.Context, cfg core.Config, workDir string) Stage
+
 // Stage is an optional per-cast stage the composer starts, feeds and reads inputs from. It
 // is a port so that "this cast burns subtitles" stops being a nil pointer re-tested at every
 // site that touches it, and so the caption sidecar the subtitle axis already anticipates is
 // another implementation rather than another nil-shaped axis.
+//
+// One cast runs at most one. The plurality it used to be held in was unusable rather than
+// merely unused: the audio feed is a pipe with exactly one reader, so a second stage over it
+// would have starved the first, and the encode carries one burn-in file.
 type Stage interface {
 	// Attach binds the stage to one cast's outputs and runs it in g until the feed ends. A
 	// stage that fails must keep draining what it was given: backpressure on the audio feed

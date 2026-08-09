@@ -39,7 +39,7 @@ type fakeMeasurer struct {
 // as "nothing is known", not "this source carries nothing". The reach is scripted
 // beside it because the admission of a failed measurement turns entirely on it.
 type answer struct {
-	info    *media.StreamInfo
+	info    *media.ProbeInfo
 	reach   media.Reach
 	err     error
 	unaided bool
@@ -47,7 +47,7 @@ type answer struct {
 
 // measured is the ordinary answer: the origin served the source and ffprobe read
 // it.
-func measured(info *media.StreamInfo) answer {
+func measured(info *media.ProbeInfo) answer {
 	return answer{info: info, reach: media.ReachOpened}
 }
 
@@ -77,7 +77,7 @@ func protocolNotFound(raw string) answer {
 // URL the page had handed its own video element.
 const blobHandle = "blob:https://play.tv3.lt/17147e13-0f36-4d5e-9a11-8b4c0d2e6f70"
 
-func (f *fakeMeasurer) Measure(_ context.Context, s *media.Stream) (*media.StreamInfo, media.Reach, error) {
+func (f *fakeMeasurer) Measure(_ context.Context, s *media.Stream) (*media.ProbeInfo, media.Reach, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.measured = append(f.measured, s.URL.String())
@@ -129,15 +129,37 @@ func newTestResolver(m Measurer, p Playlists) *Resolver {
 }
 
 // playable is a measurement of a real title: both tracks, a feature runtime.
-func playable(bitRate int64, height int) *media.StreamInfo {
-	return &media.StreamInfo{
+func playable(bitRate int64, height int) *media.ProbeInfo {
+	return &media.ProbeInfo{
 		BitRate:     bitRate,
 		Duration:    2 * time.Hour,
 		ContentType: media.HLS,
-		HasVideo:    true,
-		HasAudio:    true,
+		VideoCodec:  media.CodecH264,
+		AudioCodec:  media.CodecAAC,
 		VideoHeight: height,
 	}
+}
+
+// slideshow is the decoy an aggregator serves: audio and a track that decodes to a still,
+// which the one probe decoder reports as no video track at all (see media.DecodeProbe).
+func slideshow(bitRate int64) *media.ProbeInfo {
+	return &media.ProbeInfo{BitRate: bitRate, Duration: 2 * time.Hour, ContentType: media.HLS, AudioCodec: media.CodecAAC}
+}
+
+// silent is the other decoy: a real picture with no audio anywhere, which cannot be remuxed
+// into anything a renderer plays.
+func silent(bitRate int64, height int) *media.ProbeInfo {
+	info := playable(bitRate, height)
+	info.AudioCodec = ""
+	return info
+}
+
+// preroll is a spliced-in ad: castable in every respect but its runtime, and encoded well
+// above the title it interrupts.
+func preroll(bitRate int64, height int, runtime time.Duration) *media.ProbeInfo {
+	info := playable(bitRate, height)
+	info.Duration = runtime
+	return info
 }
 
 func streams(t *testing.T, raws ...string) []*media.Stream {
@@ -157,7 +179,7 @@ func streamAt(t *testing.T, raw string) *media.Stream {
 // contentStreams builds candidates of a given container, which matters to ranking
 // for one reason: the height cap binds a direct file outright, while a playlist is
 // exempt until its own tags say it advertises a single rendition (see
-// candidate.exceedsCap).
+// measurement.exceedsCap).
 func contentStreams(t *testing.T, contentType string, raws ...string) []*media.Stream {
 	t.Helper()
 	out := make([]*media.Stream, len(raws))
@@ -211,7 +233,7 @@ func TestAdmissions(t *testing.T) {
 		},
 		{
 			name:       "measured, but no audio",
-			m:          measurement{stream: streamAt(t, "http://a.example/slideshow.m3u8"), reach: media.ReachOpened, info: &media.StreamInfo{HasVideo: true, VideoHeight: 1080, Duration: 2 * time.Hour}},
+			m:          measurement{stream: streamAt(t, "http://a.example/slideshow.m3u8"), reach: media.ReachOpened, info: silent(0, 1080)},
 			wantReason: reasonNoProgram,
 		},
 		{
@@ -355,7 +377,7 @@ func TestRankStreamsNeverAimsACastAtABrowserHandle(t *testing.T) {
 func TestRankStreamsFailsWhenEveryCaptureIsABrowserHandle(t *testing.T) {
 	measurer := &fakeMeasurer{answers: map[string]answer{
 		blobHandle:                      protocolNotFound(blobHandle),
-		"http://a.example/preroll.m3u8": measured(&media.StreamInfo{BitRate: 30_000_000, Duration: 90 * time.Second, HasVideo: true, HasAudio: true, VideoHeight: 1080}),
+		"http://a.example/preroll.m3u8": measured(preroll(30_000_000, 1080, 90*time.Second)),
 	}}
 	resolver := newTestResolver(measurer, &fakePlaylists{})
 
@@ -379,9 +401,9 @@ func TestRankStreamsDropsDecoysHard(t *testing.T) {
 	measurer := &fakeMeasurer{answers: map[string]answer{
 		// An image playlist: ffprobe reports a "video" track that decodes to a still,
 		// which the prober refuses to count, so nothing playable is left.
-		"http://a.example/slideshow.m3u8": measured(&media.StreamInfo{BitRate: 50_000_000, Duration: 2 * time.Hour, HasAudio: true}),
-		"http://a.example/silent.m3u8":    measured(&media.StreamInfo{BitRate: 40_000_000, Duration: 2 * time.Hour, HasVideo: true, VideoHeight: 1080}),
-		"http://a.example/preroll.m3u8":   measured(&media.StreamInfo{BitRate: 30_000_000, Duration: 90 * time.Second, HasVideo: true, HasAudio: true, VideoHeight: 1080}),
+		"http://a.example/slideshow.m3u8": measured(slideshow(50_000_000)),
+		"http://a.example/silent.m3u8":    measured(silent(40_000_000, 1080)),
+		"http://a.example/preroll.m3u8":   measured(preroll(30_000_000, 1080, 90*time.Second)),
 		"http://a.example/feature.m3u8":   measured(playable(3_000_000, 1080)),
 	}}
 	resolver := newTestResolver(measurer, &fakePlaylists{})
@@ -433,6 +455,46 @@ func TestRankingCarriesTheLadderItWasGiven(t *testing.T) {
 	}
 	if order[1].Ladder != media.LadderSole {
 		t.Errorf("the alternative carries renditions=%v, want the fact its own document established", order[1].Ladder)
+	}
+}
+
+// TestRankingCarriesWhatItMeasured is the fact the whole cast phase reads and the ranker used
+// to keep to itself. The measurement is paid for here, once, and every party that needs it runs
+// after ranking is over: the composition asks the height whether this source may be handed to a
+// renderer untouched, and the arithmetic that turns "this cast is slow" into a number divides
+// the duration. The height was logged and dropped at the package boundary, so a measured 2160p
+// file arrived at the composition as 0 and was handed to a 1080-capped renderer.
+//
+// The unmeasured candidate is the other half: it carries none of them, and Probed is what says
+// so. Duration 0 on a link nobody opened is not a stream with no ending in it.
+func TestRankingCarriesWhatItMeasured(t *testing.T) {
+	measurer := &fakeMeasurer{answers: map[string]answer{
+		"http://a.example/feature.mp4":  measured(playable(6_000_000, 2160)),
+		"http://a.example/unproven.mp4": probeKilled(),
+	}}
+	order, err := newTestResolver(measurer, &fakePlaylists{}).RankStreams(t.Context(),
+		contentStreams(t, media.MP4, "http://a.example/feature.mp4", "http://a.example/unproven.mp4"))
+	if err != nil {
+		t.Fatalf("RankStreams: %v", err)
+	}
+	if len(order) != 2 {
+		t.Fatalf("ordering = %v, want both candidates", order)
+	}
+
+	best := order[0]
+	if best.Height != 2160 {
+		t.Errorf("the ranked stream carries height %d, want the measured 2160: a height that stops here is a 4K source handed to a 1080-capped renderer", best.Height)
+	}
+	if best.Duration != 2*time.Hour {
+		t.Errorf("the ranked stream carries duration %s, want the measured 2h: without it no projected runtime can be formed", best.Duration)
+	}
+	if !best.Probed {
+		t.Error("the ranked stream does not record that it was measured, so a runtime of 0 on the next candidate reads as a live edge")
+	}
+
+	if tail := order[1]; tail.Height != 0 || tail.Duration != 0 || tail.Probed {
+		t.Errorf("the unmeasured candidate carries height=%d duration=%s probed=%v, want nothing established: no probe ever opened it",
+			tail.Height, tail.Duration, tail.Probed)
 	}
 }
 
@@ -489,8 +551,8 @@ func TestRankStreamsHonoursTheCeilingOnlyOnAProvenSingleRendition(t *testing.T) 
 // the cast an ad.
 func TestRankStreamsFailsWhenNothingIsCastable(t *testing.T) {
 	measurer := &fakeMeasurer{answers: map[string]answer{
-		"http://a.example/ad1.m3u8": measured(&media.StreamInfo{BitRate: 9_000_000, Duration: 30 * time.Second, HasVideo: true, HasAudio: true, VideoHeight: 720}),
-		"http://a.example/ad2.m3u8": measured(&media.StreamInfo{BitRate: 8_000_000, Duration: 15 * time.Second, HasVideo: true, HasAudio: true, VideoHeight: 720}),
+		"http://a.example/ad1.m3u8": measured(preroll(9_000_000, 720, 30*time.Second)),
+		"http://a.example/ad2.m3u8": measured(preroll(8_000_000, 720, 15*time.Second)),
 	}}
 	resolver := newTestResolver(measurer, &fakePlaylists{})
 
@@ -540,8 +602,8 @@ func TestRankStreamsDropsARefusedCandidate(t *testing.T) {
 func TestRankStreamsTalliesRejectionsByReason(t *testing.T) {
 	measurer := &fakeMeasurer{answers: map[string]answer{
 		"http://a.example/spent.m3u8":   refusedByOrigin(),
-		"http://a.example/silent.m3u8":  measured(&media.StreamInfo{BitRate: 40_000_000, Duration: 2 * time.Hour, HasVideo: true, VideoHeight: 1080}),
-		"http://a.example/preroll.m3u8": measured(&media.StreamInfo{BitRate: 30_000_000, Duration: 90 * time.Second, HasVideo: true, HasAudio: true, VideoHeight: 1080}),
+		"http://a.example/silent.m3u8":  measured(silent(40_000_000, 1080)),
+		"http://a.example/preroll.m3u8": measured(preroll(30_000_000, 1080, 90*time.Second)),
 	}}
 	resolver := newTestResolver(measurer, &fakePlaylists{})
 
@@ -570,8 +632,8 @@ func TestRankStreamsTalliesRejectionsByReason(t *testing.T) {
 func TestRankStreamsKeepsAnUnprovenCandidateWhenEverythingElseIsADecoy(t *testing.T) {
 	measurer := &fakeMeasurer{answers: map[string]answer{
 		"http://a.example/unproven.m3u8":  probeKilled(),
-		"http://a.example/slideshow.m3u8": measured(&media.StreamInfo{BitRate: 50_000_000, Duration: 2 * time.Hour, HasAudio: true}),
-		"http://a.example/preroll.m3u8":   measured(&media.StreamInfo{BitRate: 30_000_000, Duration: 90 * time.Second, HasVideo: true, HasAudio: true, VideoHeight: 1080}),
+		"http://a.example/slideshow.m3u8": measured(slideshow(50_000_000)),
+		"http://a.example/preroll.m3u8":   measured(preroll(30_000_000, 1080, 90*time.Second)),
 	}}
 	resolver := newTestResolver(measurer, &fakePlaylists{})
 

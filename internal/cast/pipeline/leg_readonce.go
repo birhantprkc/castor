@@ -11,6 +11,7 @@ import (
 	"github.com/stupside/castor/internal/cast/core"
 	"github.com/stupside/castor/internal/cast/deliver/spool"
 	"github.com/stupside/castor/internal/cast/ffmpeg"
+	"github.com/stupside/castor/internal/cast/watch"
 	"github.com/stupside/castor/internal/media"
 )
 
@@ -23,8 +24,9 @@ import (
 // point needs it: what it declares fixes the container this cast is served in and its
 // negotiated capabilities drive copy-vs-encode, and both come after the bytes.
 func readOnce(ctx context.Context, c *cast) landing {
-	stages := burnInStages(ctx, c.cfg, c.workDir)
-	sp, pl, err := c.startReading(ctx, stages)
+	// Nil for a cast that runs no stage, decided once by the party that owns the mechanism.
+	stage := c.stage(ctx, c.cfg, c.workDir)
+	sp, pl, err := c.startReading(ctx, stage)
 	if err != nil {
 		return landing{err: err}
 	}
@@ -45,7 +47,14 @@ func readOnce(ctx context.Context, c *cast) landing {
 		}
 	}
 
-	if err := waitForPlayable(ctx, stages.lead(), sp, pl); err != nil {
+	// A nil lead tells the readiness rules that no transcription frontier is part of being
+	// playable here, which a stage reporting zero would not: it would say "it has committed
+	// nothing" forever.
+	var lead watch.Lead
+	if stage != nil {
+		lead = stage.Lead()
+	}
+	if err := waitForPlayable(ctx, lead, sp, pl); err != nil {
 		return landed(attempt.PhaseReading, err)
 	}
 	dev, err := c.renderer(ctx)
@@ -58,7 +67,7 @@ func readOnce(ctx context.Context, c *cast) landing {
 	// that status over the axes it was copying is the whole of the broken-copy class. Reported as
 	// reading, it earned a second attempt with a fresh work directory, a fresh connect and a fresh
 	// Play, which is the film started over from the beginning at minute forty.
-	reached, err := c.serveBuffer(ctx, dev, sp, pl, stages)
+	reached, err := c.serveBuffer(ctx, dev, sp, pl, stage)
 	if err != nil {
 		return landed(reached, err)
 	}
@@ -66,12 +75,12 @@ func readOnce(ctx context.Context, c *cast) landing {
 }
 
 // startReading opens the local buffer and starts the one read that touches the source, with
-// every stage of this cast attached to the audio it tees.
+// this cast's stage attached to the audio it tees.
 //
 // The order is the only one available: the read has to be told whether to tee audio before it
-// starts, which is why the stages are built before it, and it has to be told what the buffer's
+// starts, which is why the stage is built before it, and it has to be told what the buffer's
 // container cannot carry, which is why the source is measured before it.
-func (c *cast) startReading(ctx context.Context, stages stages) (*spool.Spool, *pull, error) {
+func (c *cast) startReading(ctx context.Context, stage Stage) (*spool.Spool, *pull, error) {
 	sp, err := spool.New(filepath.Join(c.workDir, "spool"+ffmpeg.SpoolFormat.Extension))
 	if err != nil {
 		return nil, nil, err
@@ -80,12 +89,16 @@ func (c *cast) startReading(ctx context.Context, stages stages) (*spool.Spool, *
 	facts := core.Measure(ctx, "the source this cast buffers",
 		ffmpeg.SourceProbe(c.cfg.Resolver.FFprobePath, ffmpeg.NewNetworkSource(c.attempt.Source, c.attempt.Read)))
 
+	// The tee is asked for exactly when something will drain it: the pipe is unbuffered, so a
+	// feed nobody reads blocks the whole download.
 	pl, err := startPull(ctx, c.cfg.Transcode, c.attempt.Source, c.attempt.Read, sp,
-		bufferCarriage(ctx, facts, c.attempt.Decode), c.cfg.Resolver.MaxHeight, stages.wantPCM())
+		bufferCarriage(ctx, facts, c.attempt.Decode), c.cfg.Resolver.MaxHeight, stage != nil)
 	if err != nil {
 		return nil, nil, err
 	}
-	stages.attach(ctx, c.group, pl.pcm)
+	if stage != nil {
+		stage.Attach(ctx, c.group, pl.pcm)
+	}
 	return sp, pl, nil
 }
 
@@ -97,29 +110,38 @@ func (c *cast) startReading(ctx context.Context, stages stages) (*spool.Spool, *
 // It reports the phase with the error, and the two returns above the delivery state it for
 // themselves: neither the encode this leg builds nor the reader it opens over the buffer has
 // been anywhere near a renderer, so what they reach is the read and nothing further.
-func (c *cast) serveBuffer(ctx context.Context, dev Renderer, sp *spool.Spool, pl *pull, stages stages) (attempt.Phase, error) {
-	opts, err := c.bufferedEncode(ctx, dev.Capabilities(), sp.Path(), stages)
+func (c *cast) serveBuffer(ctx context.Context, dev Renderer, sp *spool.Spool, pl *pull, stage Stage) (attempt.Phase, error) {
+	opts, err := c.bufferedEncode(ctx, dev.Capabilities(), sp.Path(), stage)
 	if err != nil {
 		return attempt.PhaseReading, err
 	}
+	// Handed to the delivery, which owns it from here: reaping the encoder means closing what it
+	// reads, and only the party that reaps can know when that is (see core.OpenParams.Input). A
+	// defer here could not do the job, since it cannot run until the delivery has returned, which
+	// is what it would be waiting for.
 	tail, err := sp.Tail(ctx)
 	if err != nil {
 		return attempt.PhaseReading, err
 	}
-	defer tail.Close()
 
+	// Nil where no stage follows the encoder, which is not a missing consumer: the delivery
+	// driver drains that feed either way (ffmpeg's -progress write blocks, and an unread one
+	// stops the encode dead), so nil only says that no cast pays for a step it has no use for.
+	var follow func(media.Progress)
+	if stage != nil {
+		follow = stage.Follow(ctx)
+	}
 	return c.serve(ctx, dev, attempt.PhaseReading, core.OpenParams{
 		Opts:       opts,
-		StartOpts:  []ffmpeg.StartOption{ffmpeg.WithStdin(tail)},
-		OnProgress: stages.follow(ctx),
-		Supervise: func(ctx context.Context, d core.Delivery) error {
-			return supervise(ctx, sp, pl, d)
-		},
+		Input:      tail,
+		OnProgress: follow,
+	}, func(ctx context.Context, d core.Delivery) error {
+		return supervise(ctx, sp, pl, d)
 	})
 }
 
 // bufferedEncode is the encode that tails the buffer: the container the renderer asked for out,
-// read over stdin, height-capped, GOP-bounded and carrying whatever the stages need drawn.
+// read over stdin, height-capped, GOP-bounded and carrying whatever the stage needs drawn.
 //
 // The measurement is the BUFFER'S and not the source's, and that distinction is load-bearing
 // rather than incidental. The MPEG-TS buffer re-frames everything that passes through it: an
@@ -127,18 +149,20 @@ func (c *cast) serveBuffer(ctx context.Context, dev Renderer, sp *spool.Spool, p
 // that a direct remux of the same source does not, and a decision taken from the original
 // source is a decision about a stream nobody is reading. A failed or partial measurement leaves
 // nothing known, which no copy rule accepts, so it falls back to a re-encode.
-func (c *cast) bufferedEncode(ctx context.Context, caps media.Renderer, buffer string, stages stages) (ffmpeg.EncodeOptions, error) {
+func (c *cast) bufferedEncode(ctx context.Context, caps media.Renderer, buffer string, stage Stage) (ffmpeg.EncodeOptions, error) {
 	into, err := core.ServedFormat(caps)
 	if err != nil {
 		return ffmpeg.EncodeOptions{}, err
 	}
 	// The cue file has to exist before ffmpeg starts or drawtext's filter init fails, which is
-	// why the stages are asked for their inputs here and the answer becomes an input to the
-	// video decision. That ordering used to be a contract held open by a comment: attach before
-	// the resolver, or ship a cast that plays with no subtitles and no error anywhere.
-	burnIn, err := stages.inputs()
-	if err != nil {
-		return ffmpeg.EncodeOptions{}, err
+	// why the stage is asked for its inputs here and the answer becomes an input to the video
+	// decision. That ordering used to be a contract held open by a comment: attach before the
+	// resolver, or ship a cast that plays with no subtitles and no error anywhere.
+	var burnIn string
+	if stage != nil {
+		if burnIn, err = stage.Inputs(); err != nil {
+			return ffmpeg.EncodeOptions{}, err
+		}
 	}
 	facts := core.Measure(ctx, "the local buffer this encode reads", ffmpeg.FileProbe(c.cfg.Resolver.FFprobePath, buffer))
 	return c.encode(ctx, caps, into, encodeInput{facts: facts, pipe: ffmpeg.SpoolFormat, burnIn: burnIn}), nil

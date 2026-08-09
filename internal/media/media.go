@@ -34,6 +34,18 @@ const (
 	HLSSegmentPattern = "seg_%05d.m4s"
 )
 
+// HLSArtifactTypes is what a response carrying each of those files says it carries, by
+// extension. It lives beside the names for the reason the registry exists at all: the server
+// fronting a segmented delivery used to keep a table of its own, and it answered a playlist
+// request with a spelling of the HLS type (application/vnd.apple.mpegurl) that was not the one
+// the renderer had just been told to expect at Play (HLS, above). One file, two names for what
+// it is, decided in two places.
+var HLSArtifactTypes = map[string]string{
+	path.Ext(HLSPlaylistName): HLS,
+	".m4s":                    "video/iso.segment",
+	path.Ext(HLSInitName):     MP4,
+}
+
 // HLSInputArgs contains ffmpeg/ffprobe flags that relax extension checks
 // for HLS playlists and DASH manifests.
 var HLSInputArgs = []string{
@@ -62,19 +74,62 @@ type Stream struct {
 	// measurer whether the source opens unaided).
 	NeedsLeniency bool
 
-	// Ladder is what the captured document said about renditions, when castor could
-	// read it. It travels with the stream because the ranker has no other way to tell a
-	// master from one of its rungs: a probe of a master reports whichever variant
-	// ffprobe chose, and a variant playlist's probed height is a real ceiling while a
-	// master's is not. LadderUnknown is the lenient answer and must never be read as
-	// "not a master".
+	// The four fields below are what castor ESTABLISHED about this link, and they ride on the
+	// value the cast reads because the party that needs each of them runs long after the party
+	// that established it. Zero is the absence of evidence throughout, and every reader keeps
+	// it lenient (see HeightCap.Admits, Origin.ProjectedRuntime, LadderUnknown). Height on a
+	// record local to the ranker is what handed a measured 2160p source to a self-fetching
+	// renderer under a 1080 ceiling: the number was logged and then dropped at the package
+	// boundary, so the composition asked a height nobody had told it.
+
+	// Ladder is what the captured document's own tags said about renditions, which is the only
+	// way to tell a master from one of its rungs: a probe of a master reports whichever variant
+	// ffprobe chose, so a variant playlist's probed height is a real ceiling and a master's is
+	// not. Unknown must never be read as "not a master".
 	Ladder Ladder
+
+	// Height and Duration are what a probe of this link measured.
+	Height   int
+	Duration time.Duration
+
+	// Probed tells the two shapes behind Duration 0 apart: a container somebody opened that
+	// states no runtime (a stream with no ending in it) against a link nobody has opened (a URL
+	// cast by hand, a candidate whose probe was killed). The two get opposite read policies,
+	// one paced at exactly realtime and one allowed to run ahead (see Origin.Live).
+	Probed bool
 
 	Headers     http.Header
 	Bandwidth   int64
 	ContentType string
-	Live        bool
 }
+
+// HeightCap is the ceiling the operator set on what may reach the renderer, as every party
+// that has to honour it reads it.
+//
+// It is a type rather than an int threaded through four signatures because the same number is
+// asked of four kinds of evidence: a rung an HLS master declared, a height the ranker
+// measured, a height a leg's own probe measured, and a variant's RESOLUTION during selection.
+// Four hand-written comparisons are four chances for the leniency below to drift, and one
+// drifting is how max_height bound a buffered cast and did nothing at all to a remux of the
+// same source, decided by a routing decision no log line reported.
+type HeightCap int
+
+// Admits reports whether a picture of this height may reach the renderer.
+//
+// An unestablished height (0) is admitted, and that is absence of evidence rather than a
+// sentinel: a container that states no height, a playlist that declares no RESOLUTION and a
+// probe that failed are all ordinary things, none of them says the picture is tall, and
+// refusing them would cost every unmeasured cast a decode, a scale and a re-encode to bound
+// a height that in all likelihood already fits, while every undeclared pass-through loses
+// the cheapest leg there is. It is the leniency ReachUnproven and LadderUnknown keep:
+// nothing established may convict.
+//
+// The ceiling itself has no sentinel. max_height is `validate:"required,min=1"`, so a cast
+// that asks has a ceiling somebody typed, and reading zero as "no ceiling" would borrow the
+// capability model's convention, where zero means "the device told us nothing" (VideoSupport
+// carries no resolution at all for that reason). To lift the ceiling, set it above anything
+// you own.
+func (c HeightCap) Admits(height int) bool { return height == 0 || height <= int(c) }
 
 // Demuxed reports whether the program's tracks live at separate URLs, so a
 // reader needs both.
@@ -102,30 +157,6 @@ func (s *Stream) Demuxed() bool { return s.AudioURL != nil }
 func (s *Stream) SelfFetchable() bool {
 	return len(s.Headers) == 0 && !s.Demuxed() && !s.NeedsLeniency
 }
-
-// StreamInfo holds metadata returned by ffprobe for a stream.
-type StreamInfo struct {
-	BitRate     int64
-	Duration    time.Duration
-	ContentType string
-	HasVideo    bool
-	HasAudio    bool
-	// VideoHeight is the display height of the real video track, 0 if unknown.
-	// For an HLS master this is only whichever variant ffprobe chose, not the
-	// master's full range, so it is not a reliable ceiling for a master.
-	VideoHeight int
-}
-
-// Playable reports whether the stream carries castable media: a real video
-// track plus audio. Decoy playlists (an image-only "video" track, or no audio)
-// probe cleanly but cannot be remuxed, so they are not playable.
-func (s StreamInfo) Playable() bool { return s.HasVideo && s.HasAudio }
-
-// Live reports whether ffprobe could determine no duration: genuinely live
-// sources have none (no endlist), and unparseable duration is safest treated
-// the same: pacing such sources at realtime costs nothing on VOD while 2x
-// with a wire-speed burst trips rate limits on proxy CDNs.
-func (s StreamInfo) Live() bool { return s.Duration == 0 }
 
 // DeliveryKind is how castor's local HTTP server hands a produced stream to the
 // renderer, and the single fact the delivery driver keys the serving mechanism

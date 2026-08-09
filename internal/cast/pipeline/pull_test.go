@@ -13,6 +13,7 @@ import (
 	"github.com/stupside/castor/internal/cast/deliver/spool"
 	"github.com/stupside/castor/internal/cast/ffmpeg"
 	"github.com/stupside/castor/internal/cast/read"
+	"github.com/stupside/castor/internal/media"
 )
 
 // TestTheReadReportsWhatItIsDelivering drives a real pull against a real origin and
@@ -100,7 +101,7 @@ func TestTheReadsFloorEncodeIsCappedAtTheCastsCeiling(t *testing.T) {
 	// is the zero-value convention core.Resolve uses for a cast with none.
 	for _, tt := range []struct {
 		name      string
-		maxHeight int
+		maxHeight media.HeightCap
 		want      int
 	}{
 		{name: "held to the cast's ceiling", maxHeight: 120, want: 120},

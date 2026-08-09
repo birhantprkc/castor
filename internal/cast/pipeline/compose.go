@@ -7,14 +7,13 @@ import (
 	"github.com/stupside/castor/internal/cast/core"
 )
 
-// composition is one shape a cast can take: the rule that chooses it, when the renderer is
-// acquired for it, how much its copy may refuse, and the wiring that runs it.
+// composition is one shape a cast can take: the rule that chooses it, how much its copy may
+// refuse, and the wiring that runs it.
 //
-// The last two columns are the point. They were inline literals in two long functions, one
-// saying CopyWhatever and the other CopyWhatFits with a paragraph each about why, and the
-// connect timing was a fork at the top of the executor. As columns they are what one row
-// differs from another BY, so a fourth composition is a row rather than an edit to control
-// flow, and no wiring function has a decision left in it to get wrong.
+// The policy column is the point. It was an inline literal in two long functions, one saying
+// CopyWhatever and the other CopyWhatFits with a paragraph each about why. As a column it is
+// what one row differs from another BY, so a fourth composition is a row rather than an edit to
+// control flow, and no wiring function has a decision left in it to get wrong.
 type composition struct {
 	// name and why are what a run has to be readable as: which shape this cast took, and on
 	// what grounds.
@@ -28,9 +27,6 @@ type composition struct {
 	// table-driven test over values.
 	when func(core.Shape) bool
 
-	// connect is when the renderer is acquired for a cast of this shape.
-	connect timing
-
 	// policy is how much this composition's copy is allowed to refuse. It is zero on a
 	// composition that produces no encode, where there is nothing for a copy rule to answer
 	// about.
@@ -41,13 +37,19 @@ type composition struct {
 	run leg
 }
 
-// leg is one composition's wiring: it starts the stages the row names, in the order they
-// have to start, and reports how far the cast got.
+// leg is one composition's wiring: it starts the parts a cast of this shape is made of, in the
+// order they have to start, and reports how far the cast got.
 type leg func(ctx context.Context, c *cast) landing
 
 // needs is which facts a row's rule reads, and it is ORDERED: a pass admits every row whose
 // needs it can satisfy, so the pre-connect pass admits profileOnly rows and the post-connect
 // pass admits all of them.
+//
+// It is also WHEN the renderer is acquired, which is why that is not a second column. A
+// profileOnly row is chosen before anything has been discovered, so its cast starts reading
+// immediately and acquires the renderer alongside: discovery plus connect can take seconds a
+// short-lived signed URL cannot spare. A negotiated row could only be chosen because acquiring
+// one is what answered its rule, so its cast has connected already.
 type needs int
 
 const (
@@ -59,26 +61,6 @@ const (
 	negotiated
 )
 
-// timing is when the renderer is acquired relative to the read.
-type timing int
-
-const (
-	// connectFirst acquires the renderer before the read starts. Every negotiated row is
-	// necessarily this, because choosing it is what already acquired one.
-	connectFirst timing = iota
-	// connectConcurrent starts reading immediately and acquires the renderer alongside,
-	// because the shape of the cast is already fixed and discovery plus connect can take
-	// seconds a short-lived signed URL cannot spare.
-	connectConcurrent
-)
-
-func (t timing) String() string {
-	if t == connectConcurrent {
-		return "concurrently with the read"
-	}
-	return "before the read"
-}
-
 // compositions is the whole of what a cast can be, in the order rows are asked. It replaced
 // two nested booleans, and it reproduces them exactly.
 var compositions = []composition{{
@@ -89,11 +71,10 @@ var compositions = []composition{{
 	//
 	// It is also the only composition castor produces the picture for, which is why a burn-in
 	// can only ever happen here: the other two hand over a container, not decoded frames.
-	name:    "read-once",
-	why:     "the renderer never fetches for itself, so this cast is served whatever it advertises",
-	needs:   profileOnly,
-	when:    func(s core.Shape) bool { return !s.Renderer.SelfFetch },
-	connect: connectConcurrent,
+	name:  "read-once",
+	why:   "the renderer never fetches for itself, so this cast is served whatever it advertises",
+	needs: profileOnly,
+	when:  func(s core.Shape) bool { return !s.Renderer.SelfFetch },
 	// The buffer is read by an encode produced for one renderer that has already answered,
 	// so it holds that renderer to what it advertised: an envelope it did not name is
 	// re-encoded rather than gambled on. This is the only composition that can also be
@@ -110,11 +91,10 @@ var compositions = []composition{{
 	// declared above max_height off the renderer is to refuse this row and let the total row
 	// below serve a scaled remux instead (see core.Shape.Passthrough for the cost, and for
 	// why an undeclared height still passes through).
-	name:    "passthrough",
-	why:     "the renderer fetches for itself and already accepts the source as it is",
-	needs:   negotiated,
-	when:    core.Shape.Passthrough,
-	connect: connectFirst,
+	name:  "passthrough",
+	why:   "the renderer fetches for itself and already accepts the source as it is",
+	needs: negotiated,
+	when:  core.Shape.Passthrough,
 	// No policy: this composition produces no encode, so no copy rule is asked anything.
 	run: passthrough,
 }, {
@@ -122,11 +102,10 @@ var compositions = []composition{{
 	// merely reported: a renderer that fetches for itself but cannot be handed this source
 	// (it rejects the container, or the source only answers to the request headers castor
 	// holds and a renderer is handed none of them) is served a remux of it.
-	name:    "remux",
-	why:     "the renderer fetches for itself but cannot be handed this source",
-	needs:   negotiated,
-	when:    func(core.Shape) bool { return true },
-	connect: connectFirst,
+	name:  "remux",
+	why:   "the renderer fetches for itself but cannot be handed this source",
+	needs: negotiated,
+	when:  func(core.Shape) bool { return true },
 	// A remux changes the wrapper and not the picture, so the bitstream it copies is the one
 	// the source published for players in general, and holding it to what this renderer
 	// happened to advertise buys a whole title of re-encode against a device that probably

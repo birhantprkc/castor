@@ -223,7 +223,7 @@ func produce(t *testing.T, in input, out output) result {
 		t.Fatalf("castor cannot produce %q", out.contentType)
 	}
 
-	stream := &media.Stream{URL: mustURL(t, origin.PlaylistURL), ContentType: media.HLS, Live: true}
+	stream := &media.Stream{URL: mustURL(t, origin.PlaylistURL), ContentType: media.HLS}
 	if origin.AudioURL != "" {
 		stream.AudioURL = mustURL(t, origin.AudioURL)
 	}

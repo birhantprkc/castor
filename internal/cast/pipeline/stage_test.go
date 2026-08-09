@@ -15,85 +15,41 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/stupside/castor/internal/cast/attempt"
 	"github.com/stupside/castor/internal/cast/core"
 	"github.com/stupside/castor/internal/cast/deliver/spool"
 	"github.com/stupside/castor/internal/cast/ffmpeg"
-	"github.com/stupside/castor/internal/cast/subtitle/cue"
 	"github.com/stupside/castor/internal/cast/watch"
 	"github.com/stupside/castor/internal/device"
 	"github.com/stupside/castor/internal/media"
 )
 
-// TestTheCueFileHoldsTheLineForTheFrameBeingEncoded covers the burn-in mechanism at
-// the seam the encoder's telemetry moved across: the writer now places cues from
-// -progress SAMPLES rather than from the feed itself, and drawtext reads the file it
-// writes once per frame.
-//
-// It asserts the lookup, not just that something was written. The sample position is
-// the encoder's MUX position and the frames being drawn are an encoder lookahead
-// ahead of it, so a writer that looked up the cue at the position it was handed would
-// place every line late (see cueLeadBias): the first sample here lands inside the cue
-// only because of the bias.
-func TestTheCueFileHoldsTheLineForTheFrameBeingEncoded(t *testing.T) {
-	path, cues := cueFixture(t)
-	write := cueWriter(t.Context(), path, cues, func() float64 { return 10 })
-
-	// Mux position 1.5s, so the frame being drawn is around 2.5s, which is inside the
-	// committed cue (2.0 to 4.0, trimmed inward to hug the audio).
-	write(media.Progress{Position: 1500 * time.Millisecond, Speed: 1.15})
-	if got := readFile(t, path); got != "Hello." {
-		t.Errorf("cue file = %q, want the line covering the frame being encoded", got)
-	}
-
-	// Past the cue, the file must go empty rather than keep the last line on screen.
-	write(media.Progress{Position: 5 * time.Second, Speed: 1.15})
-	if got := readFile(t, path); got != "" {
-		t.Errorf("cue file = %q after the cue ended, want it cleared", got)
-	}
-
-	// The swap is a rename, so nothing partial is ever visible at the path drawtext
-	// re-opens; a leftover temp file means the writer wrote in place instead.
-	if _, err := os.Stat(path + ".tmp"); err == nil {
-		t.Error("the temp file survived the swap, so the update was not a rename")
-	}
-}
-
-// TestAnUnchangedLineIsNotRewritten pins the other half of that: at ten samples a
-// second, rewriting the same line every time is a rename per tick for a file ffmpeg
-// re-opens per frame. The file is removed after the first swap, so a second write
-// would recreate it.
-func TestAnUnchangedLineIsNotRewritten(t *testing.T) {
-	path, cues := cueFixture(t)
-	write := cueWriter(t.Context(), path, cues, func() float64 { return 10 })
-
-	sample := media.Progress{Position: 1500 * time.Millisecond}
-	write(sample)
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
-	write(sample)
-	if _, err := os.Stat(path); err == nil {
-		t.Error("the same line was written twice")
-	}
-}
-
 // fakeStage is a cast's optional work with no whisper behind it, which is what makes the
 // wiring testable at all: the production stage needs a transcription model and a cgo build, so
-// the path that carries its cue file into the encode had no test on either side of it.
+// every site that feeds one had to be driven from a fake.
 type fakeStage struct {
 	burnIn string
 	err    error
 	lead   watch.Lead
 
 	attached atomic.Int64
+	drained  atomic.Int64
 	samples  atomic.Int64
+	leadAsks atomic.Int64
 }
 
 func (s *fakeStage) Attach(ctx context.Context, g *errgroup.Group, pcm io.ReadCloser) {
 	s.attached.Add(1)
 	g.Go(func() error {
+		// A stage started over no feed is named rather than dereferenced: the read has to be
+		// told to tee before it starts, so getting that wrong is a cast whose stage hears
+		// nothing at all, and it is worth a sentence rather than a nil-pointer stack.
+		if pcm == nil {
+			return errors.New("the stage was started over no audio feed, so the read was never told to tee one")
+		}
 		defer pcm.Close()
-		_, _ = io.Copy(io.Discard, pcm)
+		n, _ := io.Copy(io.Discard, pcm)
+		s.drained.Add(n)
 		return nil
 	})
 }
@@ -104,7 +60,14 @@ func (s *fakeStage) Follow(context.Context) func(media.Progress) {
 	return func(media.Progress) { s.samples.Add(1) }
 }
 
-func (s *fakeStage) Lead() watch.Lead { return s.lead }
+func (s *fakeStage) Lead() watch.Lead {
+	s.leadAsks.Add(1)
+	return s.lead
+}
+
+// noStage is what every cast in this suite but the two below runs: nothing beside the read,
+// which is also the shipping default (a burn-in is opt-in configuration).
+func noStage(context.Context, core.Config, string) Stage { return nil }
 
 // TestAStagesInputsReachTheEncodeThatDrawsThem covers the ordering hazard this port exists to
 // remove. A burn-in set on an encode AFTER the copy-vs-encode decision produced a cast that
@@ -117,10 +80,10 @@ func (s *fakeStage) Lead() watch.Lead { return s.lead }
 func TestAStagesInputsReachTheEncodeThatDrawsThem(t *testing.T) {
 	ffmpegPath, ffprobePath := requireFFmpegTools(t)
 
-	cuePath, _ := cueFixture(t)
+	cuePath := existingCueFile(t)
 	c, buffer := bufferedCast(t, ffmpegPath, ffprobePath)
 
-	opts, err := c.bufferedEncode(t.Context(), dlnaLike(), buffer, stages{&fakeStage{burnIn: cuePath}})
+	opts, err := c.bufferedEncode(t.Context(), dlnaLike(), buffer, &fakeStage{burnIn: cuePath})
 	if err != nil {
 		t.Fatalf("building the encode: %v", err)
 	}
@@ -132,7 +95,7 @@ func TestAStagesInputsReachTheEncodeThatDrawsThem(t *testing.T) {
 		t.Errorf("no argument names the cue file the stage prepared, so this cast plays with nothing drawn on it: %v", args)
 	}
 
-	// And a cast with no stages draws nothing, so a subtitle-less cast is not paying for a
+	// And a cast with no stage draws nothing, so a subtitle-less cast is not paying for a
 	// re-encode it has no cues for.
 	opts, err = c.bufferedEncode(t.Context(), dlnaLike(), buffer, nil)
 	if err != nil {
@@ -143,7 +106,7 @@ func TestAStagesInputsReachTheEncodeThatDrawsThem(t *testing.T) {
 		t.Fatalf("building the args: %v", err)
 	}
 	if slices.ContainsFunc(args, func(arg string) bool { return strings.Contains(arg, "drawtext") }) {
-		t.Errorf("a cast with no stages was given a drawtext filter: %v", args)
+		t.Errorf("a cast with no stage was given a drawtext filter: %v", args)
 	}
 }
 
@@ -185,74 +148,111 @@ func TestAStageThatCannotPrepareItsInputsStopsTheCast(t *testing.T) {
 	c, buffer := bufferedCast(t, ffmpegPath, ffprobePath)
 
 	failing := &fakeStage{err: errors.New("creating subtitle cue file: read-only file system")}
-	if _, err := c.bufferedEncode(t.Context(), dlnaLike(), buffer, stages{failing}); err == nil {
+	if _, err := c.bufferedEncode(t.Context(), dlnaLike(), buffer, failing); err == nil {
 		t.Error("a stage that could not prepare its inputs was ignored")
 	}
 }
 
-// TestEveryStageIsStartedOverTheReadsAudioFeed pins the other end of the feed the read is told
-// to tee. A stage that is never started is a cast that tees audio into a pipe nobody reads,
-// which is not a waste but a stall: the pipe is unbuffered, so it blocks the download.
-func TestEveryStageIsStartedOverTheReadsAudioFeed(t *testing.T) {
-	first, second := &fakeStage{}, &fakeStage{}
-	pcm, feed := io.Pipe()
-	g, ctx := errgroup.WithContext(t.Context())
-
-	stages{first, second}.attach(ctx, g, pcm)
-	_ = feed.Close()
-	if err := g.Wait(); err != nil {
-		t.Fatalf("a stage reported %v while draining a feed that simply ended", err)
-	}
-	if first.attached.Load() != 1 || second.attached.Load() != 1 {
-		t.Errorf("stages started %d and %d times, want each exactly once", first.attached.Load(), second.attached.Load())
-	}
-}
-
-// TestEveryStageSeesTheEncodersSamples pins the fan-out, and the nil that is not a missing
-// consumer: the delivery driver drains the encoder's report either way, because ffmpeg writes
-// it with a blocking write and an unread feed stops the encode dead.
-func TestEveryStageSeesTheEncodersSamples(t *testing.T) {
-	first, second := &fakeStage{}, &fakeStage{}
-	follow := stages{first, second}.follow(t.Context())
-	if follow == nil {
-		t.Fatal("a cast with stages follows nothing")
-	}
-	follow(media.Progress{Position: time.Second})
-	if first.samples.Load() != 1 || second.samples.Load() != 1 {
-		t.Errorf("samples reached %d and %d stages, want both", first.samples.Load(), second.samples.Load())
-	}
-
-	if stages(nil).follow(t.Context()) != nil {
-		t.Error("a cast with no stages was given a consumer of the encoder's samples anyway")
-	}
-}
-
-// TestTheReadinessLeadIsAStagesOwn covers what the readiness rules ask of a cast: nil is how
-// they are told a transcription lead is no part of being playable here, and a typed nil would
-// answer "yes, and it has committed nothing", forever.
-func TestTheReadinessLeadIsAStagesOwn(t *testing.T) {
-	if stages(nil).lead() != nil {
-		t.Error("a cast with no stages reports a lead to wait on")
-	}
-	if (stages{&fakeStage{}}).lead() != nil {
-		t.Error("a stage with nothing to wait for reports a lead anyway")
-	}
-	lead := fakeLead{}
-	if got := (stages{&fakeStage{}, &fakeStage{lead: lead}}).lead(); got != watch.Lead(lead) {
-		t.Errorf("lead = %v, want the one stage that has one", got)
-	}
-}
-
 // TestTheReadTeesAudioExactlyWhenAStageWantsIt pins the one fact the read has to be told before
-// it starts, long before a renderer has answered anything. Teeing a feed nobody reads is not a
-// waste: the pipe is unbuffered, so it blocks the download and the cast never becomes playable.
+// it starts, long before a renderer has answered anything, over a real read of a real source.
+//
+// Both directions cost a cast. A stage that is never handed the feed transcribes silence; a
+// feed nobody drains is not a waste but a stall, because the pipe is unbuffered and
+// backpressure on it throttles the whole download (which then reads as a starving link, since
+// the pace this read may be judged against is withheld the moment it tees).
 func TestTheReadTeesAudioExactlyWhenAStageWantsIt(t *testing.T) {
-	if stages(nil).wantPCM() {
-		t.Error("a cast with no stages asks the read to tee audio nobody will read")
+	ffmpegPath, ffprobePath := requireFFmpegTools(t)
+	origin := serveFixture(t, ffmpegPath)
+
+	for _, tt := range []struct {
+		name  string
+		stage *fakeStage
+	}{
+		{name: "a cast that runs a stage", stage: &fakeStage{}},
+		{name: "a cast that runs none"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			g, readCtx := errgroup.WithContext(ctx)
+			c := &cast{
+				cfg:     castConfig(device.TypeDLNA, ffmpegPath, ffprobePath),
+				attempt: attempt.Attempt{Source: origin.stream(), Read: sourcePolicy(t, 30*time.Second)},
+				workDir: t.TempDir(),
+				group:   g,
+			}
+
+			// A nil *fakeStage would be a Stage that exists, which is the case this test is
+			// distinguishing, so the interface is only ever given a stage there really is.
+			var stage Stage
+			if tt.stage != nil {
+				stage = tt.stage
+			}
+			_, pl, err := c.startReading(readCtx, stage)
+			if err != nil {
+				t.Fatalf("starting the read: %v", err)
+			}
+			defer func() {
+				cancel()
+				_ = g.Wait()
+			}()
+
+			if teed := pl.pcm != nil; teed != (tt.stage != nil) {
+				t.Errorf("the read tees audio = %v for %s", teed, tt.name)
+			}
+			if tt.stage == nil {
+				return
+			}
+			if got := tt.stage.attached.Load(); got != 1 {
+				t.Errorf("the stage was started %d times over the feed the read was told to tee, want exactly once", got)
+			}
+		})
 	}
-	if !(stages{&fakeStage{}}).wantPCM() {
-		t.Error("a cast with a stage is not given the audio feed it exists to consume")
+}
+
+// TestEveryPartOfAStageIsWiredIntoTheCastThatRunsIt drives a whole read-once cast with a stage
+// in it, which is the property no unit over the port can state: each of the four things a stage
+// is asked for is asked at a different point in the leg, and a stage the leg never asks is a
+// cast that plays with nothing drawn on it and no error anywhere.
+//
+// The lead is asked for before the gate (a cast whose transcription has not reached the frame
+// being encoded must be held), the feed is teed and drained by the read, and the encoder's
+// samples are what place the cues, so all four are asserted from the stage's own side.
+func TestEveryPartOfAStageIsWiredIntoTheCastThatRunsIt(t *testing.T) {
+	ffmpegPath, ffprobePath := requireFFmpegTools(t)
+	origin := serveFixture(t, ffmpegPath)
+
+	// A finished transcription, which is how a short source clears the readiness rule: it has
+	// nothing left to commit, so the gate has nothing left to hold for.
+	stage := &fakeStage{lead: fakeLead{done: true}}
+	dev := &fakeDevice{caps: dlnaLike(), drain: true}
+
+	ctx, cancel := context.WithTimeout(t.Context(), castTimeout)
+	defer cancel()
+	if err := castWith(ctx, t, castConfig(device.TypeDLNA, ffmpegPath, ffprobePath), connectTo(dev), origin.stream(), stage); err != nil {
+		t.Fatalf("casting with a stage: %v", err)
 	}
+
+	if got := stage.attached.Load(); got != 1 {
+		t.Errorf("the stage was started %d times, want exactly once", got)
+	}
+	if got := stage.drained.Load(); got == 0 {
+		t.Error("the stage was handed no audio at all, so a transcription of this cast would have had nothing to hear")
+	}
+	if got := stage.leadAsks.Load(); got == 0 {
+		t.Error("nothing asked the stage how far it had committed, so the gate cannot be holding for it: this is the cast that ships a picture with nothing drawn on it")
+	}
+	if got := stage.samples.Load(); got == 0 {
+		t.Error("no sample of the encoder reached the stage, so nothing would place a cue against the frame being encoded")
+	}
+}
+
+// castWith drives one attempt through the executor with the stage that cast is to run. The
+// stage is injected exactly as production injects it (see cast.burnInStage), which is what lets
+// the whole leg be driven here without a whisper model or a cgo build.
+func castWith(ctx context.Context, t *testing.T, cfg core.Config, connect ConnectFunc, source *media.Stream, stage Stage) error {
+	t.Helper()
+	return NewExecutor(cfg, connect, func(context.Context, core.Config, string) Stage { return stage }, "127.0.0.1").
+		Run(ctx, attempt.Attempt{Try: 1, Source: source, Read: sourcePolicy(t, 30*time.Second)}).Err
 }
 
 // bufferedCast is the read-once composition's material at the point its encode is built: an
@@ -268,26 +268,13 @@ func bufferedCast(t *testing.T, ffmpegPath, ffprobePath string) (*cast, string) 
 	return &cast{cfg: cfg, policy: core.CopyWhatFits, workDir: t.TempDir()}, sp.Path()
 }
 
-// cueFixture is an existing (empty) cue file and one committed cue running from 2.0 to
-// 4.0 seconds. The file exists because drawtext opens it before every frame and ffmpeg
-// dies on a read that fails, which is why the production path creates it before the
-// encoder starts.
-func cueFixture(t *testing.T) (string, *cue.Builder) {
+// existingCueFile is the file a stage hands back from Inputs: it exists, because drawtext opens
+// it before every frame and ffmpeg dies on a read that fails.
+func existingCueFile(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "cue.txt")
 	if err := os.WriteFile(path, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cues := cue.NewBuilder()
-	cues.Commit([]cue.Word{{Start: 2, End: 4, Text: "Hello."}}, 10)
-	return path, cues
-}
-
-func readFile(t *testing.T, path string) string {
-	t.Helper()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(b)
+	return path
 }

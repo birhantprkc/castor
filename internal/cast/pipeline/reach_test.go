@@ -60,7 +60,7 @@ const budget = time.Second
 // So each verdict below is driven through the production entry points (waitForPlayable and
 // supervise) over the real spool and the real read, with the fields production actually
 // supplies: the pace is the read's own answer about itself, the buffer is the encoder's
-// position as the stream delivery reports it, and the renderer's fetching is whatever the sink
+// position as the stream delivery reports it, and the renderer's fetching is whatever the mechanism
 // says. Nothing here constructs a watch.Health, and no assertion can be satisfied by one.
 //
 // The verdict is read back out of the watch's own statements: the fault it returns, the nil it
@@ -107,7 +107,7 @@ func TestEveryVerdictAUnitTestCanDriveIsReachedThroughTheRealWiring(t *testing.T
 		})
 	})
 
-	// Unfetched, in flight: the sink states that the renderer was handed no byte of what was
+	// Unfetched, in flight: the delivery states that the renderer was handed no byte of what was
 	// produced for it, which is the one thing about a renderer this window can say.
 	stated.drive(t, func(ctx context.Context) error {
 		sp, pl := gateFixture(t, 2.0)

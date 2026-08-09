@@ -168,7 +168,7 @@ func TestTheExecutorBlamesARendererThatWouldNotPlay(t *testing.T) {
 	source := &media.Stream{URL: &url.URL{Scheme: "https", Host: "cdn.example", Path: "/movie.mp4"}, ContentType: media.MP4}
 
 	cfg := castConfig(device.TypeChromecast, "", "")
-	out := NewExecutor(cfg, connectTo(dev), "127.0.0.1").Run(t.Context(), attempt.Attempt{Try: 1, Source: source})
+	out := NewExecutor(cfg, connectTo(dev), noStage, "127.0.0.1").Run(t.Context(), attempt.Attempt{Try: 1, Source: source})
 
 	if out.Err == nil {
 		t.Fatal("the cast reported success though the renderer refused the URL")

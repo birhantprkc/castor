@@ -253,6 +253,12 @@ func TestCastDegradesToTheHeaviestRungTheLinkCarried(t *testing.T) {
 	if second.Source.Headers.Get("Referer") == "" {
 		t.Error("the degraded attempt lost the headers the link was measured with, so it will read a source it can no longer open")
 	}
+	// The measured height described the rung that just failed, so carrying it onto a lighter
+	// rung is a stale measurement of a taller picture, and it is what the cast's height ceiling
+	// would then judge this attempt by (see core.Shape.Height).
+	if second.Source.Height != low.Height {
+		t.Errorf("the degraded attempt carries height %d, want the rung it moved to (%d)", second.Source.Height, low.Height)
+	}
 	if run.seen[0].Source.URL.String() != top.URL.String() {
 		t.Error("degrading rewrote the candidate the first attempt read, so the ordering no longer says what was tried")
 	}

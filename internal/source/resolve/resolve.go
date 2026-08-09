@@ -55,17 +55,16 @@ func New(cfg Config, measurer Measurer, playlists Playlists) *Resolver {
 // that published no ladder, which a caller must read as the absence of evidence and
 // never as a free rendition.
 func (r *Resolver) Resolve(ctx context.Context, stream *media.Stream) (*media.Stream, media.Origin, media.Rendition, error) {
-	info, err := r.identify(ctx, stream)
-	if err != nil {
+	if err := r.identify(ctx, stream); err != nil {
 		return nil, media.Origin{}, media.Rendition{}, err
 	}
-	origin := media.Origin{Live: stream.Live}
-	if info != nil {
-		// Free, and the only duration a non-segmented source has: the measurement was
-		// already spent naming the container, and a whole file publishes no document to
-		// state its runtime.
-		origin.Duration = info.Duration
-	}
+	// What a probe measured is all a source with no document to read ever says about itself: a
+	// whole file publishes no manifest, so its runtime is ffprobe's and nothing corrects it,
+	// and liveness is the same fact read the other way round. A probe that opened the
+	// container and found no runtime found a stream with no ending in it; a link nobody opened
+	// establishes nothing, which is why Probed is required here. Where a document lists the
+	// segments it overrules this outright rather than joining it (see program).
+	origin := media.Origin{Duration: stream.Duration, Live: stream.Probed && stream.Duration == 0}
 	// The remaining facts are HLS's alone: it is the only container that publishes one
 	// program across renditions, the only one whose document states how its segments
 	// are framed, and the only one castor opens with relaxed checks.
@@ -99,7 +98,7 @@ func (r *Resolver) RankStreams(ctx context.Context, streams []*media.Stream) ([]
 	}
 	streams = limitPerHost(ctx, streams)
 
-	pool := make([]candidate, 0, len(streams))
+	pool := make([]measurement, 0, len(streams))
 	rejected := make(map[reason]int)
 	for _, m := range r.measureAll(ctx, streams) {
 		v := admit(m)
@@ -120,7 +119,7 @@ func (r *Resolver) RankStreams(ctx context.Context, streams []*media.Stream) ([]
 	order := ranked(pool, r.cfg.MaxHeight)
 	best := order[0]
 	slog.InfoContext(ctx, "best stream selected", "url", best.stream.URL.String(),
-		"bitrate", best.stream.Bandwidth, "height", best.height, "last_resort", best.lastResort,
+		"bitrate", best.stream.Bandwidth, "height", best.stream.Height, "last_resort", best.lastResort,
 		// The renditions the captured document advertised, which is the first thing worth
 		// knowing when a cast later reports it has nothing lighter to fall back to.
 		"renditions", best.stream.Ladder, "alternatives", len(order)-1)

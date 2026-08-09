@@ -3,7 +3,6 @@ package ffmpeg
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -123,17 +122,11 @@ func (p SourceProber) Probe(ctx context.Context) (media.ProbeInfo, error) {
 	return info, nil
 }
 
-// probe runs ffprobe against input and maps its JSON to the domain ProbeInfo.
-// inputArgs are the flags an input needs to be opened at all (headers, container
-// leniency); everything the decision layer reads is in the -show_entries list.
-//
-// extradata_size is deliberately not in that list, even though it would work:
-// nine source shapes agreed nine times out of nine that extradata_size and the
-// 0xFFF ADTS syncword identify a track's framing, so castor COULD measure the
-// input's framing here. No decision needs it, because the repack is keyed on the
-// destination and is a no-op in the harmless direction, and adding an
-// input nothing reads is how a decision later grows a dependency on the source
-// container by accident.
+// probe runs ffprobe against input and hands its JSON to the one decoder both layers that
+// measure read (media.DecodeProbe). inputArgs are the flags an input needs to be opened at
+// all (headers, container leniency); what is asked for and what it means are media's, so a
+// copy decision here and a candidate's admission there cannot disagree about what a video
+// track is.
 func probe(ctx context.Context, ffprobePath, input string, inputArgs []string) (media.ProbeInfo, error) {
 	args := []string{
 		// Warning, not error, for the same reason the puller runs at warning: the lines
@@ -148,8 +141,7 @@ func probe(ctx context.Context, ffprobePath, input string, inputArgs []string) (
 		// stdout, so nothing here reaches the parser.
 		"-v", "warning",
 		"-print_format", "json",
-		"-show_entries",
-		"stream=codec_type,codec_name,profile,height,pix_fmt,color_transfer,channels",
+		"-show_entries", media.ProbeEntries,
 	}
 	args = append(args, inputArgs...)
 	args = append(args, input)
@@ -175,72 +167,5 @@ func probe(ctx context.Context, ffprobePath, input string, inputArgs []string) (
 		}
 		return media.ProbeInfo{}, fmt.Errorf("ffprobe: %w%s", err, tail.evidence())
 	}
-	out := stdout.Bytes()
-
-	var result struct {
-		Streams []struct {
-			CodecType     string `json:"codec_type"`
-			CodecName     string `json:"codec_name"`
-			Profile       string `json:"profile"`
-			Height        int    `json:"height"`
-			PixFmt        string `json:"pix_fmt"`
-			ColorTransfer string `json:"color_transfer"`
-			Channels      int    `json:"channels"`
-		} `json:"streams"`
-	}
-	if err := json.Unmarshal(out, &result); err != nil {
-		return media.ProbeInfo{}, fmt.Errorf("parsing ffprobe output: %w", err)
-	}
-
-	var info media.ProbeInfo
-	for _, s := range result.Streams {
-		switch s.CodecType {
-		case "video":
-			// Guard against decoy streams and multiple video tracks: keep the
-			// first real one and ignore later thumbnails.
-			if info.VideoCodec != "" {
-				continue
-			}
-			info.VideoCodec = media.Codec(s.CodecName)
-			info.VideoProfile = s.Profile
-			info.VideoHeight = s.Height
-			info.VideoBitDepth = pixFmtBitDepth(s.PixFmt)
-			info.VideoHDR = isHDRTransfer(s.ColorTransfer)
-		case "audio":
-			// Keep the first audio track (the default the pull maps as 0:a:0),
-			// ignoring later alternates/commentary.
-			if info.AudioCodec != "" {
-				continue
-			}
-			info.AudioCodec = media.Codec(s.CodecName)
-			info.AudioChannels = s.Channels
-		}
-	}
-	return info, nil
-}
-
-// pixFmtBitDepth derives the luma bit depth from an ffprobe pix_fmt name.
-// 8-bit formats (yuv420p, nv12, yuvj420p) carry no depth marker; 10/12-bit
-// ones do (yuv420p10le, p010le, yuv422p12le).
-func pixFmtBitDepth(pixFmt string) int {
-	switch {
-	case pixFmt == "":
-		return 0
-	case strings.Contains(pixFmt, "12"):
-		return 12
-	case strings.Contains(pixFmt, "10"):
-		return 10
-	default:
-		return 8
-	}
-}
-
-// isHDRTransfer reports whether an ffprobe color_transfer names an HDR curve.
-func isHDRTransfer(transfer string) bool {
-	switch transfer {
-	case "smpte2084", "arib-std-b67":
-		return true
-	default:
-		return false
-	}
+	return media.DecodeProbe(stdout.Bytes())
 }

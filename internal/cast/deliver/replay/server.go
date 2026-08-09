@@ -21,17 +21,17 @@
 // That is the cost of a viewer's pause: the socket stops draining, the write
 // deadline severs the connection, and the next GET starts the film again.
 //
-// A client that asks to CONTINUE can be served from its offset instead, because
-// the spool still holds every byte it had (see resume), and on a delivery whose
-// responses take ranges that is what the pause costs: nothing. It is not what a
-// pause costs everywhere, and the difference is the delivery's own headers
-// rather than anything a client does. A delivery configured with
-// Accept-Ranges: none has promised the renderer that no partial response will
-// arrive, so every open-ended resume on it is refused and the program really
-// does start over (see rangesDeclined). That is the configuration castor serves
-// a renderer which cannot fetch for itself under, which makes the restart the
-// ordinary outcome of a long pause rather than the exotic one, and it is why a
-// severance is logged with what it cost (see severed).
+// A client that asks to CONTINUE is served from its offset ONLY once the
+// producer has finished, because the spool still holds every byte it had and
+// its length is finally a number anybody can state (see resume). While the
+// producer runs there is no such number, so a reconnect is replayed from the
+// beginning whatever it asks for; and a delivery whose own headers declare
+// Accept-Ranges: none is replayed from the beginning even afterwards, because
+// castor may not hand a firmware the one response shape it was promised would
+// not arrive (see rangesDeclined). That declaration is what the family castor
+// serves a renderer which cannot fetch for itself sends, so on those casts the
+// restart is the outcome of every long pause, which is why a severance is
+// logged with what it cost (see severed).
 //
 // Nothing here advertises Accept-Ranges of its own: a resume is answered when a
 // client asks for one, and no client is invited to seek into a stream whose
@@ -85,18 +85,14 @@ const (
 	// back for the rest is answered afterwards, from what it was handed (see Handed), rather
 	// than guessed at while it is quiet.
 	//
-	// What a longer pause costs is the viewer's POSITION, and how much it costs is decided by
-	// this delivery's own response headers rather than by anything here:
-	//   - Where they take ranges, a reconnect that asks to continue is served from its offset
-	//     instead of from byte 0 (see resume), and the pause costs nothing at all.
-	//   - Where they declare Accept-Ranges: none, every open-ended resume is REFUSED (see
-	//     rangesDeclined) and the film starts over from the beginning whatever the reconnect
-	//     asks for. The declaration is the renderer's own (StreamHeaders) and castor may not
-	//     contradict it, so the resume is unavailable exactly where it would be worth most: the
-	//     one family that makes it (alongside DLNA.ORG_OP=00, which advertises no seek
-	//     operations at all) is the family castor serves when the renderer cannot fetch for
-	//     itself, i.e. the casts whose every byte castor produced. Whether that family can be
-	//     told to accept ranges is a question about that header, not about this server.
+	// What a longer pause costs is the viewer's POSITION, and it costs it on every cast castor
+	// currently serves this way. A reconnect is served from its offset only where the producer
+	// has already finished the title AND this delivery's headers take ranges (see resume), and
+	// the family castor serves a renderer that cannot fetch for itself declares Accept-Ranges:
+	// none (alongside DLNA.ORG_OP=00, which advertises no seek operations at all). Its
+	// declaration is the renderer's own (StreamHeaders) and castor may not contradict it, so the
+	// resume is unavailable exactly where it would be worth most. Whether that family can be told
+	// to accept ranges is a question about that header, not about this server.
 	//
 	// So a severance is logged with the numbers that account for it, including whether a resume
 	// could be answered at all (see severed). A film that restarts itself with nothing in the
@@ -200,16 +196,11 @@ func (s *Server) URL() *url.URL {
 	return &url.URL{Scheme: "http", Host: s.listener.Addr().String(), Path: "/stream" + s.cfg.Extension}
 }
 
-// Close stops accepting connections and severs active ones.
-// Produced is how many bytes the producer has written into the spool so far. It
-// is what a caller waits on to know the producer is actually producing, rather
-// than about to announce that it cannot.
-func (s *Server) Produced() int64 { return s.spool.Size() }
-
-// ProducerDone is closed once the producer's output has ended. The server reads
-// that pipe, so it is the only party that sees the end of it; a caller waiting to
-// find out whether a stream ever started needs this to tell "still starting" from
-// "already over".
+// ProducerDone is closed once the producer's output has ended AND everything it wrote is in
+// the spool. The server reads that pipe, so it is the only party that sees the end of it: a
+// caller waiting to find out whether a stream ever started needs this to tell "still starting"
+// from "already over", and a caller about to reap the producer needs it to know that nothing
+// here is still reading what it is about to close.
 func (s *Server) ProducerDone() <-chan struct{} { return s.done }
 
 // Handed is the most of this stream any ONE client was handed, and when a byte of it last
@@ -244,9 +235,22 @@ func (s *Server) Handed() (int64, time.Time) {
 	return s.sent, s.lastFetch
 }
 
+// Close stops accepting connections, severs active ones, and JOINS the goroutine spooling the
+// producer's output.
+//
+// The join is what makes the caller's next two steps safe, and it was missing. This server
+// reads the producer's pipe from a goroutine of its own, so a caller that reaped the producer
+// while that copy was still running would have os/exec close the pipe underneath it, and a
+// caller that removed the work directory would be deleting the file it writes into. Both were
+// harmless only by accident of timing and of POSIX tolerating writes to an unlinked file.
+//
+// It returns as soon as the producer's output ends, which is what the caller has just arranged
+// by killing it: the copy sees EOF and the goroutine ends.
 func (s *Server) Close() error {
 	s.cancel()
-	return s.server.Close()
+	err := s.server.Close()
+	<-s.done
+	return err
 }
 
 // Wait blocks until the stream has been fully produced AND delivered: a
@@ -290,7 +294,9 @@ type served struct {
 	// there", which only a 200 ever is.
 	start int64
 	end   int64
-	// total is the stream's full length, and -1 while the producer may still append to it.
+	// total is the stream's full length, and -1 on the 200 that carries a stream the producer
+	// may still be appending to. A 206 always states it, because a range is only ever answered
+	// over a file the producer has finished (see resume).
 	total int64
 }
 
@@ -305,28 +311,24 @@ type served struct {
 // standing between a reconnect and its position is whether this server answers the offset it
 // asks for.
 //
-// A range is answered only where the answer can be TRUTHFUL, and the refusals carry the
-// reasoning. The first of them is the one that decides most casts, and it is not about what can
-// be served but about what was promised:
-//   - Any range at all on a delivery whose own headers declare Accept-Ranges: none: REFUSED,
-//     and this is the case a paused viewer actually meets, because that declaration is what the
-//     family castor serves a non-self-fetching renderer under sends (see rangesDeclined). On
-//     those casts the position is gone the moment the write deadline severs the socket, whatever
-//     the reconnect asks for, and the refusal is logged rather than left to be inferred.
+// A range is answered only where the whole answer is arithmetic over a FINISHED file, and the
+// two refusals carry the reasoning:
 //   - No range at all, or bytes=0- : the ordinary replay, 200 from byte 0. It is what the
 //     HEAD-probe, short-GET, real-GET dance depends on, and a client asking for the whole thing
 //     from byte 0 is asking for exactly those bytes.
-//   - The client named its own last byte (bytes=N-M): answerable at any time, including while
-//     the producer is still running, because the response states a stretch the CLIENT chose and
-//     invents no length of its own.
-//   - bytes=N- once the producer has finished: the length is final, so the response can state
-//     it.
-//   - bytes=N- while the producer is still running: REFUSED, and this is the hole in the fix
-//     rather than an oversight. A 206 must name a last byte, and the only candidates are a
-//     number nobody knows yet or the bytes produced so far. The second is worse than the
-//     restart it would avoid: a client told the film ends where the encoder happens to have
-//     reached stops mid-title with no error in any log, while a client replayed from byte 0 is
-//     at least visibly at the beginning.
+//   - Any range on a delivery whose own headers declare Accept-Ranges: none: REFUSED, and this
+//     is the case a paused viewer actually meets, because that declaration is what the family
+//     castor serves a non-self-fetching renderer under sends (see rangesDeclined). On those
+//     casts the position is gone the moment the write deadline severs the socket, whatever the
+//     reconnect asks for, and the refusal is logged rather than left to be inferred.
+//   - Any range while the producer is still running: REFUSED. A 206 must name a last byte and a
+//     complete length, and while the encoder runs the only candidates are numbers nobody knows
+//     yet or the bytes produced so far, which is worse than the restart it would avoid: a client
+//     told the film ends where the encoder happens to have reached stops mid-title with no error
+//     in any log, while a client replayed from byte 0 is at least visibly at the beginning.
+//   - Once the producer has finished: served, from the offset asked for to the client's own last
+//     byte or to the end of the file, over a length that is final. A client is entitled to ask
+//     past the end and to be told where the end is (416).
 func (s *Server) resume(rangeHeader string) (served, string) {
 	whole := served{code: http.StatusOK, start: 0, end: -1, total: -1}
 	if rangeHeader == "" {
@@ -355,23 +357,15 @@ func (s *Server) resume(rangeHeader string) (served, string) {
 	if s.rangesDeclined() {
 		return refuse("this delivery's own response headers declare Accept-Ranges: none")
 	}
-	total, final := s.spooled()
-	unsatisfiable := served{code: http.StatusRequestedRangeNotSatisfiable, total: total}
+	total, final := s.Spooled()
 	switch {
-	case end >= 0:
-		// The client named its own last byte, so there is nothing to invent. A final length
-		// still bounds it: a client is entitled to ask past the end and to be told where it is.
-		if !final {
-			return served{code: http.StatusPartialContent, start: start, end: end, total: -1}, ""
-		}
-		if start >= total {
-			return unsatisfiable, ""
-		}
-		return served{code: http.StatusPartialContent, start: start, end: min(end, total-1), total: total}, ""
 	case !final:
 		return refuse("the producer is still running, so no response can state where this stream ends")
 	case start >= total:
-		return unsatisfiable, ""
+		return served{code: http.StatusRequestedRangeNotSatisfiable, total: total}, ""
+	case end >= 0:
+		// The client named its own last byte, and a final length bounds it.
+		return served{code: http.StatusPartialContent, start: start, end: min(end, total-1), total: total}, ""
 	default:
 		return served{code: http.StatusPartialContent, start: start, end: total - 1, total: total}, ""
 	}
@@ -422,12 +416,15 @@ func (s *Server) rangesDeclined() bool {
 	return false
 }
 
-// spooled is how many bytes the producer has written and whether that figure is final.
+// Spooled is how many bytes the producer has written and whether that figure is final. It is
+// the one answer to both questions asked of this figure: what has landed so far, which is what a
+// caller waits on to know the producer is producing rather than about to announce that it cannot,
+// and whether a range response may state it as a length.
 //
 // Final is read from the producer's own end and never from the size holding still: a size that
 // has not moved is a slow encoder, and a range response that stated it as the stream's length
 // would tell a client the film ends where the encoder happened to have reached.
-func (s *Server) spooled() (int64, bool) {
+func (s *Server) Spooled() (int64, bool) {
 	select {
 	case <-s.done:
 		return s.spool.Size(), true
@@ -456,7 +453,7 @@ func (s *Server) severed(ctx context.Context, r *http.Request, err error, held i
 		slog.InfoContext(ctx, "stream client disconnected", "from", r.RemoteAddr, "bytes_sent", held, "error", err)
 		return
 	}
-	_, final := s.spooled()
+	_, final := s.Spooled()
 	slog.WarnContext(ctx, "severed a client that stopped draining the stream; unless it reconnects with a Range it restarts the program from the beginning",
 		"from", r.RemoteAddr,
 		"user_agent", r.UserAgent(),
@@ -533,16 +530,12 @@ func (s *Server) handleStream(srvCtx context.Context, w http.ResponseWriter, r *
 		s.mu.Unlock()
 	}()
 
-	// A partial response states the stretch it carries. Content-Length is set from that
-	// stretch and not left to chunked encoding, because a resuming client uses it to know the
-	// response is the continuation it asked for; a complete-length of * is what an unfinished
-	// producer honestly has to say (see resume).
+	// A partial response states the stretch it carries and the length it is a stretch of, both
+	// of which are numbers only because the producer has finished (see resume). Content-Length
+	// is set from that stretch rather than left to chunked encoding, because a resuming client
+	// uses it to know the response is the continuation it asked for.
 	if sv.code == http.StatusPartialContent {
-		if sv.total >= 0 {
-			w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", sv.start, sv.end, sv.total))
-		} else {
-			w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/*", sv.start, sv.end))
-		}
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", sv.start, sv.end, sv.total))
 		w.Header().Set("Content-Length", strconv.FormatInt(sv.end-sv.start+1, 10))
 	}
 	w.WriteHeader(sv.code)

@@ -26,7 +26,7 @@ import (
 // can open it at all, i.e. media.Stream.NeedsLeniency) and because it is skipped
 // whenever it cannot change the outcome: see verifyRendererCanFetch.
 //
-// A failed Measure returns a nil StreamInfo. Callers must read that as "nothing is
+// A failed Measure returns a nil ProbeInfo. Callers must read that as "nothing is
 // known about this source", never as "this source carries nothing": the two lead
 // to opposite decisions, since a candidate castor never managed to measure may
 // still be readable by a puller that reconnects where ffprobe gave up.
@@ -38,7 +38,7 @@ import (
 // cannot tell the two apart must answer ReachUnproven, which is the zero value, so
 // silence here can only ever be lenient.
 type Measurer interface {
-	Measure(ctx context.Context, s *media.Stream) (*media.StreamInfo, media.Reach, error)
+	Measure(ctx context.Context, s *media.Stream) (*media.ProbeInfo, media.Reach, error)
 	OpensUnaided(ctx context.Context, s *media.Stream) bool
 }
 

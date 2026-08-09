@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"sync"
 )
@@ -26,7 +27,6 @@ type Spool struct {
 	size   int64
 	closed bool  // no more writes are coming
 	err    error // terminal write-side error, if any
-	tails  int   // how many readers have been handed a view of this spool
 }
 
 func New(path string) (*Spool, error) {
@@ -40,12 +40,6 @@ func New(path string) (*Spool, error) {
 }
 
 // Write appends to the spool and wakes any blocked tails.
-//
-// The file write is inside the mutex, not merely the size bookkeeping, because
-// Reset rewinds this same descriptor under that mutex. A write that had already
-// entered os.File.Write when the truncate landed would either re-extend the file
-// it was rewinding or append at an offset the reset had abandoned, and the size
-// this type publishes would then describe neither.
 func (s *Spool) Write(p []byte) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -78,11 +72,10 @@ func (s *Spool) Size() int64 {
 // consistent prefix of whatever has been written so far.
 func (s *Spool) Path() string { return s.path }
 
-// Tail returns a reader over the spool from byte 0 that blocks at
-// end-of-data until the writer appends more or closes. The reader also
-// unblocks (with ctx.Err()) when ctx is cancelled: required because
-// os/exec waits for stdin-feeding goroutines, which would otherwise hang
-// on a parked Tail after the consumer process dies.
+// Tail returns a reader over the spool from byte 0 that blocks at end-of-data until the
+// writer appends more or closes. A parked reader also unblocks when ctx is cancelled (with
+// ctx.Err()) and when its owner closes it (see tailReader.Close), which are the two ways a
+// consumer of a buffer that has stopped growing is ever let go.
 func (s *Spool) Tail(ctx context.Context) (io.ReadCloser, error) { return s.TailAt(ctx, 0) }
 
 // TailAt is Tail from a byte offset, for a consumer that already holds the
@@ -99,10 +92,6 @@ func (s *Spool) TailAt(ctx context.Context, offset int64) (io.ReadCloser, error)
 	if err != nil {
 		return nil, fmt.Errorf("opening spool for tail: %w", err)
 	}
-	s.mu.Lock()
-	s.tails++
-	s.mu.Unlock()
-
 	t := &tailReader{spool: s, f: f, ctx: ctx, offset: offset}
 	// Wake the cond loop when ctx dies so Read can observe cancellation. The stop
 	// function is kept and called from Close: ctx is the whole cast's, so a
@@ -122,19 +111,29 @@ type tailReader struct {
 	ctx    context.Context
 	stop   func() bool
 	offset int64
+	// done records that this reader's owner has closed it. It is guarded by the spool's mutex
+	// because it is read inside the wait below: a reader parked at end-of-data has to observe
+	// it, which is the whole reason it is a flag under that lock rather than a closed file.
+	done bool
 }
 
 func (t *tailReader) Read(p []byte) (int, error) {
 	s := t.spool
 	s.mu.Lock()
-	for t.offset >= s.size && !s.closed && t.ctx.Err() == nil {
+	for t.offset >= s.size && !s.closed && !t.done && t.ctx.Err() == nil {
 		s.cond.Wait()
 	}
-	size, closed, werr := s.size, s.closed, s.err
+	size, closed, werr, gone := s.size, s.closed, s.err, t.done
 	s.mu.Unlock()
 
 	if err := t.ctx.Err(); err != nil {
 		return 0, err
+	}
+	if gone {
+		// The owner closed this reader, so there is nobody left to hand bytes to. Reported as an
+		// error rather than as EOF because a consumer of a spool that is still growing must not
+		// read "your owner gave up" as "the producer finished".
+		return 0, fs.ErrClosed
 	}
 	if t.offset >= size {
 		// closed and fully drained
@@ -158,7 +157,20 @@ func (t *tailReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
+// Close ends this view of the spool, and TERMINATES a Read parked in it.
+//
+// The broadcast is what makes it terminate, and it is the difference between a teardown that
+// returns and one that does not. A tail is what feeds ffmpeg's stdin, and os/exec's Wait also
+// waits for the goroutine copying that reader, so an encoder killed while its tail is parked at
+// end-of-data on a spool that will never grow again is reaped by nobody: the process is dead,
+// the copy is asleep, and the wait behind it never ends. Waking the reader is the only thing
+// that can free it, since nothing else about a closed file is visible from inside a cond wait.
 func (t *tailReader) Close() error {
+	s := t.spool
+	s.mu.Lock()
+	t.done = true
+	s.cond.Broadcast()
+	s.mu.Unlock()
 	t.stop()
 	return t.f.Close()
 }

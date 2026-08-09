@@ -92,7 +92,7 @@ func (k Kind) String() string {
 // every window rather than to a fault.
 type Health struct {
 	// Landed is how many bytes of the artifact a renderer would fetch exist now: the
-	// spool the encoder tails, the stream the replay sink has spooled, the playlist the
+	// spool the encoder tails, the stream the replay delivery has spooled, the playlist the
 	// muxer has written. One field, because "is there anything to hand over" is one
 	// question whatever the delivery.
 	Landed int64
@@ -152,7 +152,7 @@ type Health struct {
 	// given, and SinceFetch how long ago a byte last moved (measured from the start of the
 	// watch while none has).
 	//
-	// What it took and not how often it asked: a sink counts a request before it writes a byte
+	// What it took and not how often it asked: a delivery counts a request before it writes a byte
 	// of the response, and a renderer's first move on a stream URL is a probe (see
 	// watch.Consumer), so a count reads as a fetch for a renderer that came to the door and
 	// took nothing. That is the whole of the shape the one renderer verdict is for.

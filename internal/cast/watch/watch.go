@@ -27,8 +27,12 @@ type Monitor struct {
 	Window Window
 
 	// Producer is the side delivering the bytes: the source read before playback, the
-	// encoder behind a delivery being opened.
+	// encoder behind a delivery being opened or played.
 	Producer Producer
+
+	// Telemetry is that producer's account of its own pace, nil where its rate is not a
+	// statement about anything a rule may judge (see Telemetry).
+	Telemetry Telemetry
 
 	// Consumer is the renderer's side, nil until a renderer holds a URL.
 	Consumer Consumer
@@ -152,19 +156,26 @@ func (t *tracker) read() Health {
 		h.Lead, h.LeadDone = l.LatestEnd(), l.Done()
 	}
 
-	if p := t.m.Producer; p != nil {
-		sample := p.Progress()
+	if tm := t.m.Telemetry; tm != nil {
+		sample := tm.Progress()
 		t.fresh = sample != t.sample
 		if t.fresh && sample.Speed > 0 {
 			t.samples++
 		}
 		t.sample = sample
 		h.Position, h.Speed, h.Samples = sample.Position, sample.Speed, t.samples
+	}
 
+	if p := t.m.Producer; p != nil {
 		select {
 		case <-p.Done():
 			h.Ended = true
-			h.Failed = p.Err() != nil
+			// Asked only of a producer that has ended, because that is when the answer exists:
+			// a read publishes its terminal error with the close of that channel and not
+			// before, so a reading taken earlier is of a field the download is still writing.
+			if tm := t.m.Telemetry; tm != nil {
+				h.Failed = tm.Err() != nil
+			}
 		default:
 		}
 	}
@@ -221,7 +232,9 @@ func (t *tracker) fault(ctx context.Context, r Rule, act action, h Health) error
 		Health:  h,
 	}
 	if r.Blames == theProducer && t.m.Producer != nil {
-		f.Err = t.m.Producer.Err()
+		if tm := t.m.Telemetry; tm != nil {
+			f.Err = tm.Err()
+		}
 		f.Evidence = t.m.Producer.Evidence()
 		if !h.Ended {
 			if len(f.Evidence) > 0 {

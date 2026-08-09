@@ -17,6 +17,12 @@ type Whisper struct {
 	Language  Language `yaml:"language"`   // pin a BCP-47 code, or LanguageAuto to detect
 }
 
+// SampleRate is the rate the PCM feed a transcription reads must be produced at:
+// mono s16le at 16 kHz, which is what the model works in. It lives here for the same
+// reason Whisper does, and the party it matters most to is the READ, which has to ask
+// ffmpeg for that rate without linking the mechanism (see internal/cast/burnin).
+const SampleRate = 16000
+
 // Language is a subtitle language: a BCP-47 code (e.g. "en", "fr") the transcriber
 // is pinned to, or LanguageAuto to detect it from the audio. It is a named type so
 // the "detect it" sentinel is expressed once, via AutoDetect, instead of scattered

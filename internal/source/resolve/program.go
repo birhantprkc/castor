@@ -18,14 +18,11 @@ import (
 // reader is about to open anyway, so what it costs is at most two plain GETs and no
 // probe at all.
 //
-// The facts it establishes outlive it, which is the change this file exists for.
-// Selection used to be the only thing that survived the document: the variant list
-// was reduced to one URL and the rest was dropped on the floor, so nothing
-// downstream could tell a source that offered a 1080 rung from one that offered a
-// single 3840x1600 rung and no alternative. The cast then read 17 Mbit/s of 4K to
-// serve a 2 Mbit/s re-encode, with every log line implying a cap that had never been
-// achievable. Now the ladder, the framing, the encryption and the real runtime
-// travel out as media.Origin.
+// The facts it establishes outlive it, which is the change this file exists for. Selection used
+// to be the only thing that survived the document: the variant list was reduced to one URL and
+// the rest dropped, so nothing downstream could tell a source that offered a 1080 rung from one
+// that offered a single 4K rung and no alternative (see reportRendition). Now the ladder, the
+// framing, the encryption and the real runtime travel out as media.Origin.
 
 // Programs is this resolver as a cast that has changed its mind reads it: re-establish
 // what one link publishes, without touching the link the caller handed over.
@@ -43,23 +40,24 @@ func NewPrograms(r *Resolver) Programs { return Programs{r: r} }
 
 // Refetch establishes what one link publishes, on a copy of it. The shallow copy is
 // enough because resolution writes only the fields it establishes (the URL, the audio
-// rendition, the container, liveness, leniency) and shares the captured headers, which
-// are extraction's and which every rendition of that link answers to alike.
+// rendition, the container, what a probe measured, leniency) and shares the captured headers,
+// which are extraction's and which every rendition of that link answers to alike.
 func (p Programs) Refetch(ctx context.Context, s *media.Stream) (*media.Stream, media.Origin, media.Rendition, error) {
 	link := *s
 	return p.r.Resolve(ctx, &link)
 }
 
-// identify fills in what the source is when the caller could not say: its
-// container, and whether it is a live edge. A caller that already knew (a .m3u8
-// URL, a ranked candidate) spends no probe here.
+// identify fills in what the source is when the caller could not say, and what it establishes
+// lands on the stream beside the ladder rather than travelling out as a second value: the
+// measurement is paid for once, by whichever of the two parties measures, and every later
+// reader asks the stream (see media.Stream.Height).
 //
-// The measurement travels back out because it is already paid for and it carries the
-// one fact no document publishes: a whole file's duration. Nothing measures a second
-// time to learn it.
-func (r *Resolver) identify(ctx context.Context, stream *media.Stream) (*media.StreamInfo, error) {
+// A caller that already knew spends no probe, and neither kind of such caller loses anything
+// by it: a ranked candidate was measured to be admitted at all (see admitted), and a URL cast
+// by hand names its container in its own extension and is a source nothing has ever opened.
+func (r *Resolver) identify(ctx context.Context, stream *media.Stream) error {
 	if stream.ContentType != "" {
-		return nil, nil
+		return nil
 	}
 	// The reach is not read here: a source castor cannot even name is not castable
 	// whatever the origin said about it, since every input flag and the pass-through
@@ -67,11 +65,13 @@ func (r *Resolver) identify(ctx context.Context, stream *media.Stream) (*media.S
 	// other candidates to weigh this one against, that has a use for the difference.
 	info, _, err := r.measurer.Measure(ctx, stream)
 	if err != nil {
-		return nil, fmt.Errorf("probing stream: %w", err)
+		return fmt.Errorf("probing stream: %w", err)
 	}
 	stream.ContentType = info.ContentType
-	stream.Live = info.Live()
-	return info, nil
+	stream.Height = info.VideoHeight
+	stream.Duration = info.Duration
+	stream.Probed = true
+	return nil
 }
 
 // program narrows an HLS source to the single rendition to read and returns what the
@@ -82,7 +82,10 @@ func (r *Resolver) identify(ctx context.Context, stream *media.Stream) (*media.S
 //
 // A document castor cannot read costs the facts, not the cast: the stream is left as
 // it was and attempted whole, because the reader that follows carries headers,
-// reconnects and minutes that this one GET does not.
+// reconnects and minutes that this one GET does not. Liveness then stands as the probe
+// left it, which is the one case where a probe's silence is the best witness there is,
+// because nothing else looked at all.
+//
 // The chosen rung travels out beside the origin, and it is the one fact this narrowing
 // used to spend and throw away. Which rung a cast is reading is the source layer's
 // statement to make: nothing downstream can reconstruct it, since the choice rewrites
@@ -115,7 +118,6 @@ func (r *Resolver) program(ctx context.Context, stream *media.Stream, origin med
 	chosen := media.Rendition{URL: variant.URL, Bitrate: media.Bitrate(variant.Bandwidth), Height: variant.Height}
 	stream.URL = variant.URL
 	stream.AudioURL = doc.AudioFor(variant)
-	stream.Live = stream.Live || doc.Live
 
 	reportRendition(ctx, variant, origin, r.cfg.MaxHeight)
 	if stream.Demuxed() {
@@ -145,12 +147,17 @@ func (r *Resolver) program(ctx context.Context, stream *media.Stream, origin med
 	}
 	origin.Framing = segments.Framing
 	origin.Encrypted = segments.Encrypted
-	// Liveness is ORed rather than overwritten, so either witness is enough: ffprobe
-	// reporting no duration, or the document carrying no endlist. The asymmetry is
-	// deliberate, because the two mistakes do not cost the same. Pacing a VOD source at
-	// realtime costs a little time to first frame; outrunning a live edge asks a CDN
-	// for segments that do not exist yet.
-	origin.Live = origin.Live || segments.Live
+	// The document that LISTS the segments is the only witness worth having, so it decides
+	// outright rather than joining a vote: EXT-X-ENDLIST is proof that the program has an end
+	// (playlist.Closed), while a probe reporting no duration is proof of nothing, because
+	// ffprobe routinely reports none for a playlist it read perfectly well.
+	//
+	// ORing the two is how a VOD master was read as a live edge and stayed one: the probe's
+	// silence set it before any document was fetched, and an endlist could not clear what an OR
+	// had already decided. A live read is paced at exactly realtime, and no judgement about a
+	// starving upstream can be formed on a read that was never allowed to run ahead, so that
+	// one guess switched off every deliverability verdict castor has.
+	origin.Live = segments.Live
 	if segments.Duration > 0 {
 		// The EXTINF sum wins over anything measured: ffprobe reports no duration at all
 		// for most playlists, and this is the program's actual runtime rather than
@@ -170,13 +177,13 @@ func (r *Resolver) program(ctx context.Context, stream *media.Stream, origin med
 // in the log was consistent with a cap that had been applied. The encode still
 // scales to the ceiling; what was missing was any way to see that the READ could
 // not, and that there had been nothing else to choose.
-func reportRendition(ctx context.Context, variant hlsVariant, origin media.Origin, maxHeight int) {
+func reportRendition(ctx context.Context, variant hlsVariant, origin media.Origin, ceiling media.HeightCap) {
 	level, msg := slog.LevelInfo, "rendition selected"
-	if variant.Height > maxHeight {
+	if !ceiling.Admits(variant.Height) {
 		level, msg = slog.LevelWarn, "no rendition under the height cap; reading the shortest on offer and scaling it down"
 	}
 	slog.Log(ctx, level, msg,
-		"height", variant.Height, "cap", maxHeight, "declared_bitrate", variant.Bandwidth,
+		"height", variant.Height, "cap", int(ceiling), "declared_bitrate", variant.Bandwidth,
 		"renditions", len(origin.Renditions), "sole", origin.Sole())
 }
 
@@ -211,17 +218,17 @@ func (r *Resolver) readPlaylist(ctx context.Context, u *url.URL, headers http.He
 	return doc, status, err
 }
 
-// pickVariant chooses which HLS variant to pull: the highest-bandwidth one no
-// taller than maxHeight (a variant with unknown height, 0, is always eligible).
-// If every variant is taller than the cap, it takes the shortest so the encoder
-// has the least to downscale. variants is never empty (parsePlaylist guarantees
-// at least the synthetic media-playlist entry, and program refuses a document that
-// offers nothing castable).
-func pickVariant(variants []hlsVariant, maxHeight int) hlsVariant {
+// pickVariant chooses which HLS variant to pull: the highest-bandwidth one the ceiling
+// admits (a variant declaring no RESOLUTION is admitted, in the one convention every reader
+// of the cap keeps, see media.HeightCap.Admits). If the ceiling admits none of them, it
+// takes the shortest so the encoder has the least to downscale. variants is never empty
+// (parsePlaylist guarantees at least the synthetic media-playlist entry, and program
+// refuses a document that offers nothing castable).
+func pickVariant(variants []hlsVariant, ceiling media.HeightCap) hlsVariant {
 	variants = castable(variants)
 
 	eligible := slices.DeleteFunc(slices.Clone(variants), func(v hlsVariant) bool {
-		return v.Height > maxHeight
+		return !ceiling.Admits(v.Height)
 	})
 	if len(eligible) > 0 {
 		return slices.MaxFunc(eligible, func(a, b hlsVariant) int {

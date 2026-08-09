@@ -67,8 +67,14 @@ func limitPerHost(ctx context.Context, streams []*media.Stream) []*media.Stream 
 	return kept
 }
 
-// measurement is one candidate as the admissions rules read it: the stream ranking
-// will hand on, what was measured about it, and how far the origin let castor get.
+// measurement is one candidate at every stage of ranking: the stream ranking will hand on,
+// what was measured about it, how far the origin let castor get, and, once the table has
+// ruled, whether it may only ever be a last resort.
+//
+// It is one value and it used to be two, a measurement the rules read and a candidate the
+// ordering compared, and the copy between them was where the measured height stopped (see
+// media.Stream.Height). Everything measured now lands on the stream itself, which is the only
+// value that survives this package.
 //
 // A nil info means nothing was measured, which is emphatically not a measurement
 // that found nothing: the first says the rules know nothing about this source, the
@@ -76,8 +82,12 @@ func limitPerHost(ctx context.Context, streams []*media.Stream) []*media.Stream 
 // slideshow playlist and a link nobody answered end up with the same verdict.
 type measurement struct {
 	stream *media.Stream
-	info   *media.StreamInfo
+	info   *media.ProbeInfo
 	reach  media.Reach
+	// lastResort marks a candidate admitted with no measurement behind it. The ordering
+	// compares it first, so such a candidate is picked only when there was nothing measured
+	// to pick.
+	lastResort bool
 }
 
 // measureAll measures every candidate concurrently, bounded by the configured
@@ -110,7 +120,6 @@ func (r *Resolver) measureAll(ctx context.Context, streams []*media.Stream) []me
 					Headers:     s.Headers,
 					ContentType: s.ContentType,
 					Bandwidth:   s.Bandwidth,
-					Live:        s.Live,
 					// Carried, never re-derived: the ladder was read from a body only the
 					// browser held, and extraction has already been torn down.
 					Ladder: s.Ladder,
@@ -284,13 +293,13 @@ func admit(m measurement) verdict {
 
 // logRejection reports a dropped candidate together with the facts its reason was
 // read from. The reason alone is not enough to act on: "carried no castable
-// video+audio" is diagnosed by which of the two was missing (audio, and it is a
-// slideshow; video, and it is the audio rendition listed as a variant), and "too
+// video+audio" is diagnosed by which of the two was missing (no audio codec, and it is a
+// slideshow; no video codec, and it is the audio rendition listed as a variant), and "too
 // short" by the runtime that decided it.
 func logRejection(ctx context.Context, m measurement, v verdict) {
 	attrs := []any{"url", m.stream.URL.String(), "reason", string(v.reason), "reach", m.reach}
 	if m.info != nil {
-		attrs = append(attrs, "has_video", m.info.HasVideo, "has_audio", m.info.HasAudio, "duration", m.info.Duration)
+		attrs = append(attrs, "video", string(m.info.VideoCodec), "audio", string(m.info.AudioCodec), "duration", m.info.Duration)
 	}
 	slog.WarnContext(ctx, "candidate rejected", attrs...)
 }
@@ -312,23 +321,12 @@ func tally(rejected map[reason]int) string {
 	return strings.Join(counts, ", ")
 }
 
-// candidate is an admitted measurement reduced to what the ordering compares.
-type candidate struct {
-	stream *media.Stream
-	height int // measured video height; 0 if unknown or nothing was measured
-	// lastResort marks a candidate admitted with no measurement behind it. The
-	// ordering compares it first, so such a candidate is picked only when there was
-	// nothing measured to pick.
-	lastResort bool
-}
-
-// admitted turns a measurement and its verdict into the candidate the ordering
-// ranks, writing the measured facts onto the stream that will be cast. A
-// last-resort candidate keeps whatever bandwidth extraction gave it (in practice 0,
-// since nothing but this package ever sets it) and no height, because nothing was
-// measured to set either from.
-func admitted(m measurement, v verdict) candidate {
-	c := candidate{stream: m.stream, lastResort: v.lastResort}
+// admitted writes what was measured onto the stream that will be cast, which is the whole of
+// how a measurement outlives ranking. A last-resort candidate keeps whatever bandwidth
+// extraction gave it (in practice 0, since nothing but this package ever sets it) and no
+// height or duration, because nothing was measured to set any of them from.
+func admitted(m measurement, v verdict) measurement {
+	m.lastResort = v.lastResort
 	if m.info != nil {
 		// The floor of 1 keeps a measured candidate distinguishable from an unmeasured
 		// one: ffprobe routinely reports no top-level bit_rate for an HLS master, which
@@ -336,11 +334,12 @@ func admitted(m measurement, v verdict) candidate {
 		// stay one. Whether ffprobe managed to report a bit_rate is a property of the
 		// container it was pointed at, not of the picture, so preference compares it
 		// only after resolution and never instead of it.
-		c.stream.Bandwidth = max(m.info.BitRate, 1)
-		c.stream.Live = m.info.Live()
-		c.height = m.info.VideoHeight
+		m.stream.Bandwidth = max(m.info.BitRate, 1)
+		m.stream.Height = m.info.VideoHeight
+		m.stream.Duration = m.info.Duration
+		m.stream.Probed = true
 	}
-	return c
+	return m
 }
 
 // carriesLadder reports that this candidate's captured document advertises renditions,
@@ -351,7 +350,7 @@ func admitted(m measurement, v verdict) candidate {
 // rendition. That is deliberate and it is the whole of the leniency: a body Chrome
 // evicted, a redirect, a request that never finished all leave this unknown, and none
 // of them is evidence against the candidate.
-func (c candidate) carriesLadder() bool { return c.stream.Ladder == media.LadderMultivariant }
+func (m measurement) carriesLadder() bool { return m.stream.Ladder == media.LadderMultivariant }
 
 // unreadLadder reports a playlist whose renditions nobody could establish: Chrome had
 // no body to hand over, so this document may well be a master and there is no evidence
@@ -363,12 +362,12 @@ func (c candidate) carriesLadder() bool { return c.stream.Ladder == media.Ladder
 // advertised anything. A whole file's measured height is final: there is no rung
 // beneath it and no body would ever have said there was, so reading its silence as
 // doubt would exempt every direct 2160p recording from the ceiling the user set.
-func (c candidate) unreadLadder() bool {
-	return c.stream.ContentType == media.HLS && c.stream.Ladder == media.LadderUnknown
+func (m measurement) unreadLadder() bool {
+	return m.stream.ContentType == media.HLS && m.stream.Ladder == media.LadderUnknown
 }
 
-// exceedsCap reports whether a candidate's measured height is a real ceiling above
-// maxHeight, which is the tier preference compares before any measurement.
+// exceedsCap reports whether a candidate's measured height is a real ceiling above the
+// cast's, which is the tier preference compares before any measurement.
 //
 // A document that advertises renditions is exempt, and the exemption is sound for
 // exactly that shape: a master lists every variant, ffprobe reports the height of
@@ -383,11 +382,11 @@ func (c candidate) unreadLadder() bool {
 // candidate costs a comparison; honouring the same ceiling once a 4K source is being
 // read costs a decode, a scale and a realtime re-encode, which a software-only host
 // cannot pace.
-func (c candidate) exceedsCap(maxHeight int) bool {
-	if c.carriesLadder() || c.unreadLadder() {
+func (m measurement) exceedsCap(ceiling media.HeightCap) bool {
+	if m.carriesLadder() || m.unreadLadder() {
 		return false
 	}
-	return c.height > 0 && c.height > maxHeight
+	return !ceiling.Admits(m.stream.Height)
 }
 
 // preference orders two admitted candidates, the better one greater, in the manner
@@ -422,30 +421,28 @@ func (c candidate) exceedsCap(maxHeight int) bool {
 // compared before bandwidth, so a link nobody could open used to beat a measured
 // 2160p at 20 Mbit/s under a 1080 cap. Comparing the tier first makes that
 // unrepresentable rather than patched.
-func preference(a, b candidate, maxHeight int) int {
+func preference(a, b measurement, ceiling media.HeightCap) int {
 	if a.lastResort != b.lastResort {
 		if b.lastResort {
 			return 1 // a was measured, b was not: a wins
 		}
 		return -1
 	}
-	if ao, bo := a.exceedsCap(maxHeight), b.exceedsCap(maxHeight); ao != bo {
+	if ao, bo := a.exceedsCap(ceiling), b.exceedsCap(ceiling); ao != bo {
 		if bo {
 			return 1 // a is within the cap, b exceeds it: a wins
 		}
 		return -1
 	}
-	// A confirmed ladder is preferred, and it is the only signal here that is about
-	// RECOVERY rather than about the picture: a master carries rungs to fall back to,
-	// and a source that published one rendition leaves a cast that starts failing with
-	// no move to make. Three runs ended exactly there, one 3840x1600 rendition at 18505
-	// kb/s delivering 0.39x realtime and nothing lighter in existence to drop to.
+	// A confirmed ladder is the only signal here about RECOVERY rather than about the picture:
+	// a master carries rungs to fall back to, and a source that published one rendition leaves
+	// a cast that starts failing with no move to make (see media.Ladder, and reportRendition
+	// for the run that ended there).
 	//
 	// It sits below the cap tier, which states what the user asked for, and above the two
-	// measurement tiers below, because on a master both of those are structurally weak:
-	// ffprobe reports the height of whichever variant it happened to open, not the
-	// master's range, and it cannot report a top-level bit_rate for a master at all, so
-	// the ladder arrives floored to 1 (see admitted).
+	// measurement tiers, because on a master both of those are structurally weak: ffprobe
+	// reports the height of whichever variant it opened, not the master's range, and it cannot
+	// report a top-level bit_rate for a master at all, so one arrives floored to 1.
 	if al, bl := a.carriesLadder(), b.carriesLadder(); al != bl {
 		if al {
 			return 1 // a publishes a ladder, b does not: a wins
@@ -457,8 +454,8 @@ func preference(a, b candidate, maxHeight int) int {
 	// being hard to measure in exactly the way the bitrate ordering above used to.
 	// With one height unknown there is nothing to compare, so the weaker signal is
 	// all that is left and bandwidth decides.
-	if a.height > 0 && b.height > 0 {
-		if taller := cmp.Compare(a.height, b.height); taller != 0 {
+	if a.stream.Height > 0 && b.stream.Height > 0 {
+		if taller := cmp.Compare(a.stream.Height, b.stream.Height); taller != 0 {
 			return taller
 		}
 	}
@@ -475,8 +472,8 @@ func preference(a, b candidate, maxHeight int) int {
 // extraction found them in, which is master-first: for the tied HLS masters
 // described above, that is the difference between a reproducible pick and one that
 // depends on which probe returned first.
-func ranked(pool []candidate, maxHeight int) []candidate {
+func ranked(pool []measurement, ceiling media.HeightCap) []measurement {
 	order := slices.Clone(pool)
-	slices.SortStableFunc(order, func(a, b candidate) int { return preference(b, a, maxHeight) })
+	slices.SortStableFunc(order, func(a, b measurement) int { return preference(b, a, ceiling) })
 	return order
 }

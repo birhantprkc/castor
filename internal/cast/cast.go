@@ -16,6 +16,7 @@ import (
 	"slices"
 
 	"github.com/stupside/castor/internal/cast/attempt"
+	"github.com/stupside/castor/internal/cast/burnin"
 	"github.com/stupside/castor/internal/cast/core"
 	"github.com/stupside/castor/internal/cast/pipeline"
 	"github.com/stupside/castor/internal/cast/read"
@@ -82,5 +83,22 @@ func Play(ctx context.Context, cfg Config, candidates []*media.Stream) error {
 		Read:       policy,
 		Deadline:   cfg.Transcode.RWTimeout,
 		Delivery:   cfg.Delivery,
-	}, pipeline.NewExecutor(cfg.Config, core.Connect, localIP), resolve.NewPrograms(cfg.Source))
+	}, pipeline.NewExecutor(cfg.Config, core.Connect, burnInStage, localIP), resolve.NewPrograms(cfg.Source))
+}
+
+// burnInStage is the one Stage a production cast can run, named here because the composition
+// root is the only party that may name a cgo mechanism (see internal/cast/burnin). Both ways of
+// ending up with none are decided here and only here, so nothing downstream re-reads the answer
+// off a nil pointer: the operator did not ask for subtitles, or whisper could not start, and the
+// second downgrades to a subtitle-less cast rather than blocking playback.
+func burnInStage(ctx context.Context, cfg core.Config, workDir string) pipeline.Stage {
+	if core.SubtitleForServed(cfg) != core.SubtitleBurnIn {
+		return nil
+	}
+	// Returned through the interface only once it is known to be non-nil: a typed nil pointer
+	// would be a Stage that exists as far as every caller is concerned.
+	if s := burnin.New(ctx, cfg.Whisper, workDir); s != nil {
+		return s
+	}
+	return nil
 }

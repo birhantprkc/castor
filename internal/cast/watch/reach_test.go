@@ -24,23 +24,28 @@ import (
 // rows that fail nothing while reading as coverage, and a table of measurements cannot tell
 // either of them apart from a healthy row.
 //
-// So every row names the production monitor it is reached through, at file:line, and this test
-// resolves the citation rather than trusting it: the cited line must really carry a
-// watch.Monitor in a non-test file, it must declare a window the row answers, and it must
-// actually supply every fact the row's predicate reads. A row that cannot answer that is
-// either mis-scoped or dead, and the answer to a dead row is to delete it.
+// So every row names the production monitor it is reached through, as the file and the function
+// that opens it, and this test resolves the citation rather than trusting it: the named function
+// must really exist in a non-test file and carry a watch.Monitor, that monitor must declare a
+// window the row answers, and it must actually supply every fact the row's predicate reads. A
+// row that cannot answer that is either mis-scoped or dead, and the answer to a dead row is to
+// delete it.
+//
+// The FUNCTION and not the line, because a line number resolves only until an unrelated edit
+// above it moves the line, and then this test fails for a reason that is nothing to do with
+// reachability and is repaired by re-typing numbers in a third package.
 //
 // Whether the verdicts are then really produced by driving that wiring is asserted where the
 // wiring lives, over the real spool and the real read (see pipeline's
 // TestEveryVerdictAUnitTestCanDriveIsReachedThroughTheRealWiring).
 
-// cited matches a production path as a rule's comment states it: a file under internal/cast
-// and the line the monitor's literal is written at.
-var cited = regexp.MustCompile(`([a-z]+/[a-z_]+\.go):(\d+)`)
+// cited matches a production path as a rule's comment states it: a file under internal/cast and
+// the function that opens the monitor in it.
+var cited = regexp.MustCompile(`([a-z]+/[a-z_]+\.go):([A-Za-z]\w*)`)
 
 // monitorPorts is every field a caller fills a Monitor in through, which is what a citation is
 // read for: the facts a row may legitimately read there.
-var monitorPorts = []string{"Producer", "Consumer", "Lead", "Landed", "Headroom", "Delivered", "Grace"}
+var monitorPorts = []string{"Producer", "Telemetry", "Consumer", "Lead", "Landed", "Headroom", "Delivered", "Grace"}
 
 // suppliers is which port each measurement is read through, straight off tracker.read. A row
 // whose predicate depends on a fact no cited monitor supplies is reading a zero value in
@@ -48,15 +53,17 @@ var monitorPorts = []string{"Producer", "Consumer", "Lead", "Landed", "Headroom"
 //
 // SinceDeficit needs both, and that is not a detail: the deficit clock only ever starts on a
 // reading that found the read starving, which is a judgement about a producer's stated speed
-// against a pace, so a site that supplies one without the other supplies neither.
+// against a pace, so a site that supplies one without the other supplies neither. Failed needs
+// both of its own, for the same kind of reason: the error is read only once the producer's own
+// channel says it exists.
 var suppliers = map[string][]string{
 	"Landed":       {"Landed"},
 	"SinceGrowth":  {"Landed"},
-	"Position":     {"Producer"},
-	"Speed":        {"Producer"},
-	"Samples":      {"Producer"},
+	"Position":     {"Telemetry"},
+	"Speed":        {"Telemetry"},
+	"Samples":      {"Telemetry"},
 	"Ended":        {"Producer"},
-	"Failed":       {"Producer"},
+	"Failed":       {"Producer", "Telemetry"},
 	"Headroom":     {"Headroom"},
 	"Subtitles":    {"Lead"},
 	"Lead":         {"Lead"},
@@ -66,7 +73,7 @@ var suppliers = map[string][]string{
 	"Delivered":    {"Delivered"},
 	"SincePlay":    {"Delivered"},
 	"Overdue":      {"Grace"},
-	"SinceDeficit": {"Producer", "Headroom"},
+	"SinceDeficit": {"Telemetry", "Headroom"},
 }
 
 // monitor is one production monitor as its call site writes it: the window it declares and the
@@ -86,7 +93,7 @@ func TestEveryRuleNamesTheProductionMonitorThatReachesIt(t *testing.T) {
 		}
 		sites := citedMonitors(t, doc)
 		if len(sites) == 0 {
-			t.Errorf("rule %q names no production monitor at file:line, so nothing distinguishes it from a row only a hand-built Health can reach: cite the wiring that reaches it, or delete the row",
+			t.Errorf("rule %q names no production monitor as file.go:function, so nothing distinguishes it from a row only a hand-built Health can reach: cite the wiring that reaches it, or delete the row",
 				r.Name)
 			continue
 		}
@@ -213,18 +220,14 @@ func fieldString(lit *ast.CompositeLit, field string) string {
 }
 
 // citedMonitors resolves every production path a comment names into the monitor written there.
-// A citation that does not resolve fails the test rather than being skipped: a stale line
-// number is a row whose stated production path is fiction, which is worse than no citation at
-// all because it reads as a checked one.
+// A citation that does not resolve fails the test rather than being skipped: a citation naming a
+// function that is gone, or one that no longer opens a watch, is a row whose stated production
+// path is fiction, which is worse than no citation at all because it reads as a checked one.
 func citedMonitors(t *testing.T, doc string) []monitor {
 	t.Helper()
 	var found []monitor
 	for _, m := range cited.FindAllStringSubmatch(doc, -1) {
-		rel, line := m[1], m[2]
-		at, err := strconv.Atoi(line)
-		if err != nil {
-			t.Fatalf("citation %q: %v", m[0], err)
-		}
+		rel, fn := m[1], m[2]
 		// The rules live one directory below the wiring that drives them, so a citation is
 		// written the way a reader of this package would follow it.
 		path := filepath.Join("..", rel)
@@ -236,9 +239,9 @@ func citedMonitors(t *testing.T, doc string) []monitor {
 			t.Errorf("citation %q does not resolve: %v", m[0], err)
 			continue
 		}
-		site, ok := monitorAt(t, path, at)
+		site, ok := monitorAt(t, path, fn)
 		if !ok {
-			t.Errorf("citation %q names no watch.Monitor: the line has moved or the wiring is gone, so the row's stated production path is fiction", m[0])
+			t.Errorf("citation %q names no watch.Monitor: the function is gone or no longer opens one, so the row's stated production path is fiction", m[0])
 			continue
 		}
 		site.where = m[0]
@@ -247,8 +250,9 @@ func citedMonitors(t *testing.T, doc string) []monitor {
 	return found
 }
 
-// monitorAt reads the watch.Monitor written at one line of one file: the window it declares
-// and the ports it fills.
+// monitorAt reads the watch.Monitor one named function opens: the window it declares and the
+// ports it fills. The literal may sit inside a closure that function builds, which is where both
+// delivery mechanisms write theirs.
 //
 // The ports are taken from the literal's own keys AND from assignments to a monitor's fields
 // anywhere in that file, because a wiring that fills the facts about the read for every window
@@ -256,7 +260,7 @@ func citedMonitors(t *testing.T, doc string) []monitor {
 // stops two windows judging the same read against two different paces). Crediting the file
 // rather than the literal is what keeps this test from demanding that each window state those
 // facts for itself.
-func monitorAt(t *testing.T, path string, line int) (monitor, bool) {
+func monitorAt(t *testing.T, path, fn string) (monitor, bool) {
 	t.Helper()
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
@@ -282,16 +286,18 @@ func monitorAt(t *testing.T, path string, line int) (monitor, bool) {
 		return true
 	})
 
+	decl := funcNamed(file, fn)
+	if decl == nil {
+		return monitor{}, false
+	}
+
 	var (
 		site  monitor
 		found bool
 	)
-	ast.Inspect(file, func(n ast.Node) bool {
+	ast.Inspect(decl, func(n ast.Node) bool {
 		lit, ok := n.(*ast.CompositeLit)
 		if !ok || !isMonitor(lit.Type) {
-			return true
-		}
-		if fset.Position(lit.Lbrace).Line > line || fset.Position(lit.Rbrace).Line < line {
 			return true
 		}
 		site = monitor{window: windowOf(lit), ports: maps.Clone(assigned)}
@@ -308,6 +314,16 @@ func monitorAt(t *testing.T, path string, line int) (monitor, bool) {
 		return false
 	})
 	return site, found
+}
+
+// funcNamed is the declaration a citation names, or nil where the file has no such function.
+func funcNamed(file *ast.File, name string) *ast.FuncDecl {
+	for _, decl := range file.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == name && fn.Body != nil {
+			return fn
+		}
+	}
+	return nil
 }
 
 func isMonitor(expr ast.Expr) bool {

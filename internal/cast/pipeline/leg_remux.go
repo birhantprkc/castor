@@ -50,7 +50,13 @@ func remux(ctx context.Context, c *cast) landing {
 	// delivered mid-title), so the phase comes from the delivery. What it reaches BEFORE Play is
 	// nothing this leg established: there is no reader of castor's own here, and how far a remux
 	// got on its way to an artifact is the artifact gate's verdict to report.
-	reached, err := c.serve(ctx, dev, attempt.PhaseUnstarted, core.OpenParams{Opts: opts})
+	//
+	// It supervises with nothing, and that is the whole of what this leg has to say about it: the
+	// nil is not "leave this cast unwatched" but "there is no read of mine to watch", so the
+	// delivery driver judges the encode it started, which here IS the read (see core.Supervisor).
+	// While this was a field on the params rather than an argument, omitting it left every cast of
+	// a header-gated source to a self-fetching renderer with no in-flight judgement at all.
+	reached, err := c.serve(ctx, dev, attempt.PhaseUnstarted, core.OpenParams{Opts: opts}, nil)
 	if err != nil {
 		return landing{reached: reached, err: err}
 	}

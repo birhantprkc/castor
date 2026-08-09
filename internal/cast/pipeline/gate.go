@@ -23,6 +23,7 @@ import (
 // about it.
 func watchTheRead(ctx context.Context, sp *spool.Spool, pl *pull, m watch.Monitor) error {
 	m.Producer = pl
+	m.Telemetry = pl
 	m.Landed = sp.Size
 	m.Headroom = pl.judgedPace()
 	return watch.Watch(ctx, m)
@@ -54,9 +55,14 @@ func waitForPlayable(ctx context.Context, tr watch.Lead, sp *spool.Spool, pl *pu
 // already watching, so the action table answers this window with attribution instead (see
 // watch.actions).
 //
-// The delivery's two facts are forwarded whole rather than unpacked, so a leg cannot hand
-// over half of them: a supervisor given the fetching without the buffer ends a film at two
-// and a half minutes of somebody standing up.
+// The delivery arrives as one value carrying both facts, which is why this cannot be handed
+// half of them: a supervisor given the fetching without the buffer ends a film at two and a
+// half minutes of somebody standing up.
+//
+// It is what THIS leg supervises with, because this leg opened a read of its own. A leg whose
+// encode is the read supplies none and the delivery driver judges that encode instead, so
+// whether a cast is watched at all is no longer something a leg can decide by omission (see
+// core.Supervisor).
 func supervise(ctx context.Context, sp *spool.Spool, pl *pull, d core.Delivery) error {
 	return watchTheRead(ctx, sp, pl, watch.Monitor{
 		Subject:   "the playing cast",

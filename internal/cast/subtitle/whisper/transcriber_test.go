@@ -67,7 +67,7 @@ func TestDropCommitted(t *testing.T) {
 
 func TestTrimBufferMovesTextToPrompt(t *testing.T) {
 	ctx := t.Context()
-	buf := make([]float32, 20*SampleRate) // 20s, past the soft threshold
+	buf := make([]float32, 20*subtitle.SampleRate) // 20s, past the soft threshold
 	history := []word{
 		{Start: 2.0, End: 2.5, Text: "Sentence"},
 		{Start: 2.6, End: 3.0, Text: "one."},
@@ -77,7 +77,7 @@ func TestTrimBufferMovesTextToPrompt(t *testing.T) {
 	if bufStart != 3.0 {
 		t.Fatalf("buffer should be cut at the sentence end, start = %v", bufStart)
 	}
-	if wantLen := 17 * SampleRate; len(buf) != wantLen {
+	if wantLen := 17 * subtitle.SampleRate; len(buf) != wantLen {
 		t.Errorf("buffer length = %d, want %d", len(buf), wantLen)
 	}
 	if prompt != "Sentence one." {

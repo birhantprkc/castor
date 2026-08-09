@@ -1,6 +1,10 @@
 package resolve
 
-import "time"
+import (
+	"time"
+
+	"github.com/stupside/castor/internal/media"
+)
 
 // Config is the resolver section of the operator's configuration. It holds two
 // kinds of value and the split matters: MaxHeight and ProbeMaxConcurrency are read
@@ -28,9 +32,11 @@ type Config struct {
 	// MaxHeight is the tallest video the user wants cast, and it is a maximum on what
 	// reaches the RENDERER rather than on what castor's encoder produces: source
 	// selection prefers the largest HLS variant no taller than this, the encoder scales
-	// its output down to it, and a source declared taller than it is not handed to a
-	// self-fetching renderer at all, because castor cannot scale bytes it never reads
-	// (see core.Shape.Passthrough). Set it to your renderer's native height (e.g. 2160
-	// for a 4K TV). Required, so it is always an explicit ceiling.
-	MaxHeight int `yaml:"max_height" validate:"required,min=1"`
+	// its output down to it, and a source KNOWN to be taller, whether the source declared
+	// it or a probe measured it, is not handed to a self-fetching renderer at all, because
+	// castor cannot scale bytes it never reads (see core.Shape.Passthrough). Set it to your
+	// renderer's native height (e.g. 2160 for a 4K TV). Required, so it is always an
+	// explicit ceiling.
+	// It is a media.HeightCap so that every party honouring it shares one predicate.
+	MaxHeight media.HeightCap `yaml:"max_height" validate:"required,min=1"`
 }

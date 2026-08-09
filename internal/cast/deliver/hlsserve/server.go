@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/stupside/castor/internal/media"
 )
 
 // defaultIdleGrace is how long to keep serving after the producer finished and
@@ -86,8 +88,10 @@ func New(cfg Config) (*Server, error) {
 		for k, v := range s.cfg.Headers {
 			w.Header().Set(k, v)
 		}
-		// Go doesn't register .m3u8/.m4s, so set the type before ServeContent sniffs.
-		if ct := contentTypeFor(r.URL.Path); ct != "" {
+		// Go doesn't register .m3u8/.m4s, so set the type before ServeContent sniffs. The
+		// registry answers, not a table here: this server used to spell the playlist's type
+		// differently from the way the renderer was told to expect it at Play.
+		if ct, ok := media.HLSArtifactTypes[strings.ToLower(path.Ext(r.URL.Path))]; ok {
 			w.Header().Set("Content-Type", ct)
 		}
 		// Counted after the answer and from the answer, because what this delivery has to be
@@ -142,7 +146,7 @@ func (s *Server) ProducerEnded() {
 // mechanism unable to state a share has to err in, and the failure this exists to name is a
 // renderer that took NOTHING.
 //
-// A HEAD is deliberately not a fetch, for the reason the other sink gives (see replay's
+// A HEAD is deliberately not a fetch, for the reason the other delivery gives (see replay's
 // Handed): a renderer that probes the URL and never gets the program is the exact failure
 // being reported, and counting its probe would answer that it was watching.
 func (s *Server) Served() int {
@@ -241,19 +245,4 @@ func (s *Server) Wait(ctx context.Context) error {
 // Close stops the HTTP server.
 func (s *Server) Close() error {
 	return s.server.Close()
-}
-
-// contentTypeFor returns the MIME type for an HLS artifact by extension, or ""
-// to let the file server decide.
-func contentTypeFor(p string) string {
-	switch strings.ToLower(path.Ext(p)) {
-	case ".m3u8":
-		return "application/vnd.apple.mpegurl"
-	case ".m4s":
-		return "video/iso.segment"
-	case ".mp4":
-		return "video/mp4"
-	default:
-		return ""
-	}
 }

@@ -60,7 +60,7 @@ func TestMeasureReportsTheProgram(t *testing.T) {
 				t.Errorf("ContentType = %q, want %q", info.ContentType, media.HLS)
 			}
 			if !info.Playable() {
-				t.Errorf("Playable = false (video %v, audio %v); the fixture carries both", info.HasVideo, info.HasAudio)
+				t.Errorf("Playable = false (video %q, audio %q); the fixture carries both", info.VideoCodec, info.AudioCodec)
 			}
 			if info.VideoHeight != 240 {
 				t.Errorf("VideoHeight = %d, want the fixture's 240", info.VideoHeight)

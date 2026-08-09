@@ -61,7 +61,7 @@ func TestCompositionsReproduceTheForksTheyReplaced(t *testing.T) {
 		sourceCT   string
 		headers    http.Header
 		height     int
-		maxHeight  int
+		maxHeight  media.HeightCap
 		preference core.DeliveryPreference
 
 		composition string
@@ -189,11 +189,11 @@ func TestCompositionsReproduceTheForksTheyReplaced(t *testing.T) {
 // delivery says about its renderer rests on, which is why it is pinned here rather than assumed
 // in core.
 //
-// A cast served as a live playlist is composed as a remux, and a remux has no reader of castor's
-// own behind it: it hands the delivery driver no supervisor, so nothing watches its renderer
-// while it plays. That is what makes the delivery's own statement at the end of the cast the ONLY
-// judgement of whether anybody fetched it, and it is what a renderer accepting the URL and never
-// asking for a segment used to walk straight through.
+// A cast served as a live playlist is composed as a remux. That mechanism deletes behind its own
+// live edge, so it can be judged by nobody while it runs (see core's segmented mechanism), which
+// makes its own statement at the end of the cast the ONLY judgement of whether anybody fetched it,
+// and it is what a renderer accepting the URL and never asking for a segment used to walk straight
+// through.
 func TestARendererServedALivePlaylistIsRemuxedIntoOne(t *testing.T) {
 	// A renderer that fetches for itself, cannot be handed this source (it takes no Matroska) and
 	// asks to be served a live playlist. That is the shipping shape of a segmented cast.
@@ -262,18 +262,6 @@ func TestNoNegotiatedRowIsReachableWhenTheStaticRowMatched(t *testing.T) {
 	}
 }
 
-// TestEveryNegotiatedRowConnectsFirst pins the two columns' agreement. A row chosen from what
-// a renderer negotiated has, by definition, already connected one, so a row claiming both
-// would be describing a cast that read the negotiated container of a renderer it never
-// acquired.
-func TestEveryNegotiatedRowConnectsFirst(t *testing.T) {
-	for _, row := range compositions {
-		if row.needs == negotiated && row.connect != connectFirst {
-			t.Errorf("composition %q is chosen from negotiated capabilities but claims to connect %s", row.name, row.connect)
-		}
-	}
-}
-
 // TestAShapeNoRowAnswersIsReportedAsSuch covers the arm every other table here has: a missing
 // row is an error naming the shape, never a fall-through into whichever wiring happened to be
 // last. The shipped table's last row is total, so this drives a table with it removed.
@@ -295,7 +283,7 @@ func TestAShapeNoRowAnswersIsReportedAsSuch(t *testing.T) {
 // TestOnlyARendererThatNeverFetchesForItselfIsServedABuffer is where "a pass-through cannot
 // burn subtitles" now lives. It used to be an axis the planner computed and forced off; it is
 // structural instead, because the read-once composition is the only one that produces the
-// picture (the others hand over a container) and it is the only one that builds stages.
+// picture (the others hand over a container) and it is the only one that runs a Stage.
 func TestOnlyARendererThatNeverFetchesForItselfIsServedABuffer(t *testing.T) {
 	source := &media.Stream{URL: &url.URL{Scheme: "https", Host: "cdn.example"}, ContentType: media.MP4}
 
@@ -671,7 +659,7 @@ func TestEveryAttemptOwnsAFreshWorkDirectoryAndLeavesNoneBehind(t *testing.T) {
 	target := &fakeTarget{profile: pushOnly(), caps: dlnaLike()}
 	source := &media.Stream{URL: &url.URL{Scheme: "https", Host: "cdn.example"}, ContentType: media.MP4}
 	for range 2 {
-		run(t.Context(), core.Config{}, target, attempt.Attempt{Source: source}, "127.0.0.1")
+		run(t.Context(), core.Config{}, target, noStage, attempt.Attempt{Source: source}, "127.0.0.1")
 	}
 
 	if len(dirs) != 2 || dirs[0] == dirs[1] {

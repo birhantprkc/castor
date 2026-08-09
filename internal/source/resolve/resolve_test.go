@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net/http"
@@ -124,7 +125,10 @@ func TestResolveIdentifiesAnUnnamedSource(t *testing.T) {
 
 	t.Run("a measured container names the source", func(t *testing.T) {
 		measurer := &fakeMeasurer{answers: map[string]answer{
-			raw: {info: &media.StreamInfo{ContentType: media.MP4, Duration: 2 * time.Hour, HasVideo: true, HasAudio: true}},
+			raw: {info: &media.ProbeInfo{
+				ContentType: media.MP4, Duration: 2 * time.Hour, VideoHeight: 2160,
+				VideoCodec: media.CodecH264, AudioCodec: media.CodecAAC,
+			}},
 		}}
 		u, err := url.Parse(raw)
 		if err != nil {
@@ -137,13 +141,22 @@ func TestResolveIdentifiesAnUnnamedSource(t *testing.T) {
 		if resolved.ContentType != media.MP4 {
 			t.Errorf("ContentType = %q, want %q", resolved.ContentType, media.MP4)
 		}
-		if resolved.Live {
-			t.Error("Live = true for a source with a known duration")
+		if origin.Live {
+			t.Error("Origin.Live = true for a source with a known duration")
 		}
-		// The measurement was spent naming the container, so its duration is free. It is
-		// also the only runtime a whole file has: there is no document to state one.
+		// The measurement was spent naming the container, so everything else it established is
+		// free, and it is all a whole file will ever say about itself: there is no document to
+		// state a runtime and no rung to declare a height. Both land on the stream, which is
+		// the value that outlives this package (see media.Stream.Height).
 		if origin.Duration != 2*time.Hour {
 			t.Errorf("Origin.Duration = %s, want the measured 2h: the probe is already paid for", origin.Duration)
+		}
+		if resolved.Height != 2160 {
+			t.Errorf("Height = %d, want the measured 2160: the composition asks the stream what it is, and a height that stops here is a 4K source handed to a 1080-capped renderer", resolved.Height)
+		}
+		if resolved.Duration != 2*time.Hour || !resolved.Probed {
+			t.Errorf("Duration = %s probed = %v, want the measured 2h on the stream, marked as measured: a runtime of 0 that nobody looked for is not a live edge",
+				resolved.Duration, resolved.Probed)
 		}
 	})
 
@@ -157,6 +170,41 @@ func TestResolveIdentifiesAnUnnamedSource(t *testing.T) {
 			t.Fatal("resolution must fail when the source cannot be identified at all")
 		}
 	})
+}
+
+// TestResolveCarriesAnAlreadyNamedSourcesMeasurement covers the shape identify SKIPS, which
+// is nearly every cast: a ranked candidate and a URL whose extension names its container
+// both arrive with a content type, so no probe runs here and whatever is known was measured
+// by somebody else.
+//
+// It used to be known by nobody. The runtime lived on a value local to the ranker, so a
+// direct two-hour file reached the cast with a program length of 0, and the arithmetic that
+// turns "this cast is slow" into a refusal ("the source publishes 2h, at the measured 0.109x
+// that is 18 hours") divides by it and stayed silent for everything but a VOD playlist.
+func TestResolveCarriesAnAlreadyNamedSourcesMeasurement(t *testing.T) {
+	u, err := url.Parse("http://a.example/feature.mp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	measurer := &fakeMeasurer{}
+	// The stream as ranking leaves it: named, measured, and marked as measured.
+	resolved, origin, _, err := newTestResolver(measurer, &fakePlaylists{}).Resolve(t.Context(),
+		&media.Stream{URL: u, ContentType: media.MP4, Height: 2160, Duration: 2 * time.Hour, Probed: true})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if len(measurer.measured) != 0 {
+		t.Errorf("measured %v, want nothing: a source that already names its container is not probed a second time", measurer.measured)
+	}
+	if origin.Duration != 2*time.Hour {
+		t.Errorf("Origin.Duration = %s, want the 2h ranking measured: a program with no length refuses every projected runtime", origin.Duration)
+	}
+	if origin.Live {
+		t.Error("Origin.Live = true for a file whose runtime was measured, which paces the read at exactly realtime and leaves no headroom any deliverability rule can judge")
+	}
+	if resolved.Height != 2160 {
+		t.Errorf("Height = %d, want the 2160 ranking measured: the composition asks the stream, and a height that stops here is a 4K source handed to a 1080-capped renderer", resolved.Height)
+	}
 }
 
 // fixturePlaylists serves the testdata documents the way an origin does: one
@@ -364,6 +412,93 @@ func TestResolveSaysWhenTheSourceOfferedNothingUnderTheCap(t *testing.T) {
 	}
 }
 
+// TestLivenessComesFromTheDocumentThatListsTheSegments is the fact the whole deliverability
+// apparatus was silently disarmed by, and the rows are the four combinations of the only two
+// witnesses there are.
+//
+// Liveness used to be seeded from a probe's silence and then ORed with the document, so the
+// strongest possible proof of a VOD program, EXT-X-ENDLIST, could not correct a guess made
+// from ffprobe reporting no duration for a playlist, which is what ffprobe reports for most
+// playlists it reads perfectly well. Nothing downstream recovered from that: a live source is
+// paced at exactly realtime, and every judgement about a starving upstream needs a read that
+// was ALLOWED to run ahead and did not (see read's live-edge row, whose pace is 1.0, and
+// watch.Health, where both the pre-gate hold and the starving verdict require headroom above
+// realtime). The 0.39x master the whole judgement was built for is an HLS master.
+//
+// So the document that LISTS the segments decides, and the probe answers only where no
+// document was read at all.
+func TestLivenessComesFromTheDocumentThatListsTheSegments(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// document is the fixture the origin serves, "" for an origin that serves nothing:
+		// then no document is read and the probe is the only witness left.
+		document string
+		// probed says a probe of this link happened at all, and measured is the runtime it
+		// reported, 0 being what ffprobe reports for most playlists and what used to be read
+		// as "live" whether anybody had looked or not.
+		probed   bool
+		measured time.Duration
+		wantLive bool
+	}{{
+		// The shape that mattered: a real VOD master, ffprobe silent about its runtime, and
+		// the chosen rendition carrying an endlist. Under the OR this cast was live, read at
+		// 1.0x, and no deliverability verdict about it was reachable at all.
+		name:     "an endlist on the chosen rendition ends the program, whatever the probe could not say",
+		document: "master_ladder.m3u8",
+		probed:   true,
+		wantLive: false,
+	}, {
+		// The other direction, and the reason the document is not merely preferred when it
+		// says VOD: a sliding window states no endlist, and a probe that managed to add up a
+		// window's EXTINF sum has measured the WINDOW rather than the program. Outrunning a
+		// live edge asks a CDN for segments that do not exist yet.
+		name:     "a sliding window is a live edge even where the probe reported a runtime",
+		document: "media_live.m3u8",
+		probed:   true,
+		measured: 12 * time.Second,
+		wantLive: true,
+	}, {
+		// No document at all. The probe's silence is now the best witness there is rather
+		// than one vote of two, and this is the only case it decides.
+		name:     "a document nobody could read leaves the probe's silence as the only witness",
+		probed:   true,
+		wantLive: true,
+	}, {
+		// Same unreadable document, and the probe did put a number on the link. Nothing has
+		// said the program never ends, so nothing does.
+		name:     "a runtime the probe did measure is an ending, even with no document to confirm it",
+		probed:   true,
+		measured: 2 * time.Hour,
+		wantLive: false,
+	}, {
+		// Nobody looked at all: no document, and no probe either, which is a URL cast by hand
+		// and a candidate whose probe was killed. Duration 0 here is the absence of a
+		// measurement rather than a measurement finding no ending, and convicting on it reads
+		// every hand-cast file as a live edge, which paces it at exactly realtime and leaves
+		// no headroom for any judgement about the link to be formed from.
+		name:     "an unprobed link is not a live edge: nothing looked",
+		wantLive: false,
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			u, err := url.Parse("http://a.example/" + cmp.Or(tc.document, "gone.m3u8"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The container is declared, as it is for every ranked candidate, and the runtime is
+			// on the stream because that is where a measurement travels (see media.Stream).
+			_, origin, _, err := newTestResolver(&fakeMeasurer{}, &fixturePlaylists{}).
+				Resolve(t.Context(), &media.Stream{URL: u, ContentType: media.HLS, Duration: tc.measured, Probed: tc.probed})
+			if err != nil {
+				t.Fatalf("Resolve: %v", err)
+			}
+			if origin.Live != tc.wantLive {
+				t.Errorf("Origin.Live = %v, want %v: the read policy this picks is the difference between a pace of 1.0, which no deliverability rule can judge, and 2.0, which every one of them needs",
+					origin.Live, tc.wantLive)
+			}
+		})
+	}
+}
+
 // TestResolveKeepsTheCastWhenTheChosenRenditionIsUnreadable guards the cost of the
 // second GET this phase spends on a master. The facts it buys are worth one request;
 // they are not worth a cast. A rendition document castor cannot read leaves the facts
@@ -560,7 +695,7 @@ func TestPickVariant(t *testing.T) {
 	}
 	tests := []struct {
 		name      string
-		maxHeight int
+		maxHeight media.HeightCap
 		want      string
 	}{
 		{"cap 1080 takes the 1080 variant", 1080, "/1080"},
@@ -726,40 +861,40 @@ func TestPickVariantSkipsAudioOnly(t *testing.T) {
 // the height cap outranks one above it, bandwidth then height break the rest, and an
 // unmeasured candidate sits below every measured one however little it advertises.
 func TestRankedPicksTheBestCandidate(t *testing.T) {
-	direct := func(path string, height int, bw int64) candidate {
-		return candidate{stream: &media.Stream{URL: &url.URL{Path: path}, Bandwidth: bw, ContentType: media.MP4}, height: height}
+	direct := func(path string, height int, bw int64) measurement {
+		return measurement{stream: &media.Stream{URL: &url.URL{Path: path}, Bandwidth: bw, Height: height, ContentType: media.MP4}}
 	}
-	hls := func(path string, height int, bw int64) candidate {
-		return candidate{stream: &media.Stream{URL: &url.URL{Path: path}, Bandwidth: bw, ContentType: media.HLS}, height: height}
+	hls := func(path string, height int, bw int64) measurement {
+		return measurement{stream: &media.Stream{URL: &url.URL{Path: path}, Bandwidth: bw, Height: height, ContentType: media.HLS}}
 	}
 	// unmeasured is the candidate admitted with nothing behind it: no height, and
 	// whatever bandwidth extraction supplied, which in practice is none.
-	unmeasured := func(path string) candidate {
-		return candidate{stream: &media.Stream{URL: &url.URL{Path: path}, ContentType: media.MP4}, lastResort: true}
+	unmeasured := func(path string) measurement {
+		return measurement{stream: &media.Stream{URL: &url.URL{Path: path}, ContentType: media.MP4}, lastResort: true}
 	}
 	// withLadder marks a candidate whose captured document advertised renditions, and
 	// sole one whose document advertised none. Both are facts read from the body the
 	// browser already had. A candidate left alone is one nobody could read: it ties with
 	// sole on the ladder tier, and unlike sole it is still exempt from the height cap,
 	// because nothing about its renditions was established either way.
-	withLadder := func(c candidate) candidate {
-		c.stream.Ladder = media.LadderMultivariant
-		return c
+	withLadder := func(m measurement) measurement {
+		m.stream.Ladder = media.LadderMultivariant
+		return m
 	}
-	sole := func(c candidate) candidate {
-		c.stream.Ladder = media.LadderSole
-		return c
+	sole := func(m measurement) measurement {
+		m.stream.Ladder = media.LadderSole
+		return m
 	}
 
 	tests := []struct {
 		name      string
-		pool      []candidate
-		maxHeight int
+		pool      []measurement
+		maxHeight media.HeightCap
 		want      string
 	}{
 		{
 			name:      "in-cap direct beats over-cap direct despite lower bitrate",
-			pool:      []candidate{direct("/4k", 2160, 20_000_000), direct("/1080", 1080, 6_000_000)},
+			pool:      []measurement{direct("/4k", 2160, 20_000_000), direct("/1080", 1080, 6_000_000)},
 			maxHeight: 1080,
 			want:      "/1080",
 		},
@@ -768,7 +903,7 @@ func TestRankedPicksTheBestCandidate(t *testing.T) {
 			// the 2160 ffprobe read off whichever one it opened is not a limit on what a
 			// cast will read, and the cap binds when a rung is picked out of it.
 			name:      "a document advertising renditions is exempt from the cap",
-			pool:      []candidate{withLadder(hls("/master", 2160, 20_000_000)), direct("/1080", 1080, 6_000_000)},
+			pool:      []measurement{withLadder(hls("/master", 2160, 20_000_000)), direct("/1080", 1080, 6_000_000)},
 			maxHeight: 1080,
 			want:      "/master",
 		},
@@ -779,7 +914,7 @@ func TestRankedPicksTheBestCandidate(t *testing.T) {
 			// it. The within-cap tier is compared first, so the ceiling decides here even
 			// against three times the bitrate.
 			name:      "a document proved to advertise one rendition is bound by the cap",
-			pool:      []candidate{sole(hls("/variant2160", 2160, 20_000_000)), direct("/1080", 1080, 6_000_000)},
+			pool:      []measurement{sole(hls("/variant2160", 2160, 20_000_000)), direct("/1080", 1080, 6_000_000)},
 			maxHeight: 1080,
 			want:      "/1080",
 		},
@@ -788,13 +923,13 @@ func TestRankedPicksTheBestCandidate(t *testing.T) {
 			// Chrome would not hand over leaves it entirely possible that this is a master,
 			// and an absence of evidence may not convict a candidate.
 			name:      "a playlist whose renditions nobody could read keeps the exemption",
-			pool:      []candidate{hls("/unread2160", 2160, 20_000_000), direct("/1080", 1080, 6_000_000)},
+			pool:      []measurement{hls("/unread2160", 2160, 20_000_000), direct("/1080", 1080, 6_000_000)},
 			maxHeight: 1080,
 			want:      "/unread2160",
 		},
 		{
 			name:      "all over cap falls back to the tallest",
-			pool:      []candidate{direct("/4k", 2160, 20_000_000), direct("/1440", 1440, 10_000_000)},
+			pool:      []measurement{direct("/4k", 2160, 20_000_000), direct("/1440", 1440, 10_000_000)},
 			maxHeight: 1080,
 			want:      "/4k",
 		},
@@ -803,7 +938,7 @@ func TestRankedPicksTheBestCandidate(t *testing.T) {
 			// to compare on resolution the pair falls through to bandwidth, so a
 			// candidate is never punished for being hard to measure.
 			name:      "unknown height is eligible",
-			pool:      []candidate{direct("/unknown", 0, 20_000_000), direct("/1080", 1080, 6_000_000)},
+			pool:      []measurement{direct("/unknown", 0, 20_000_000), direct("/1080", 1080, 6_000_000)},
 			maxHeight: 1080,
 			want:      "/unknown",
 		},
@@ -814,7 +949,7 @@ func TestRankedPicksTheBestCandidate(t *testing.T) {
 			// number. With bitrate compared first, 462 beat 1 and the 1600-line picture
 			// lost to an 800-line one without its resolution ever being looked at.
 			name:      "a floored master outranks a measured but shorter candidate",
-			pool:      []candidate{hls("/recording", 800, 462), hls("/release", 1600, 1)},
+			pool:      []measurement{hls("/recording", 800, 462), hls("/release", 1600, 1)},
 			maxHeight: 1080,
 			want:      "/release",
 		},
@@ -822,13 +957,13 @@ func TestRankedPicksTheBestCandidate(t *testing.T) {
 			// The other half of that rule: resolution decides, and bitrate still breaks
 			// a genuine tie, so a cleaner encode at the same height is not thrown away.
 			name:      "equal heights still fall to the higher bitrate",
-			pool:      []candidate{hls("/thin", 1080, 800_000), hls("/rich", 1080, 6_000_000)},
+			pool:      []measurement{hls("/thin", 1080, 800_000), hls("/rich", 1080, 6_000_000)},
 			maxHeight: 1080,
 			want:      "/rich",
 		},
 		{
 			name:      "tied bandwidth (unprobeable HLS master bit_rate) falls back to tallest height",
-			pool:      []candidate{hls("/290", 290, 1), hls("/1808", 1808, 1), hls("/580", 580, 1)},
+			pool:      []measurement{hls("/290", 290, 1), hls("/1808", 1808, 1), hls("/580", 580, 1)},
 			maxHeight: 2160,
 			want:      "/1808",
 		},
@@ -837,7 +972,7 @@ func TestRankedPicksTheBestCandidate(t *testing.T) {
 			// height 0, height 0 is inside every cap, and the within-cap tier used to be
 			// compared before anything else.
 			name:      "an unmeasured last resort loses to a measured candidate that exceeds the cap",
-			pool:      []candidate{unmeasured("/dead"), direct("/4k", 2160, 20_000_000)},
+			pool:      []measurement{unmeasured("/dead"), direct("/4k", 2160, 20_000_000)},
 			maxHeight: 1080,
 			want:      "/4k",
 		},
@@ -849,7 +984,7 @@ func TestRankedPicksTheBestCandidate(t *testing.T) {
 			// for one (so it arrives floored to 1) and the height of whichever variant it
 			// opened.
 			name:      "a confirmed ladder outranks a document with none",
-			pool:      []candidate{withLadder(hls("/master", 0, 1)), hls("/variant", 1080, 6_000_000)},
+			pool:      []measurement{withLadder(hls("/master", 0, 1)), hls("/variant", 1080, 6_000_000)},
 			maxHeight: 1080,
 			want:      "/master",
 		},
@@ -859,7 +994,7 @@ func TestRankedPicksTheBestCandidate(t *testing.T) {
 			// compares exactly like one that read as a single rendition, so the pair falls
 			// through to height and the taller picture wins.
 			name:      "renditions nobody could read are not ranked below renditions read as one",
-			pool:      []candidate{sole(hls("/read", 1080, 6_000_000)), hls("/unread", 1440, 1)},
+			pool:      []measurement{sole(hls("/read", 1080, 6_000_000)), hls("/unread", 1440, 1)},
 			maxHeight: 2160,
 			want:      "/unread",
 		},
@@ -868,7 +1003,7 @@ func TestRankedPicksTheBestCandidate(t *testing.T) {
 			// probe died still carries whatever its body said. The last-resort tier stays
 			// first, because a ladder is worth nothing at a URL nobody could open.
 			name:      "an unmeasured candidate keeps its ladder and still loses to a measured one",
-			pool:      []candidate{withLadder(unmeasured("/dead")), direct("/1080", 1080, 6_000_000)},
+			pool:      []measurement{withLadder(unmeasured("/dead")), direct("/1080", 1080, 6_000_000)},
 			maxHeight: 1080,
 			want:      "/1080",
 		},

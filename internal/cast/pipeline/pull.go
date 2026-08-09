@@ -16,7 +16,7 @@ import (
 	"github.com/stupside/castor/internal/cast/deliver/spool"
 	"github.com/stupside/castor/internal/cast/ffmpeg"
 	"github.com/stupside/castor/internal/cast/read"
-	"github.com/stupside/castor/internal/cast/subtitle/whisper"
+	"github.com/stupside/castor/internal/cast/subtitle"
 	"github.com/stupside/castor/internal/cast/watch"
 	"github.com/stupside/castor/internal/media"
 )
@@ -46,7 +46,7 @@ type pull struct {
 	// maxHeight is the height ceiling a floor encode of this read is held to, carried
 	// because a read that PRODUCES a picture is bound by the same ceiling as the encode
 	// downstream of the buffer it writes.
-	maxHeight int
+	maxHeight media.HeightCap
 
 	// reencode is the axes this read was told to produce rather than pass through, kept
 	// because its complement is what a failure of this read can be ABOUT: only a copied
@@ -79,7 +79,7 @@ var _ watch.Producer = (*pull)(nil)
 // policy is how the upstream is fetched, chosen from what the source published
 // before anything started (see read.For). It is handed in rather than derived here
 // for the same reason nothing else about this download is decided here.
-func startPull(ctx context.Context, cfg core.TranscodeConfig, resolved *media.Stream, policy read.Policy, sp *spool.Spool, reencode carriage.Axes, maxHeight int, wantPCM bool) (*pull, error) {
+func startPull(ctx context.Context, cfg core.TranscodeConfig, resolved *media.Stream, policy read.Policy, sp *spool.Spool, reencode carriage.Axes, maxHeight media.HeightCap, wantPCM bool) (*pull, error) {
 	p := &pull{
 		cfg:       cfg,
 		source:    ffmpeg.NewNetworkSource(resolved, policy),
@@ -122,7 +122,7 @@ func (p *pull) start(ctx context.Context) error {
 		MaxHeight:     p.maxHeight,
 		Verbose:       p.verbose,
 		PCM:           p.pcmOut != nil,
-		PCMSampleRate: whisper.SampleRate,
+		PCMSampleRate: subtitle.SampleRate,
 	}
 	args := ffmpeg.PullArgs(opts)
 
