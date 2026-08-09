@@ -1,5 +1,6 @@
-// Package e2e answers one question about castor, end to end: given an input
-// stream, does it produce a stream that plays.
+// Package e2e answers two questions about castor, end to end: given an input
+// stream, does it produce a stream that plays, and given an origin that
+// misbehaves, does it reach the right conclusion about it.
 //
 // Everything on both sides is real. A real ffmpeg produces a genuinely live HLS
 // stream into a real HTTP origin; castor's own probe measures it, castor's own
@@ -8,11 +9,24 @@
 // out is read back with a real ffprobe and asserted on by packet count, because a
 // container will happily declare a track it never wrote a packet into.
 //
-// Nothing here knows what a Chromecast is. Discovery, device protocols and the
-// decision to relay at all are covered by their own suites; the only part of them
-// that changes the bytes is which container castor was asked to write and which
-// codecs the far end decodes, and both are plain data a cell states directly. So
-// there is no fake television, no SOAP, and no subprocess.
+// Nothing here knows what a Chromecast is. Discovery and device protocols are
+// covered by their own suites; the only part of them that changes the bytes is
+// which container castor was asked to write and which codecs the far end decodes,
+// and both are plain data a cell states directly. So there is no SOAP and no
+// television: where a renderer is needed at all it is a stand-in that records what
+// it was pointed at, because what is under test is what castor concluded and not
+// what any receiver does with it.
+//
+// The second half of the package is the hostile origin, and it exists because the
+// resilience rules (internal/cast/watch) are verified against fakes and hand-built
+// measurements everywhere else. That cannot answer the question those rules exist
+// for, which is whether the shipping wiring reaches them when an origin refuses its
+// segments, trickles them far under playback rate, stalls partway through one, or
+// accepts a request and sends no body at all. Those cases drive the real executor,
+// and their cost is waiting rather than working: the windows they have to outlast
+// are derived from the backoff castor hands its reader (one reconnect ceiling before
+// a measured deficit convicts a read, two and a margin before silence does), so they
+// run in parallel and add roughly three minutes to a run.
 //
 // Live is the point. The unit suites cover fixed-length fixtures, which never
 // exercise a playlist that rolls while it is being read, a source with no

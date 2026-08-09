@@ -60,6 +60,8 @@ func TestCompositionsReproduceTheForksTheyReplaced(t *testing.T) {
 		caps       media.Renderer
 		sourceCT   string
 		headers    http.Header
+		height     int
+		maxHeight  int
 		preference core.DeliveryPreference
 
 		composition string
@@ -124,6 +126,34 @@ func TestCompositionsReproduceTheForksTheyReplaced(t *testing.T) {
 		preference:  core.DeliveryServe,
 		composition: "read-once",
 		connects:    false,
+	}, {
+		// The row the ceiling adds, and the only one where refusing costs something: this
+		// renderer fetches for itself and takes the container, so it would have played the
+		// source untouched. Castor reads none of a pass-through's bytes and therefore cannot
+		// scale one, so the source the operator capped at 1080 can only be kept off the
+		// renderer by composing this cast as a remux, which reads the 1600-line source and
+		// scales it. That leg wants a hardware encoder to hold realtime, and taking it anyway
+		// is the trade: casting more than was asked for is not an option castor has.
+		name:        "a source declared above the cast's ceiling is remuxed rather than handed over",
+		profile:     selfFetching(),
+		caps:        chromecastLike(media.HLS),
+		sourceCT:    media.HLS,
+		height:      1600,
+		maxHeight:   1080,
+		composition: "remux",
+		connects:    true,
+	}, {
+		// The carve-out reaching the table: the identical cast whose source declared no height
+		// is still the cheap leg. Most pass-throughs are this shape (a direct file, a media
+		// playlist with no RESOLUTION), and refusing them on absence of evidence would cost
+		// castor the composition almost entirely.
+		name:        "a source that declared no height is still handed over under the same ceiling",
+		profile:     selfFetching(),
+		caps:        chromecastLike(media.HLS),
+		sourceCT:    media.HLS,
+		maxHeight:   1080,
+		composition: "passthrough",
+		connects:    true,
 	}}
 
 	for _, tt := range tests {
@@ -135,7 +165,9 @@ func TestCompositionsReproduceTheForksTheyReplaced(t *testing.T) {
 				Headers:     tt.headers,
 			}
 
-			row, shape, err := compose(t.Context(), compositions, target, newHeld(target.Acquire), source, tt.preference)
+			row, shape, err := compose(t.Context(), compositions, target, newHeld(target.Acquire), core.Shape{
+				Source: source, Delivery: tt.preference, Height: tt.height, MaxHeight: tt.maxHeight,
+			})
 			if err != nil {
 				t.Fatalf("compose: %v", err)
 			}
@@ -169,7 +201,7 @@ func TestARendererServedALivePlaylistIsRemuxedIntoOne(t *testing.T) {
 	target := &fakeTarget{profile: selfFetching(), caps: caps}
 	source := &media.Stream{URL: &url.URL{Scheme: "https", Host: "cdn.example", Path: "/movie"}, ContentType: media.MKV}
 
-	row, shape, err := compose(t.Context(), compositions, target, newHeld(target.Acquire), source, core.DeliveryAuto)
+	row, shape, err := compose(t.Context(), compositions, target, newHeld(target.Acquire), core.Shape{Source: source})
 	if err != nil {
 		t.Fatalf("compose: %v", err)
 	}
@@ -202,7 +234,7 @@ func TestNoNegotiatedRowIsReachableWhenTheStaticRowMatched(t *testing.T) {
 	target := &fakeTarget{profile: pushOnly(), caps: chromecastLike(media.MP4)}
 	source := &media.Stream{URL: &url.URL{Scheme: "https", Host: "cdn.example"}, ContentType: media.MP4}
 
-	row, _, err := compose(t.Context(), compositions, target, newHeld(target.Acquire), source, core.DeliveryAuto)
+	row, _, err := compose(t.Context(), compositions, target, newHeld(target.Acquire), core.Shape{Source: source})
 	if err != nil {
 		t.Fatalf("compose: %v", err)
 	}
@@ -251,7 +283,7 @@ func TestAShapeNoRowAnswersIsReportedAsSuch(t *testing.T) {
 	target := &fakeTarget{profile: selfFetching(), caps: chromecastLike(media.MKV)}
 	source := &media.Stream{URL: &url.URL{Scheme: "https", Host: "cdn.example"}, ContentType: media.MP4}
 
-	_, _, err := compose(t.Context(), partial, target, newHeld(target.Acquire), source, core.DeliveryAuto)
+	_, _, err := compose(t.Context(), partial, target, newHeld(target.Acquire), core.Shape{Source: source})
 	if err == nil {
 		t.Fatal("a shape no row answers was composed anyway")
 	}
@@ -274,7 +306,7 @@ func TestOnlyARendererThatNeverFetchesForItselfIsServedABuffer(t *testing.T) {
 	} {
 		for _, pref := range []core.DeliveryPreference{core.DeliveryAuto, core.DeliveryServe} {
 			target := &fakeTarget{profile: selfFetching(), caps: caps}
-			row, shape, err := compose(t.Context(), compositions, target, newHeld(target.Acquire), source, pref)
+			row, shape, err := compose(t.Context(), compositions, target, newHeld(target.Acquire), core.Shape{Source: source, Delivery: pref})
 			if err != nil {
 				t.Fatalf("compose: %v", err)
 			}

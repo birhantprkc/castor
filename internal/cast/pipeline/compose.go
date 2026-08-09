@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/stupside/castor/internal/cast/core"
-	"github.com/stupside/castor/internal/media"
 )
 
 // composition is one shape a cast can take: the rule that chooses it, when the renderer is
@@ -103,7 +102,14 @@ var compositions = []composition{{
 	run:    readOnce,
 }, {
 	// Nothing to do: the renderer fetches for itself, the source needs nothing but its URL,
-	// and the container is already one it takes. Castor touches none of the media.
+	// the container is already one it takes, and nothing says the picture is taller than the
+	// cast's ceiling. Castor touches none of the media.
+	//
+	// That last clause is why the ceiling is a term of the composition and not only of an
+	// encode: castor cannot downscale a URL it never reads, so the ONLY way to keep a source
+	// declared above max_height off the renderer is to refuse this row and let the total row
+	// below serve a scaled remux instead (see core.Shape.Passthrough for the cost, and for
+	// why an undeclared height still passes through).
 	name:    "passthrough",
 	why:     "the renderer fetches for itself and already accepts the source as it is",
 	needs:   negotiated,
@@ -143,8 +149,14 @@ var compositions = []composition{{
 // prose used to carry (the static fact "MUST agree" with the connected one), and
 // device.Profile is what makes it sound, answering that one fact and leaving every other
 // field zero.
-func compose(ctx context.Context, rows []composition, t Target, renderer *held, source *media.Stream, pref core.DeliveryPreference) (composition, core.Shape, error) {
-	shape := core.Shape{Renderer: t.Profile(), Source: source, Delivery: pref}
+//
+// base is the cast as its caller already knows it: the link, what the source declared about
+// it, the ceiling the operator set, and the operator's say over delivery. The only two fields
+// this fills in are the two only it can, the renderer and whether one has answered yet, which
+// is exactly the difference between the two passes.
+func compose(ctx context.Context, rows []composition, t Target, renderer *held, base core.Shape) (composition, core.Shape, error) {
+	shape := base
+	shape.Renderer, shape.Negotiated = t.Profile(), false
 	if row, ok := match(rows, shape, profileOnly); ok {
 		return row, shape, nil
 	}
@@ -153,7 +165,7 @@ func compose(ctx context.Context, rows []composition, t Target, renderer *held, 
 	if err != nil {
 		return composition{}, shape, err
 	}
-	shape = core.Shape{Renderer: dev.Capabilities(), Source: source, Delivery: pref, Negotiated: true}
+	shape.Renderer, shape.Negotiated = dev.Capabilities(), true
 	if row, ok := match(rows, shape, negotiated); ok {
 		return row, shape, nil
 	}

@@ -152,10 +152,10 @@ whisper:
 
 ### Video quality
 
-Set `max_height` to your TV's vertical resolution. It caps the stream Castor picks and everything Castor produces, whether that is the spool it serves a DLNA renderer or the remux it serves a Chromecast.
+Set `max_height` to your TV's vertical resolution. It is a maximum on what reaches the device, so it caps the stream Castor picks and everything Castor produces, whether that is the spool it serves a DLNA renderer or the remux it serves a Chromecast.
 
 > [!NOTE]
-> A source handed straight to a device that fetches it itself is untouched, so that path plays the source's own resolution. Castor is not in the middle of it and cannot scale it; refusing the hand-off instead would mean transcoding 4K for a device that would have played it perfectly.
+> It binds the hand-off too. Castor cannot scale a stream it never reads, so a source whose playlist declares a rendition taller than `max_height` is relayed and scaled down instead of being handed to a device that fetches for itself. That relay decodes and re-encodes the whole title, which wants hardware encoding to keep up, so raise `max_height` if you would rather the device play the source as it is. A source that declares no resolution is handed over as before: Castor never measures one on that path, and refusing on a resolution nobody stated would rule out nearly every hand-off.
 
 ```yaml
 resolver:

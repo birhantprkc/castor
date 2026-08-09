@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -131,11 +132,19 @@ func (r *Resolver) measureAll(ctx context.Context, streams []*media.Stream) []me
 type reason string
 
 const (
-	reasonCastable  reason = "carried a castable program"
-	reasonUnproven  reason = "unmeasurable, admitted as a last resort"
-	reasonRefused   reason = "refused by the origin"
-	reasonNoProgram reason = "carried no castable video+audio"
-	reasonTooShort  reason = "too short to be content, treated as an ad"
+	reasonCastable reason = "carried a castable program"
+	reasonUnproven reason = "unmeasurable, admitted as a last resort"
+	reasonRefused  reason = "refused by the origin"
+	// reasonBrowserInternal is worded as the diagnosis and not as the refusal, because
+	// the next move it calls for is the opposite of every other reason's. A pool of
+	// refusals means the signed links went stale while the user was choosing what to
+	// watch, so extracting again fixes it. A pool of nothing but browser handles means
+	// the page fed its player from memory and the real media requests were never
+	// captured at all, so the same extraction produces the same handle again: the title
+	// has to be reached some other way.
+	reasonBrowserInternal reason = "a browser-internal handle: the real stream was never captured"
+	reasonNoProgram       reason = "carried no castable video+audio"
+	reasonTooShort        reason = "too short to be content, treated as an ad"
 	// reasonNoRule is not a row. It is what admit answers when the table matched
 	// nothing, which can only happen if the total row at the bottom is removed.
 	reasonNoRule reason = "matched no admission rule"
@@ -160,10 +169,44 @@ type admissionRule struct {
 	lastResort bool
 }
 
+// browserInternalSchemes are the URL schemes a browser mints to name bytes it is
+// already holding rather than a resource somebody can fetch. blob: is what
+// URL.createObjectURL hands back for a Blob or a MediaSource, and filesystem: is the
+// same kind of handle over the sandboxed filesystem API. Both resolve only inside the
+// document that created them, and that document is torn down before ranking even
+// starts. ffprobe answers both before it opens a socket:
+//
+//	blob:https://play.tv3.lt/17147e13-...: Protocol not found
+//
+// This is a denylist of what a browser mints, never an allowlist of what a reader can
+// fetch, and the asymmetry is the whole safety of it. ffprobe -protocols lists three
+// dozen input protocols, data:, file:, srt: and ipfs: among them, so an allowlist
+// would reject every scheme castor forgot to enumerate: convicting a candidate over
+// something castor never established is exactly what media.ReachUnproven and
+// media.LadderUnknown exist to prevent. data: is a real ffmpeg input protocol (it
+// answers "Invalid data found when processing input", i.e. it got past the protocol
+// lookup and read the payload) and file: is how a local cast is spelled, so neither
+// may ever appear here.
+var browserInternalSchemes = []string{"blob", "filesystem"}
+
+// browserInternal reports a URL that names bytes inside a browser. The scheme is a
+// structural fact about the URL, which is why this needs no knowledge of any site and
+// no pattern guessing: the rest of a blob: handle is a UUID and says nothing at all.
+//
+// No case folding, deliberately: net/url lowercases a scheme while parsing, so a
+// capture spelled "BLOB:https://..." arrives with Scheme "blob" and folding it again
+// here would be a second answer to a question net/url has already answered.
+func browserInternal(u *url.URL) bool {
+	return slices.Contains(browserInternalSchemes, u.Scheme)
+}
+
 // admissions decides what castor will attempt, first match wins. Order is the
 // contract: a row above another shadows it deliberately, and the rows that read
 // m.info without a nil check are sound only because the row above them admits every
-// candidate that has none.
+// candidate that has none. The stream and its URL need no such row: a measurement is
+// only ever built around a candidate (see measureAll), and a candidate only exists
+// once its URL parsed (see extract.streamsFrom), so a measurement with no URL on it is
+// a shape nothing can produce.
 //
 // The row that is NOT here is the one this table replaced. A candidate whose probe
 // failed used to be kept at bandwidth 0, on the theory that the puller reconnects
@@ -176,6 +219,21 @@ type admissionRule struct {
 // candidate (see preference), so it can win only when nothing measured was admitted
 // at all.
 var admissions = []admissionRule{{
+	// A handle no reader outside the browser can open, and the one row here that reads
+	// the URL instead of a measurement. It is first because no measurement can rescue
+	// it, and specifically because of the reasonUnproven row below: a field run captured
+	// blob:https://play.tv3.lt/17147e13-... off a news site whose player fed a
+	// MediaSource, ffprobe answered "Protocol not found" so nothing was measured, and an
+	// unmeasured candidate is admitted as a last resort. That handle was then announced
+	// as the best stream and the cast died against a URL nothing could ever have opened.
+	//
+	// That leniency is right for a timeout, where the reader gets reconnects and minutes
+	// where ffprobe had seconds, and it is meaningless here: there is no protocol to
+	// retry, and a renderer handed the URL would fail the same way. Structurally
+	// uncastable is not unproven.
+	reason: reasonBrowserInternal,
+	when:   func(m measurement) bool { return browserInternal(m.stream.URL) },
+}, {
 	// A spent signed link answers 403, and answers it to every reader alike, so
 	// there is nothing for the puller's reconnects to rescue. This is the shape that
 	// dominates a pool once extraction is a few minutes stale.

@@ -11,8 +11,9 @@ import (
 
 // TestPassthrough pins the delivery decision that replaced the two per-device strategies,
 // and that the composition table now reads as one row's rule: given the renderer's
-// advertised capabilities (SelfFetch plus the containers it takes), the source, and the
-// operator's one knob, a cast is either handed over untouched or produced locally.
+// advertised capabilities (SelfFetch plus the containers it takes), the source, the cast's
+// height ceiling and the operator's one knob, a cast is either handed over untouched or
+// produced locally.
 //
 // Every row here was a row of the old planner's matrix and asserts the same answer. What
 // left the value is the two axes that are now structural rather than computed: the served
@@ -34,6 +35,8 @@ func TestPassthrough(t *testing.T) {
 		headers     http.Header
 		demuxed     bool
 		leniency    bool
+		height      int
+		maxHeight   int
 		preference  DeliveryPreference
 		passthrough bool
 	}{{
@@ -104,6 +107,37 @@ func TestPassthrough(t *testing.T) {
 		name:     "a renderer that never fetches for itself is always served",
 		caps:     caps(false),
 		sourceCT: media.MKV,
+	}, {
+		// The ceiling, on the one shape that used to be exempt from it. Castor downscales
+		// nothing on a pass-through because it reads nothing, so handing this URL over
+		// delivers 1600 lines to an operator who asked for 1080 and no leg downstream ever
+		// consults the ceiling again: the two that do are the two that measure something.
+		// These are the real numbers from the run this came from, a sole rendition declared
+		// 3840x1600 at 18505 kb/s.
+		name:      "a source declared above the ceiling is served, since a pass-through cannot be downscaled",
+		caps:      caps(true, media.HLS, media.MP4),
+		sourceCT:  media.HLS,
+		height:    1600,
+		maxHeight: 1080,
+	}, {
+		// Inclusive, in the same direction the encode decision reads it: a source at exactly
+		// the configured height is what the operator asked for, not one line too many.
+		name:        "a source declared at exactly the ceiling still passes through",
+		caps:        caps(true, media.HLS, media.MP4),
+		sourceCT:    media.HLS,
+		height:      1080,
+		maxHeight:   1080,
+		passthrough: true,
+	}, {
+		// The carve-out, and it is required rather than a softening: a media playlist declares
+		// no RESOLUTION and a direct file declares nothing at all, so convicting on an
+		// undeclared height would disqualify nearly every pass-through castor makes, to bound
+		// a picture that in all likelihood already fits.
+		name:        "a source that declared no height at all passes through",
+		caps:        caps(true, media.HLS, media.MP4),
+		sourceCT:    media.HLS,
+		maxHeight:   1080,
+		passthrough: true,
 	}}
 
 	for _, tt := range tests {
@@ -112,12 +146,39 @@ func TestPassthrough(t *testing.T) {
 			if tt.demuxed {
 				source.AudioURL = &url.URL{Scheme: "https", Host: "cdn.example", Path: "/audio.m3u8"}
 			}
-			shape := Shape{Renderer: tt.caps, Source: source, Delivery: tt.preference}
+			shape := Shape{
+				Renderer: tt.caps, Source: source, Delivery: tt.preference,
+				Height: tt.height, MaxHeight: tt.maxHeight,
+			}
 
 			if got := shape.Passthrough(); got != tt.passthrough {
 				t.Errorf("Passthrough() = %v, want %v (shape: %s)", got, tt.passthrough, shape)
 			}
 		})
+	}
+}
+
+// TestAShapeNamesTheCeilingItWasComposedUnder pins the attribution half of the ceiling's
+// reach into the composition, and it is not decoration.
+//
+// A pass-through refused for the ceiling is reported as a remux, on grounds ("cannot be
+// handed this source") that are true of it without naming the fact that refused it, and the
+// forced-transcode line that does name numbers comes minutes later from the encode decision,
+// only if that leg's own probe agrees with what the source declared. So this line is where a
+// user reads why the cheapest leg was not taken, and which of the two numbers to change.
+func TestAShapeNamesTheCeilingItWasComposedUnder(t *testing.T) {
+	shape := Shape{
+		Renderer: media.Renderer{SelfFetch: true, Containers: []string{media.HLS}},
+		Source:   &media.Stream{ContentType: media.HLS},
+		Height:   1600, MaxHeight: 1080,
+	}
+	if shape.Passthrough() {
+		t.Fatal("a source declared above the ceiling was handed to the renderer untouched")
+	}
+	for _, want := range []string{"source_height=1600", "max_height=1080"} {
+		if !strings.Contains(shape.String(), want) {
+			t.Errorf("the shape line %q does not carry %q, so nothing says which number refused the pass-through", shape, want)
+		}
 	}
 }
 

@@ -64,6 +64,19 @@ func probeKilled() answer {
 	return answer{err: fmt.Errorf("ffprobe: signal: killed (measurement budget 30s)")}
 }
 
+// protocolNotFound is what ffprobe answers for a URL whose scheme it has no protocol
+// for, before it opens a socket. It is a failed measurement exactly like probeKilled,
+// and that is the whole reason the scheme has to be read: on the measurement alone the
+// two are indistinguishable, and one of them is worth attempting.
+func protocolNotFound(raw string) answer {
+	return answer{err: fmt.Errorf("ffprobe: exit status 1\n%s: Protocol not found", raw)}
+}
+
+// blobHandle is the URL from the field run, shortened only in its UUID: a news site
+// whose player fed a MediaSource, so the one thing extraction captured was the object
+// URL the page had handed its own video element.
+const blobHandle = "blob:https://play.tv3.lt/17147e13-0f36-4d5e-9a11-8b4c0d2e6f70"
+
 func (f *fakeMeasurer) Measure(_ context.Context, s *media.Stream) (*media.StreamInfo, media.Reach, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -132,6 +145,15 @@ func streams(t *testing.T, raws ...string) []*media.Stream {
 	return contentStreams(t, media.HLS, raws...)
 }
 
+// streamAt is one candidate, for the table tests that hand admit a measurement
+// directly. Every measurement carries the candidate it was taken of, because that is
+// the only shape production builds (see measureAll) and because the table's first row
+// reads the URL: a measurement with no stream on it is a shape no probe can produce.
+func streamAt(t *testing.T, raw string) *media.Stream {
+	t.Helper()
+	return contentStreams(t, media.HLS, raw)[0]
+}
+
 // contentStreams builds candidates of a given container, which matters to ranking
 // for one reason: the height cap binds a direct file outright, while a playlist is
 // exempt until its own tags say it advertises a single rendition (see
@@ -170,36 +192,36 @@ func TestAdmissions(t *testing.T) {
 	}{
 		{
 			name:       "the origin refused it",
-			m:          measurement{reach: media.ReachRefused},
+			m:          measurement{stream: streamAt(t, "http://a.example/spent.m3u8"), reach: media.ReachRefused},
 			wantReason: reasonRefused,
 		},
 		{
 			name:           "nothing was measured and nobody refused it",
-			m:              measurement{reach: media.ReachUnproven},
+			m:              measurement{stream: streamAt(t, "http://a.example/silent-origin.m3u8"), reach: media.ReachUnproven},
 			wantReason:     reasonUnproven,
 			wantAdmit:      true,
 			wantLastResort: true,
 		},
 		{
 			name:           "a reach nobody set is still admitted",
-			m:              measurement{},
+			m:              measurement{stream: streamAt(t, "http://a.example/unset.m3u8")},
 			wantReason:     reasonUnproven,
 			wantAdmit:      true,
 			wantLastResort: true,
 		},
 		{
 			name:       "measured, but no audio",
-			m:          measurement{reach: media.ReachOpened, info: &media.StreamInfo{HasVideo: true, VideoHeight: 1080, Duration: 2 * time.Hour}},
+			m:          measurement{stream: streamAt(t, "http://a.example/slideshow.m3u8"), reach: media.ReachOpened, info: &media.StreamInfo{HasVideo: true, VideoHeight: 1080, Duration: 2 * time.Hour}},
 			wantReason: reasonNoProgram,
 		},
 		{
 			name:       "measured, but shorter than any real title",
-			m:          measurement{reach: media.ReachOpened, info: ad},
+			m:          measurement{stream: streamAt(t, "http://a.example/preroll.m3u8"), reach: media.ReachOpened, info: ad},
 			wantReason: reasonTooShort,
 		},
 		{
 			name:       "measured and castable",
-			m:          measurement{reach: media.ReachOpened, info: playable(3_000_000, 1080)},
+			m:          measurement{stream: streamAt(t, "http://a.example/feature.m3u8"), reach: media.ReachOpened, info: playable(3_000_000, 1080)},
 			wantReason: reasonCastable,
 			wantAdmit:  true,
 		},
@@ -218,12 +240,135 @@ func TestAdmissions(t *testing.T) {
 		})
 	}
 
+	t.Run("a browser handle is refused before anything is read into it", func(t *testing.T) {
+		// The field shape exactly: nothing was measured, nobody refused anything, and the
+		// reasonUnproven row would therefore admit it as a last resort. The scheme row has
+		// to win here, or the cast is aimed at a URL with no protocol behind it.
+		got := admit(measurement{stream: streamAt(t, blobHandle)})
+		if got.reason != reasonBrowserInternal {
+			t.Errorf("reason = %q, want %q: the unproven row must not shadow a structurally uncastable URL", got.reason, reasonBrowserInternal)
+		}
+		if got.admit || got.lastResort {
+			t.Errorf("admit = %v, lastResort = %v, want both false: there is no protocol for a reader to retry", got.admit, got.lastResort)
+		}
+	})
+
 	t.Run("the last row is total", func(t *testing.T) {
 		last := admissions[len(admissions)-1]
 		if !last.when(measurement{info: playable(1, 1)}) || !last.admit {
 			t.Error("the bottom row must admit every shape reaching it, or admit's default arm becomes a way to refuse a castable stream")
 		}
 	})
+}
+
+// TestAdmissionKeysUncastabilityOnTheScheme is the half of the browser-handle rule
+// that keeps it safe: what it must NOT reject. Every row here carries the same clean
+// measurement, so the only thing that can separate them is the scheme, and each
+// admitted row names a scheme a reader really does fetch.
+//
+// data: and file: are the two that make the rule a denylist rather than an allowlist.
+// ffmpeg has an input protocol for both (`ffprobe data:video/mp4;base64,AAAA` gets past
+// protocol lookup and fails on the payload instead, and a local file is how a hand-typed
+// cast is spelled), so an allowlist of the schemes castor happens to have thought of
+// would refuse a candidate that works. The path row is the pattern-guessing failure the
+// same rule would have if it matched text anywhere but the scheme.
+func TestAdmissionKeysUncastabilityOnTheScheme(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		raw        string
+		wantReason reason
+		wantAdmit  bool
+	}{
+		{
+			name:       "a blob handle is not fetchable by anything",
+			raw:        blobHandle,
+			wantReason: reasonBrowserInternal,
+		},
+		{
+			name:       "the scheme is the same scheme in upper case",
+			raw:        "BLOB:https://play.tv3.lt/17147e13-0f36-4d5e-9a11-8b4c0d2e6f70",
+			wantReason: reasonBrowserInternal,
+		},
+		{
+			name:       "a sandboxed filesystem handle is the same kind of handle",
+			raw:        "filesystem:https://play.tv3.lt/temporary/movie.mp4",
+			wantReason: reasonBrowserInternal,
+		},
+		{
+			name:       "a path that merely contains the word blob is an ordinary URL",
+			raw:        "https://cdn.example/blob/movie.m3u8",
+			wantReason: reasonCastable,
+			wantAdmit:  true,
+		},
+		{
+			name:       "a local file is castable, and ffmpeg has a protocol for it",
+			raw:        "file:///movies/movie.mkv",
+			wantReason: reasonCastable,
+			wantAdmit:  true,
+		},
+		{
+			name:       "a data URL is castable, and ffmpeg has a protocol for it too",
+			raw:        "data:video/mp4;base64,AAAA",
+			wantReason: reasonCastable,
+			wantAdmit:  true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := admit(measurement{stream: streamAt(t, tc.raw), reach: media.ReachOpened, info: playable(3_000_000, 1080)})
+			if got.reason != tc.wantReason {
+				t.Errorf("reason = %q, want %q", got.reason, tc.wantReason)
+			}
+			if got.admit != tc.wantAdmit {
+				t.Errorf("admit = %v, want %v", got.admit, tc.wantAdmit)
+			}
+		})
+	}
+}
+
+// TestRankStreamsNeverAimsACastAtABrowserHandle drives the field pool through the real
+// ranker beside a candidate that measured cleanly. The handle must be gone from the
+// ORDERING and not merely beaten in it: the ordering is what a cast walks, so a handle
+// kept as a tail entry is still a URL a cast attempts once the head fails, and it fails
+// there for the same reason it failed here.
+func TestRankStreamsNeverAimsACastAtABrowserHandle(t *testing.T) {
+	measurer := &fakeMeasurer{answers: map[string]answer{
+		blobHandle:                      protocolNotFound(blobHandle),
+		"http://a.example/feature.m3u8": measured(playable(3_000_000, 1080)),
+	}}
+	resolver := newTestResolver(measurer, &fakePlaylists{})
+
+	order, err := resolver.RankStreams(t.Context(), streams(t, blobHandle, "http://a.example/feature.m3u8"))
+	if err != nil {
+		t.Fatalf("RankStreams: %v", err)
+	}
+	if len(order) != 1 || order[0].URL.String() != "http://a.example/feature.m3u8" {
+		t.Fatalf("ordering = %v, want the feature alone: a browser handle must not survive as a candidate a cast can walk to", order)
+	}
+}
+
+// TestRankStreamsFailsWhenEveryCaptureIsABrowserHandle is the field run itself: the
+// page played through a MediaSource, so the pool was the object URL and an ad. Nothing
+// is admitted, and the failure has to name the shape rather than count it as one more
+// expired link. "refused by the origin" tells the user to extract again, which here
+// produces the same handle a second time; this reason says the real stream was never
+// captured, which is a different thing to do next.
+func TestRankStreamsFailsWhenEveryCaptureIsABrowserHandle(t *testing.T) {
+	measurer := &fakeMeasurer{answers: map[string]answer{
+		blobHandle:                      protocolNotFound(blobHandle),
+		"http://a.example/preroll.m3u8": measured(&media.StreamInfo{BitRate: 30_000_000, Duration: 90 * time.Second, HasVideo: true, HasAudio: true, VideoHeight: 1080}),
+	}}
+	resolver := newTestResolver(measurer, &fakePlaylists{})
+
+	_, err := resolver.RankStreams(t.Context(), streams(t, blobHandle, "http://a.example/preroll.m3u8"))
+	if err == nil {
+		t.Fatal("a pool of nothing but a browser handle and an ad must fail ranking")
+	}
+	if !strings.Contains(err.Error(), "1 "+string(reasonBrowserInternal)) {
+		t.Errorf("error = %q, want the handle tallied by its own reason so the user knows extraction never saw the stream", err)
+	}
+	if !strings.Contains(err.Error(), "1 "+string(reasonTooShort)) {
+		t.Errorf("error = %q, want the ad still tallied beside it", err)
+	}
 }
 
 // TestRankStreamsDropsDecoysHard is the pathology aggregators actually serve: the

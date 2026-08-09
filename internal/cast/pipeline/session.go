@@ -140,7 +140,16 @@ func run(parent context.Context, cfg core.Config, t Target, a attempt.Attempt, l
 	defer func() { _ = g.Wait() }()
 	defer cancel()
 
-	row, shape, err := compose(ctx, compositions, t, renderer, a.Source, cfg.Delivery)
+	row, shape, err := compose(ctx, compositions, t, renderer, core.Shape{
+		Source:   a.Source,
+		Delivery: cfg.Delivery,
+		// The rung the SOURCE declared for this attempt, which is the only thing a cast knows
+		// about its own height before it reads a byte: the pass-through composition probes
+		// nothing, ever, so a height it does not arrive with is a height it will never have.
+		// Zero is the ordinary answer and stays lenient (see core.Shape.Passthrough).
+		Height:    a.Rendition.Height,
+		MaxHeight: cfg.Resolver.MaxHeight,
+	})
 	if err != nil {
 		return landing{err: err}
 	}

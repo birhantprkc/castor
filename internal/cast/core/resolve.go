@@ -84,13 +84,16 @@ type VideoInputs struct {
 	// configuration, and the path is chosen by what a renderer answered during discovery
 	// so there was no way to tell which one a cast got.
 	//
-	// PASS-THROUGH IS EXEMPT, and that is a boundary rather than an omission. Castor
-	// touches no media on a pass-through, so it cannot downscale one; the only alternative
-	// is disqualifying the shape whenever a source exceeds the ceiling, which answers a 4K
-	// source on a self-fetching renderer with a 4K read plus a software downscale, i.e. it
-	// turns the cheapest path into the most expensive one for a device that would have
-	// played the original perfectly. What this ceiling governs is the bytes castor MAKES
-	// and the bandwidth castor SPENDS, and a pass-through makes none and spends none.
+	// PASS-THROUGH IS NOT EXEMPT, and that is the same statement seen from the other end.
+	// The ceiling is a maximum on what reaches the RENDERER, not on what castor's encoder
+	// produces, so the shape castor cannot downscale is the shape it has to refuse: a source
+	// declared above the ceiling never becomes a pass-through at all, and the composition
+	// table is where that is decided, because a leg cannot bound a picture it never reads
+	// (see Shape.Passthrough). The consequence is stated rather than discovered later: such
+	// a cast becomes a remux plus a downscale, which is the expensive leg and wants a
+	// hardware encoder to pace, and a self-fetching renderer that would have played 2160p
+	// natively is served 1080p until the operator raises max_height. One number, one
+	// meaning, on every path.
 	//
 	// It is a term here and not a field of media.Renderer, and it must stay that way: a
 	// height a device advertised would be a capability, where zero legitimately means "the
@@ -150,7 +153,7 @@ func DecideVideo(ctx context.Context, in VideoInputs) ffmpeg.VideoTrack {
 	// nothing whatever to a remux of the same source, so a 1080p-capped user pointed at a
 	// 4K variant is served 4K at full source bitrate, decided by which composition their
 	// renderer's own declarations routed them to and reported in no log line.
-	tall := !withinMaxHeight(in.Probe, in.MaxHeight)
+	tall := !withinMaxHeight(in.Probe.VideoHeight, in.MaxHeight)
 	fits := (in.Policy == CopyWhatever || in.Caps.CanCopyVideo(in.Probe)) && !tall
 	if in.BurnIn == "" && !blocked && !in.Decode.Video && fits {
 		return ffmpeg.CopyVideo()
@@ -232,9 +235,17 @@ func selectVideoEncoder(caps media.Renderer, selectEncoder func(media.Codec) (ff
 	return enc
 }
 
-// withinMaxHeight reports whether a probed source fits under the cast's height ceiling.
-// A source above it is not copy-eligible on any leg, so it falls through to a re-encode
-// that scales it down.
+// withinMaxHeight reports whether a source of this height fits under the cast's height
+// ceiling. A source above it is not copy-eligible on any leg, so it falls through to a
+// re-encode that scales it down, and it is not handed over untouched either, so it cannot be
+// a pass-through (see Shape.Passthrough).
+//
+// It takes a bare height rather than a probe because the ceiling is asked of two different
+// kinds of evidence and must answer both identically: the encode decision asks it of what
+// its own leg MEASURED, and the composition asks it of what the source DECLARED, before a
+// byte has been read. Two predicates would be two chances to restate the leniency below and
+// have one of them drift, which is the failure that let the ceiling mean one thing on a
+// buffered cast and nothing at all on a remux.
 //
 // It takes the ceiling as a number with no sentinel, and there is nothing to say about a
 // zero one: max_height is `validate:"required,min=1"`, so a cast that reaches here has an
@@ -246,18 +257,19 @@ func selectVideoEncoder(caps media.Renderer, selectEncoder func(media.Codec) (ff
 // invents a way for the instruction to be absent. To lift the ceiling, set max_height
 // above anything you own.
 //
-// An unmeasured height (0) DOES pass, and that is a measurement rather than a sentinel. A
-// probe that failed or a container that states no height is an ordinary thing for a
-// hostile upstream to be, nothing about it says the source is tall, and reading it the
-// other way round means every unmeasured cast pays for a decode, a scale and a re-encode
-// to bound a height that may well already fit. It is the same leniency an unproven
-// media.Reach carries: nothing established may convict.
+// A height of 0 DOES pass, and that is an absence of evidence rather than a sentinel. A
+// probe that failed, a container that states no height, a playlist that declares no
+// RESOLUTION: all are ordinary things for a source to be, nothing about any of them says the
+// picture is tall, and reading them the other way round means every unmeasured cast pays for
+// a decode, a scale and a re-encode to bound a height that may well already fit, while every
+// undeclared pass-through loses the cheapest leg castor has. It is the same leniency an
+// unproven media.Reach carries: nothing established may convict.
 //
 // That disjunct is arithmetic the comparison beside it already does (0 is under every
 // ceiling a required min=1 admits), and it is written out because the reading is the
 // decision. An unmeasured source falls on the copy side here and nowhere else says so.
-func withinMaxHeight(src media.ProbeInfo, maxHeight int) bool {
-	return src.VideoHeight == 0 || src.VideoHeight <= maxHeight
+func withinMaxHeight(height, maxHeight int) bool {
+	return height == 0 || height <= maxHeight
 }
 
 // videoTarget is a VBV-capped bitrate: the average, the peak cap, and the buffer

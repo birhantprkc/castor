@@ -144,6 +144,16 @@ type castCase struct {
 	source  func(*testing.T, string) fixtureOrigin
 	headers http.Header
 
+	// declared is the height the SOURCE published for the rung this cast reads (an HLS
+	// RESOLUTION, carried on the attempt as media.Rendition.Height). It is the only thing a
+	// cast knows about its own height before it reads a byte, so it is what the composition
+	// asks the ceiling about, and 0 (the ordinary case) means the source declared nothing.
+	declared int
+
+	// ceiling raises the cast's configured max_height for a row about what the ceiling
+	// ADMITS rather than what it refuses, 0 to keep the suite's 1080.
+	ceiling int
+
 	// The renderer: a family, which fixes when castor connects, and the
 	// capabilities it negotiates.
 	family   device.Type
@@ -349,18 +359,49 @@ func TestCastMatrix(t *testing.T) {
 		served: media.MP4,
 		height: 1080,
 	}, {
-		// The stated boundary, and the row that keeps the fix above from becoming a worse
-		// bug than the one it fixed. Castor touches no media on a pass-through, so it cannot
-		// downscale one, and the only way to apply a ceiling here would be to refuse the
-		// shape outright: that answers a 4K source on a renderer that would have played it
-		// perfectly with a 4K read plus a software downscale, spending castor's encoder and
-		// the whole source bitrate to deliver a smaller picture. The ceiling governs the
-		// bytes castor MAKES and the bandwidth castor SPENDS, and this cast makes and spends
-		// none.
-		name:   "a source over the cast's ceiling is still handed to a renderer that fetches it",
+		// The ceiling on the leg that cannot scale anything, which is the leg where it costs
+		// the most and is the user's instruction all the same: max_height is a maximum on what
+		// reaches the RENDERER, not on what castor's encoder produces. This renderer fetches
+		// for itself and accepts the source container, so the source would have been handed
+		// over as it stands and delivered 1440 lines to an operator who asked for 1080, with
+		// nothing downstream to say so (the legs that consult the ceiling are the legs that
+		// measure something, and this one reads no bytes at all).
+		//
+		// So the shape is refused instead and the cast falls to the remux, which reads the
+		// source and scales it. That is the expensive leg and it wants a hardware encoder to
+		// hold realtime for a whole title: the trade is deliberate, because casting more than
+		// was asked for is not something castor may do quietly.
+		name:     "a source declared above the cast's ceiling is served scaled rather than handed over",
+		source:   serveTallFixture,
+		declared: 1440,
+		family:   device.TypeChromecast,
+		caps:     chromecastLike(media.MKV),
+		served:   media.MP4,
+		height:   1080,
+	}, {
+		// The carve-out, end to end, and it is required rather than a softening of the row
+		// above. This is the identical cast whose source declared no height, which is what
+		// nearly every pass-through looks like (a direct file, a media playlist with no
+		// RESOLUTION), and a pass-through measures nothing ever, so absence of evidence is all
+		// castor will ever have. Convicting on it would cost castor its cheapest leg almost
+		// entirely, to bound a picture that in all likelihood already fits.
+		name:   "a source that declared no height is handed over untouched under the same ceiling",
 		source: serveTallFixture,
 		family: device.TypeChromecast,
 		caps:   chromecastLike(media.MKV),
+	}, {
+		// The same declared 1440 lines under an operator who asked for 2160: nothing is over
+		// the ceiling, so the cheapest leg is the correct one and the renderer is handed the
+		// URL. This is the row that pins the ceiling as the CONFIGURED number rather than
+		// whatever a composition happened to be built with, because a ceiling wired in as zero
+		// refuses every declared height and would look exactly like a working one from the row
+		// above.
+		name:     "a source declared under a raised ceiling is handed over after all",
+		source:   serveTallFixture,
+		declared: 1440,
+		ceiling:  2160,
+		family:   device.TypeChromecast,
+		caps:     chromecastLike(media.MKV),
 	}, {
 		// A pinned stream map turns a missing track into an argument-parse failure
 		// before a single byte is read. The optional suffix is what keeps such a
@@ -401,10 +442,13 @@ func TestCastMatrix(t *testing.T) {
 			dev := &fakeDevice{caps: tt.caps, drain: tt.served != "", tee: sink}
 			cfg := castConfig(tt.family, ffmpegPath, ffprobePath)
 			cfg.Delivery = tt.delivery
+			if tt.ceiling > 0 {
+				cfg.Resolver.MaxHeight = tt.ceiling
+			}
 
 			ctx, cancel := context.WithTimeout(t.Context(), castTimeout)
 			defer cancel()
-			if err := castOnce(ctx, t, cfg, connectTo(dev), source); err != nil {
+			if err := castRung(ctx, t, cfg, connectTo(dev), source, media.Rendition{Height: tt.declared}); err != nil {
 				t.Fatalf("cast: %v", err)
 			}
 
@@ -877,6 +921,16 @@ const (
 // could have been harvested. The read policy is the one such a source gets.
 func castOnce(ctx context.Context, t *testing.T, cfg core.Config, connect ConnectFunc, source *media.Stream) error {
 	t.Helper()
+	// A zero rung is the honest value for the same reason the zero Origin is: nothing resolved
+	// a document here, so nothing declared a height.
+	return castRung(ctx, t, cfg, connect, source, media.Rendition{})
+}
+
+// castRung is castOnce for a cast whose source DECLARED which rung it is serving. That fact
+// travels on the attempt and nowhere else, and it is the whole input to the ceiling's half of
+// the composition question: what the source said, before castor has read a byte of it.
+func castRung(ctx context.Context, t *testing.T, cfg core.Config, connect ConnectFunc, source *media.Stream, rung media.Rendition) error {
+	t.Helper()
 	policy, err := read.For(read.ShapeOf(media.Origin{}), cfg.Transcode.RWTimeout)
 	if err != nil {
 		t.Fatalf("read policy: %v", err)
@@ -887,10 +941,11 @@ func castOnce(ctx context.Context, t *testing.T, cfg core.Config, connect Connec
 	delivery := cfg.Delivery
 	cfg.Delivery = core.DeliveryAuto
 	return NewExecutor(cfg, connect, "127.0.0.1").Run(ctx, attempt.Attempt{
-		Try:      1,
-		Source:   source,
-		Read:     policy,
-		Delivery: delivery,
+		Try:       1,
+		Source:    source,
+		Rendition: rung,
+		Read:      policy,
+		Delivery:  delivery,
 	}).Err
 }
 
@@ -1088,9 +1143,10 @@ func serveTheoraFixture(t *testing.T, ffmpegPath string) fixtureOrigin {
 // ceiling is the only thing that can refuse it, which is what makes what the renderer
 // receives an answer about the ceiling and nothing else.
 //
-// MKV because that is what makes a renderer's container declaration decide the leg: a
-// renderer that accepts MKV is handed this URL, one that does not is served a remux of it,
-// and both are rows.
+// MKV because that is what leaves the ceiling as the only reason a self-fetching renderer
+// could be refused this URL: a renderer that rejects MKV is served a remux whatever the
+// heights say, so the rows that are about the ceiling are the ones where the renderer accepts
+// it and the composition still turns on what the source declared.
 func serveTallFixture(t *testing.T, ffmpegPath string) fixtureOrigin {
 	t.Helper()
 	return serveGenerated(t, ffmpegPath, "tall.mkv", "/tall.mkv", media.MKV, shortFixture,

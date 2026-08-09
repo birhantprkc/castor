@@ -329,14 +329,19 @@ func TestDecideVideo(t *testing.T) {
 // `validate:"required,min=1"`, so there is no configuration in which the ceiling is
 // missing, and inventing a sentinel for it would be re-introducing the very thing this
 // predicate no longer lets a policy do.
+//
+// It is asserted over bare heights because both callers of the ceiling ask it that way: the
+// encode decision asks it of a height its leg measured, and the composition asks it of a
+// height the source declared before anything was read. One of those restating this leniency
+// on its own is how the ceiling used to mean different things on different delivery paths.
 func TestWithinMaxHeightConvictsOnlyAMeasuredSourceOverTheCeiling(t *testing.T) {
-	if !withinMaxHeight(media.ProbeInfo{}, 1080) {
+	if !withinMaxHeight(0, 1080) {
 		t.Error("an unmeasured height must pass rather than force a transcode on missing metadata")
 	}
-	if !withinMaxHeight(media.ProbeInfo{VideoHeight: 1080}, 1080) {
+	if !withinMaxHeight(1080, 1080) {
 		t.Error("the ceiling is inclusive: a source at exactly the configured height is what the user asked for")
 	}
-	if withinMaxHeight(media.ProbeInfo{VideoHeight: 2160}, 1080) {
+	if withinMaxHeight(2160, 1080) {
 		t.Error("a source above the ceiling must not be copy-eligible")
 	}
 }
