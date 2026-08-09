@@ -321,14 +321,24 @@ func streamFormatFor(contentType string) string {
 // URL it is handed (its Video node pulls the stream over the network), so an
 // accepted source container casts straight through; anything else is served as a
 // live remux (see ServedContainer, set to HLS: Roku has no supported way to play
-// a growing single-file URL). It carries no video envelope on purpose: the served
-// path stream-copies video unconditionally (Roku decodes H.264/HEVC), so no
-// copy-vs-encode gate reads one. The audio envelope lets a 5.1/7.1 AC-3/E-AC-3 or
-// AAC track pass the remux through intact instead of being downmixed to stereo.
+// a growing single-file URL).
+//
+// The video envelope is the H.264/HEVC decode this family's own documentation
+// asserts, written as data (see codecEnvelopes) rather than as the prose it used
+// to be: the field was nil, on the grounds that the served path stream-copies
+// video unconditionally, which is true of the leg and not of the device. What that
+// nil actually decided was the target of a re-encode castor had no choice about
+// (an HDR source, a picture above the cast's ceiling, a copy a previous attempt
+// died on), and it decided it as "the renderer advertised nothing", aiming a whole
+// title at the floor codec for a device that decodes HEVC at half the bitrate.
+//
+// The audio envelope lets a 5.1/7.1 AC-3/E-AC-3 or AAC track pass the remux
+// through intact instead of being downmixed to stereo.
 var rokuCapabilities = media.Renderer{
 	SelfFetch:       roku{}.selfFetches(),
 	Containers:      []string{media.HLS, media.MP4, media.MKV},
 	ServedContainer: media.HLS,
+	Video:           videoSupportForAll(media.CodecH264, media.CodecHEVC),
 	Audio: []media.AudioSupport{
 		{Codec: media.CodecAAC, MaxChannels: 6},
 		{Codec: media.CodecAC3},

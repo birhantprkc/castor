@@ -3,20 +3,18 @@ package watch
 import (
 	"iter"
 	"reflect"
-	"slices"
 	"testing"
 	"time"
 )
 
-// This file holds the missing mirror of the coupling tests. Those assert that every verdict
-// the table REACHES has an action; nothing asserted that every ROW can be reached, and a row
-// no walk of the table ever answers with fails nothing at all while reading as coverage.
+// This file holds the state space the missing mirror of the coupling tests is searched over.
+// Those assert that every verdict the table REACHES has an action; nothing asserted that every
+// ROW can be reached, and a row no walk of the table ever answers with fails nothing at all
+// while reading as coverage.
 //
-// The property is first-match, per row and per window it claims, over the states the tracker
-// can actually hand the table. A row shadowed by one above it and a row whose predicate is
-// unsatisfiable are the same defect from out here (nobody is ever answered by it) and they
-// are reported apart, because the fixes are opposite: one is an ordering, the other is a
-// clause.
+// The space is every reading a tracker can take, and it is stated here rather than beside the
+// search because it is a fact about tracker.read: which measurements exist, which values of
+// each the rules can tell apart, and which combinations of them no reading produces.
 
 // fact is one measurement the table reads, at the values a rule could discriminate on: both
 // sides of every derived window, and the zero a port answers with when it is absent. It is
@@ -123,8 +121,12 @@ var facts = []fact{{
 		func(h *Health) { h.Samples = minSpeedSamples },
 	},
 }, {
+	// Three values, and the first of them is the one a reading takes when no telemetry port
+	// is wired at all. Without it the space held no state a window with no producer telemetry
+	// could produce, so the reachability search over such a window had nothing to search.
 	name: "Speed",
 	values: []func(*Health){
+		func(h *Health) { h.Speed = 0 },
 		func(h *Health) { h.Speed = 0.0627 },
 		func(h *Health) { h.Speed = 2.1 },
 	},
@@ -210,63 +212,13 @@ func producible(h Health) bool {
 	return true
 }
 
-// TestEveryRuleIsTheFirstMatchForSomeStateItAnswers is the shadowing property. A row that is
-// never the first match is unreachable however carefully it is written, and it fails nothing:
-// the walk answers with the row above it, the coupling tests still pass because every verdict
-// the table REACHES has an action, and the row reads as coverage of a pathology nobody is
-// judging.
-//
-// It is asserted per window as well as per row, because a row claiming a window it can never
-// win in is the same defect narrowed: the pathology is documented as answered there and is not.
-func TestEveryRuleIsTheFirstMatchForSomeStateItAnswers(t *testing.T) {
-	type claim struct {
-		rule   string
-		window Window
-	}
-	var (
-		won     = map[claim]bool{}
-		matched = map[claim]bool{}
-		lost    = map[claim]string{}
-	)
-	for h := range states() {
-		for _, w := range []Window{BeforePlay, Opening, Playing} {
-			first, _, err := judge(w, h)
-			if err != nil {
-				t.Fatalf("judge(%s, %s): %v", w, h, err)
-			}
-			won[claim{first.Name, w}] = true
-			for _, r := range rules {
-				if r.Name == first.Name || !slices.Contains(r.Windows, w) || !r.When(h) {
-					continue
-				}
-				matched[claim{r.Name, w}] = true
-				// The first winner and not the last, so the row named is the one a reader will
-				// find answering the shadowed row's own case rather than whichever state the
-				// walk happened to end on.
-				if _, ok := lost[claim{r.Name, w}]; !ok {
-					lost[claim{r.Name, w}] = first.Name
-				}
-			}
-		}
-	}
+// The first-match search itself lives beside the citations it has to be narrowed by (see
+// TestEveryRuleNamesTheProductionMonitorThatReachesIt). Searching this whole space would
+// answer the wrong question: a row can be the first match for a state no window it claims can
+// hand the table, which is the dead rule the guarantee exists to catch, so the search is run
+// per window over the states that window's own monitors can produce.
 
-	for _, r := range rules {
-		for _, w := range r.Windows {
-			c := claim{r.Name, w}
-			switch {
-			case won[c]:
-			case matched[c]:
-				t.Errorf("rule %q never answers a cast in the %s window: every state it recognises is taken by %q above it, so the pathology it documents is judged by another row",
-					r.Name, w, lost[c])
-			default:
-				t.Errorf("rule %q recognises no state a reading can produce in the %s window, so it can never fire: its predicate is unsatisfiable there",
-					r.Name, w)
-			}
-		}
-	}
-}
-
-// TestTheStateSpaceCoversEveryFactTheTableCanRead is what keeps the search above honest as
+// TestTheStateSpaceCoversEveryFactTheTableCanRead is what keeps that search honest as
 // Health grows. A measurement the space holds still is a measurement no row can be shown to
 // depend on and no row can be shown to be shadowed over, so a rule keyed on a newly added fact
 // would be searched over a space where that fact is always its zero value: the search would
@@ -294,7 +246,7 @@ func TestTheStateSpaceCoversEveryFactTheTableCanRead(t *testing.T) {
 // assertion here and to anybody reading "rule=..." out of a cast that was abandoned.
 func TestEveryRuleHasItsOwnName(t *testing.T) {
 	seen := map[string]bool{}
-	for _, r := range rules {
+	for _, r := range all() {
 		if r.Name == "" {
 			t.Error("a rule carries no name, so nothing it answers can be attributed to it")
 		}
@@ -307,13 +259,13 @@ func TestEveryRuleHasItsOwnName(t *testing.T) {
 
 // TestEveryVerdictHasItsOwnName is the same property for the verdicts, and it is what makes
 // a verdict identifiable outside this package: the watch states it as a STRING in the log
-// line an operator reads and in the coverage a supervisor's own tests assert over (see
-// pipeline's TestEveryVerdictAUnitTestCanDriveIsReachedThroughTheRealWiring, which reads the
-// verdict back out of that line). Two kinds sharing a name make one of them unobservable
-// from there.
+// line an operator reads. Two kinds sharing a name make one of them unreadable from there.
+// (The coverage a supervisor's own tests assert is keyed on the ROW's name, which is the
+// finer of the two and the one several rows would otherwise share: see pipeline's
+// TestEveryRuleAUnitTestCanDriveIsReachedThroughTheRealWiring.)
 func TestEveryVerdictHasItsOwnName(t *testing.T) {
 	named := map[string]Kind{}
-	for _, r := range rules {
+	for _, r := range all() {
 		if k, ok := named[r.Kind.String()]; ok && k != r.Kind {
 			t.Errorf("verdicts %d and %d are both called %q", k, r.Kind, r.Kind.String())
 		}

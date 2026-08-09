@@ -44,6 +44,56 @@ func TestProfileAgreesWithWhatEachFamilyReportsConnected(t *testing.T) {
 	}
 }
 
+// TestEveryFamilyDeclaresTheVideoItDecodes closes the gap a nil envelope left. Two
+// families carried none, described in their own comments as deliberate because the leg
+// they land on copies whatever the source is, which is a fact about a leg: the field is
+// read by the layer that has to choose a codec when a copy is refused, and it answered
+// there with "this renderer advertised nothing we can encode to", spending a whole title
+// on the floor codec for a device whose vendor publishes HEVC.
+//
+// It is stated over the registry rather than per family, so a fourth family cannot ship
+// with the field left at nil and the same reasoning rediscovered a third time.
+func TestEveryFamilyDeclaresTheVideoItDecodes(t *testing.T) {
+	// The floor every family clears: H.264 is what a source publishes when it publishes
+	// for players in general, and a family that cannot decode it cannot be cast to at all.
+	baseline := media.ProbeInfo{VideoCodec: media.CodecH264, VideoProfile: "High", VideoBitDepth: 8}
+
+	declared := map[Type]media.Renderer{
+		TypeChromecast: chromecastCapabilities,
+		TypeRoku:       rokuCapabilities,
+		TypeDLNA:       fallbackCaps(),
+	}
+	for _, r := range renderers {
+		caps, ok := declared[r.Type]
+		if !ok {
+			t.Errorf("family %q states no capabilities here, so its video envelope is unproven", r.Type)
+			continue
+		}
+		if len(caps.Video) == 0 {
+			t.Errorf("family %q declares no video envelope at all, so every re-encode for it aims at the floor codec and every copy gate reads a renderer that said nothing", r.Type)
+			continue
+		}
+		if !caps.CanCopyVideo(baseline) {
+			t.Errorf("family %q does not accept 8-bit High-profile H.264, which is what a source publishes for players in general", r.Type)
+		}
+	}
+}
+
+// TestADeclaredEnvelopeIsTheOneEnvelopeTheCodecHas pins that the families which declare
+// rather than negotiate declare the SAME envelope DLNA pairs with a negotiated codec. The
+// profile and bit-depth lists are what separate a copy that plays from a green smear (High
+// 10 is the one that bites on H.264), and three copies of them is how two families end up
+// disagreeing about which.
+func TestADeclaredEnvelopeIsTheOneEnvelopeTheCodecHas(t *testing.T) {
+	for _, caps := range []media.Renderer{chromecastCapabilities, rokuCapabilities} {
+		for _, got := range caps.Video {
+			if want := videoSupportFor(got.Codec); !reflect.DeepEqual(got, want) {
+				t.Errorf("a declared %s envelope is %+v, want the one codecEnvelopes states for every family: %+v", got.Codec, got, want)
+			}
+		}
+	}
+}
+
 // TestAProfileMeasuresNothingButSelfFetch pins the zero-elsewhere convention the
 // composition's pre-connect pass depends on. A profile that started answering a container
 // question would make a rule that cannot be answered before connecting look answerable, and

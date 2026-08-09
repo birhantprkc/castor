@@ -17,8 +17,10 @@
 // order, first match, with the window a FIELD on the row rather than a second table:
 // the same rules judge the pre-playback window and the in-flight one, and only the
 // ACTION differs by window, which is what keeps a revision unreachable from a cast a
-// viewer is already watching. An unmatched Health, or a verdict with no action for its
-// window, is an error naming the shape rather than a silent fall-through.
+// viewer is already watching. Each window ends in a total row, so a Health nobody
+// claimed is judged rather than reported as a table that stopped covering a state; a
+// verdict with no action for its window is still an error naming the row, because that
+// is a cast being observed by something with no idea what to do.
 //
 // One thing is deliberately NOT judged here, and it is worth naming so it is not added
 // back as a missing rule: a renderer that took some of the program and then went quiet. A viewer

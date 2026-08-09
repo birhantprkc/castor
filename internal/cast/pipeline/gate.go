@@ -15,12 +15,12 @@ import (
 // Overwriting whatever the caller put in those three fields is the point, and it is what
 // makes one misattribution unreachable rather than merely fixed. The pace is withheld from a
 // read castor itself throttles or encodes (see pull.judgedPace), and a window that instead
-// took the pace the POLICY granted judged a whisper cast or a floor encode against 2x: at
-// the measured 0.0627x that abandons the cast mid-title, to a viewer who is watching, with a
-// message naming a source link that was never the bottleneck, and no cast someone is
-// watching is started over. A window states which side of the gate it is on and what the
-// renderer's side can say; it states nothing about the read, so no two windows can disagree
-// about it.
+// took the pace the POLICY granted judged a whisper cast or a floor encode against 2x, deep
+// inside the range watch.Health's calibration convicts on: the cast is abandoned mid-title,
+// to a viewer who is watching, with a message naming a source link that was never the
+// bottleneck, and no cast someone is watching is started over. A window states which side of
+// the gate it is on and what the renderer's side can say; it states nothing about the read,
+// so no two windows can disagree about it.
 func watchTheRead(ctx context.Context, sp *spool.Spool, pl *pull, m watch.Monitor) error {
 	m.Producer = pl
 	m.Telemetry = pl

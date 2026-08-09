@@ -34,12 +34,9 @@ func TestTheReadReportsWhatItIsDelivering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	policy, err := read.For(read.Shape{}, cfg.Transcode.RWTimeout)
-	if err != nil {
-		t.Fatal(err)
-	}
+	policy := read.For(read.Shape{}, cfg.Transcode.RWTimeout)
 
-	pl, err := startPull(t.Context(), cfg.Transcode, origin.stream(), policy, sp, carriage.Axes{}, cfg.Resolver.MaxHeight, false)
+	pl, err := startPull(t.Context(), cfg.Transcode, origin.stream(), policy, sp, carriage.Axes{}, cfg.MaxHeight, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,11 +106,8 @@ func TestTheReadsFloorEncodeIsCappedAtTheCastsCeiling(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := castConfig("", ffmpegPath, ffprobePath)
-			cfg.Resolver.MaxHeight = tt.maxHeight
-			policy, err := read.For(read.Shape{}, cfg.Transcode.RWTimeout)
-			if err != nil {
-				t.Fatal(err)
-			}
+			cfg.MaxHeight = tt.maxHeight
+			policy := read.For(read.Shape{}, cfg.Transcode.RWTimeout)
 
 			g, ctx := errgroup.WithContext(t.Context())
 			c := &cast{
@@ -162,10 +156,7 @@ func TestAReadCastorStoppedReportsNoExitStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	policy, err := read.For(read.Shape{}, cfg.Transcode.RWTimeout)
-	if err != nil {
-		t.Fatal(err)
-	}
+	policy := read.For(read.Shape{}, cfg.Transcode.RWTimeout)
 
 	// A read with no process yet answers the same way, since a judgement is reached at
 	// whatever instant it is reached and this has to be total over the read's whole life.
@@ -174,7 +165,7 @@ func TestAReadCastorStoppedReportsNoExitStatus(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(t.Context())
-	pl, err := startPull(ctx, cfg.Transcode, origin.stream(), policy, sp, carriage.Axes{}, cfg.Resolver.MaxHeight, false)
+	pl, err := startPull(ctx, cfg.Transcode, origin.stream(), policy, sp, carriage.Axes{}, cfg.MaxHeight, false)
 	if err != nil {
 		t.Fatal(err)
 	}

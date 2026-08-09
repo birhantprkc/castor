@@ -7,10 +7,10 @@ import (
 
 // Config is the application-facing cast configuration. It is just core.Config
 // embedded, so cfg.Device etc. read through and cfg.Config is the exact value
-// the shared machinery wants. The subtitle-transcription knob (Whisper) now
-// lives on core.Config itself, because the pure planner reads it to choose the
-// subtitle axis and must reach it with no import of any renderer; there is no
-// separate Whisper field here to shadow it.
+// the shared machinery wants. The subtitle-transcription knob (Whisper) lives on
+// core.Config itself, where the composition root reads it to decide whether this
+// cast burns in a transcription (see burnInStage); there is no separate Whisper
+// field here to shadow it.
 type Config struct {
 	core.Config
 }

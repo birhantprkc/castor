@@ -1,6 +1,7 @@
 package watch
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -338,13 +339,34 @@ func TestVerdicts(t *testing.T) {
 	}
 }
 
-// TestEveryWindowIsTotal is the property that makes the table's error arm an error rather
-// than the common case. A cast about which nothing is known must resolve to Starting or
-// Healthy in every window, because the alternative is a supervisor that refuses to judge.
-func TestEveryWindowIsTotal(t *testing.T) {
+// all is every row a cast can be judged by: the ordered rows plus each window's total row.
+// The guarantees in this package (a name, a citation of the wiring that reaches it, an
+// action in every window it answers) are about all of them, and a total row held apart from
+// the ordered slice is exactly the kind of row that stops being checked.
+func all() []Rule { return append(slices.Clone(rules), starting, healthy) }
+
+// TestEveryWindowEndsInATotalRow is the totality guarantee in the form the walk now relies
+// on. judge answers with the window's total row whenever no ordered row claimed the state,
+// so a window whose total row does not answer it, or a total row carrying a predicate that
+// could decline, is a cast being judged by nothing at all. A cast about which nothing is
+// known must resolve to Starting or Healthy in every window, because the alternative is a
+// supervisor that refuses to judge.
+func TestEveryWindowEndsInATotalRow(t *testing.T) {
 	for _, w := range []Window{BeforePlay, Opening, Playing} {
+		r := total(w)
+		if r.When != nil {
+			t.Errorf("the %s window's total row %q carries a predicate the walk never asks: a row that can decline belongs in rules, where the walk reads it", w, r.Name)
+		}
+		if !slices.Contains(r.Windows, w) {
+			t.Errorf("the %s window is answered by %q, which does not claim to answer it", w, r.Name)
+		}
 		if _, _, err := judge(w, Health{}); err != nil {
 			t.Errorf("a zero Health in the %s window: %v", w, err)
+		}
+	}
+	for _, r := range rules {
+		if r.When == nil {
+			t.Errorf("ordered rule %q carries no predicate, so it answers every state and shadows every row below it", r.Name)
 		}
 	}
 }
@@ -354,7 +376,7 @@ func TestEveryWindowIsTotal(t *testing.T) {
 // decided anything about, which is a cast being watched by something with no idea what to
 // do; it would surface only on the run that reached it.
 func TestEveryRuleHasAnActionInEveryWindowItAnswers(t *testing.T) {
-	for _, r := range rules {
+	for _, r := range all() {
 		if len(r.Windows) == 0 {
 			t.Errorf("rule %q answers no window, so it can never fire", r.Name)
 		}
@@ -383,7 +405,7 @@ func TestNoPlayingVerdictCanRevise(t *testing.T) {
 // program it is supposed to be.
 func TestNoActionIsOfferedForAWindowNoRuleAnswers(t *testing.T) {
 	reachable := map[verdict]bool{}
-	for _, r := range rules {
+	for _, r := range all() {
 		for _, w := range r.Windows {
 			reachable[verdict{Kind: r.Kind, Window: w}] = true
 		}
@@ -408,10 +430,7 @@ func TestNoActionIsOfferedForAWindowNoRuleAnswers(t *testing.T) {
 // deliberately waits for the renderer's buffer to be played out first and there is no such
 // buffer before a renderer holds anything.
 func TestNothingBoundsAFragileReadButThisRow(t *testing.T) {
-	fragile, err := read.For(read.Shape{Segmented: true, Framing: media.FramingOutOfBand}, 30*time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
+	fragile := read.For(read.Shape{Segmented: true, Framing: media.FramingOutOfBand}, 30*time.Second)
 	if fragile.Deadline != 0 {
 		t.Fatalf("the %q read carries a %s mid-read deadline, so this test is measuring the wrong thing: ffmpeg bounds that read itself",
 			fragile.Name, fragile.Deadline)
@@ -461,10 +480,7 @@ func TestStallWindowOutlivesTheReconnectCeiling(t *testing.T) {
 	// Every shipped policy is given that ceiling, so the bound derived from it covers every
 	// shape of source a cast can be waiting on rather than one of them.
 	for _, shape := range []read.Shape{{}, {Segmented: true}, {Segmented: true, Live: true}} {
-		policy, err := read.For(shape, 30*time.Second)
-		if err != nil {
-			t.Fatal(err)
-		}
+		policy := read.For(shape, 30*time.Second)
 		if policy.Backoff > read.BackoffMax {
 			t.Errorf("a %s source backs off for %s, which outlasts the ceiling this bound was derived from", shape, policy.Backoff)
 		}

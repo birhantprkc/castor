@@ -37,7 +37,7 @@ func TestPassthrough(t *testing.T) {
 		leniency    bool
 		height      int
 		maxHeight   media.HeightCap
-		preference  DeliveryPreference
+		preference  media.DeliveryPreference
 		passthrough bool
 	}{{
 		// Direct play: the renderer fetches for itself and already takes the source
@@ -82,14 +82,14 @@ func TestPassthrough(t *testing.T) {
 		name:       "configured serve overrides an otherwise pass-through cast",
 		caps:       caps(true, media.HLS, media.MP4),
 		sourceCT:   media.HLS,
-		preference: DeliveryServe,
+		preference: media.DeliveryServe,
 	}, {
 		// The explicit default reads like no key at all: nothing is overridden and the
 		// evidence decides.
 		name:        "configured auto leaves the decision to the evidence",
 		caps:        caps(true, media.HLS, media.MP4),
 		sourceCT:    media.HLS,
-		preference:  DeliveryAuto,
+		preference:  media.DeliveryAuto,
 		passthrough: true,
 	}, {
 		// It fetches for itself but rejects the source container, so castor produces one it

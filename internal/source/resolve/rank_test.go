@@ -275,10 +275,18 @@ func TestAdmissions(t *testing.T) {
 		}
 	})
 
-	t.Run("the last row is total", func(t *testing.T) {
-		last := admissions[len(admissions)-1]
-		if !last.when(measurement{info: playable(1, 1)}) || !last.admit {
-			t.Error("the bottom row must admit every shape reaching it, or admit's default arm becomes a way to refuse a castable stream")
+	t.Run("the total row is total", func(t *testing.T) {
+		// It carries no predicate at all, which is what makes it total: a `when` here would
+		// be a condition the walk never asks and a candidate it would silently refuse.
+		if admissions.total.when != nil {
+			t.Error("the total row carries a predicate the walk never asks: a row that can decline belongs in admissions.rules, where the walk reads it")
+		}
+		if !admissions.total.admit {
+			t.Error("the total row refuses what reaches it, so a measured castable candidate is dropped by the row that exists to keep it")
+		}
+		clean := measurement{stream: streamAt(t, "https://cdn.example/master.m3u8"), info: playable(1, 1)}
+		if got := admit(clean); got.reason != admissions.total.reason || !got.admit {
+			t.Errorf("a measured, castable candidate earned %q (admit=%v), want the total row %q", got.reason, got.admit, admissions.total.reason)
 		}
 	})
 }

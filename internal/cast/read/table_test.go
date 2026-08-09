@@ -2,7 +2,6 @@ package read
 
 import (
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -20,21 +19,17 @@ const configuredDeadline = 37 * time.Second
 // nothing.
 var framings = []media.Framing{media.FramingUnknown, media.FramingInBand, media.FramingOutOfBand}
 
-// TestEveryShapeOfSourceMatchesARow is the coverage guard the table's last row being a
-// predicate rather than a default makes necessary. A shape that falls through returns a
-// zero Policy, which renders no deadline, no reconnection and no pace at all, so the
-// combination nobody thought of must be an error at selection rather than the most
-// reckless read castor can perform.
+// TestEveryShapeOfSourceMatchesARow walks every shape a source can have against the
+// table. A shape that fell through would be read on a zero Policy, which renders no
+// deadline, no reconnection and no pace at all, so what this pins is that the answer is
+// always a named row: the total row exists so that the combination nobody thought of is
+// read on the careful terms rather than the most reckless ones castor can produce.
 func TestEveryShapeOfSourceMatchesARow(t *testing.T) {
 	for _, segmented := range []bool{false, true} {
 		for _, live := range []bool{false, true} {
 			for _, framing := range framings {
 				shape := Shape{Segmented: segmented, Framing: framing, Live: live}
-				policy, err := For(shape, configuredDeadline)
-				if err != nil {
-					t.Errorf("For(%s) = %v, want a row", shape, err)
-					continue
-				}
+				policy := For(shape, configuredDeadline)
 				if policy.Name == "" || policy.Why == "" {
 					t.Errorf("For(%s) answered with an unnamed policy (%+v); the table fills both in so a row cannot mislabel itself", shape, policy)
 				}
@@ -67,9 +62,14 @@ func TestTheShapeChoosesThePolicy(t *testing.T) {
 		shape: Shape{Segmented: true, Framing: media.FramingInBand},
 		want:  "segment-in-band",
 	}, {
-		name:  "segments whose framing no document stated are not treated as fragile",
+		// This row previously wanted "segment-in-band" and it was pinning the defect: a
+		// segmented source whose variant playlist castor could not fetch is reported with
+		// FramingUnknown, and routing it to the in-band row both asserts a fact nothing
+		// established and hands an fMP4 program the mid-read deadline that truncates a
+		// fragment at exit 183. Unknown framing is answered by the row that assumes nothing.
+		name:  "segments whose framing no document stated are read as though they were fragile",
 		shape: Shape{Segmented: true, Framing: media.FramingUnknown},
-		want:  "segment-in-band",
+		want:  "segment-fragile",
 	}, {
 		name:  "a source castor read no document for is one long GET",
 		shape: Shape{},
@@ -78,10 +78,7 @@ func TestTheShapeChoosesThePolicy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			policy, err := For(tt.shape, configuredDeadline)
-			if err != nil {
-				t.Fatal(err)
-			}
+			policy := For(tt.shape, configuredDeadline)
 			if policy.Name != tt.want {
 				t.Errorf("For(%s) chose %q, want %q", tt.shape, policy.Name, tt.want)
 			}
@@ -91,24 +88,25 @@ func TestTheShapeChoosesThePolicy(t *testing.T) {
 
 // TestOnlyAFragileSourceIsReadWithNoMidReadDeadline is the whole of what arming the
 // fragile row changed, stated over every shape a source can have: the configured duration
-// reaches every read castor makes except the one where firing it corrupts the stream.
+// reaches every read castor makes except the ones where firing it can corrupt the stream.
 //
-// The fragile shape is EXACTLY the one where an abandoned read is unrecoverable (segmented,
-// fMP4, and not a live edge, which is read on terms of its own), so the property is written
-// as an exception of one rather than as a lookup of the row name: a row that started
-// withholding the deadline from MPEG-TS segments, or from one long GET, would be trading a
-// noisy failure for a silent hang on shapes where the deadline costs a retry and nothing
-// more.
+// The property is written as an exception rather than as a lookup of the row name, so that
+// a row which started withholding the deadline from a source castor reads as one long GET
+// would be caught trading a noisy failure for a silent hang.
+//
+// The exception is stated as an ABSENCE of in-band framing on a VOD segmented read, which
+// is the arming this stage did: a segmented source whose variant playlist could not be
+// fetched carries FramingUnknown, and it is neither established to be safe to abandon
+// mid-read nor distinguishable from the fMP4 program that desynced h264_mp4toannexb and
+// ended a cast at minute forty. A live edge keeps the deadline whatever frames it, because
+// the row above answers it on terms of its own.
 func TestOnlyAFragileSourceIsReadWithNoMidReadDeadline(t *testing.T) {
 	for _, segmented := range []bool{false, true} {
 		for _, live := range []bool{false, true} {
 			for _, framing := range framings {
 				shape := Shape{Segmented: segmented, Framing: framing, Live: live}
-				policy, err := For(shape, configuredDeadline)
-				if err != nil {
-					t.Fatal(err)
-				}
-				fragile := segmented && framing == media.FramingOutOfBand && !live
+				policy := For(shape, configuredDeadline)
+				fragile := segmented && framing != media.FramingInBand && !live
 				want := configuredDeadline
 				if fragile {
 					want = 0
@@ -118,6 +116,28 @@ func TestOnlyAFragileSourceIsReadWithNoMidReadDeadline(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// TestASegmentedSourceNoPlaylistDescribedIsNotHandedTheDeadline states the reachable path
+// on its own, because it is the one the cross-product above would keep passing on if the
+// fragile row went back to keying on the positive fact and something else started
+// withholding the deadline.
+//
+// The path: the master playlist named the variants, the chosen variant's own GET failed, so
+// resolution stops describing the origin and Framing is left unknown while Segmented stands.
+// That source may be an fMP4 program, and a -rw_timeout that fires partway through an fMP4
+// fragment is what manufactures the truncated AVCC stream nothing downstream resynchronises.
+// Castor's own stall judgement is what bounds the silence instead, on the same terms the
+// fragile row already argues.
+func TestASegmentedSourceNoPlaylistDescribedIsNotHandedTheDeadline(t *testing.T) {
+	policy := For(Shape{Segmented: true}, configuredDeadline)
+	if policy.Name != "segment-fragile" {
+		t.Errorf("a segmented source whose variant playlist castor could not read is answered by %q (%s), want the row that assumes nothing about its framing",
+			policy.Name, policy.Why)
+	}
+	if policy.Deadline != 0 {
+		t.Errorf("it is read with a %s mid-read deadline, which is the timer that abandons an fMP4 fragment mid-body; nothing established that these segments carry their configuration in band", policy.Deadline)
 	}
 }
 
@@ -137,20 +157,14 @@ func TestASegmentedReadRefetchesASegmentWhoseOpenFailed(t *testing.T) {
 		{Segmented: true, Framing: media.FramingUnknown},
 		{Segmented: true, Live: true},
 	} {
-		policy, err := For(shape, configuredDeadline)
-		if err != nil {
-			t.Fatal(err)
-		}
+		policy := For(shape, configuredDeadline)
 		if policy.SegmentRetries != segmentOpenRetries {
 			t.Errorf("For(%s) re-fetches a failed segment open %d times (row %q), want the derived %d",
 				shape, policy.SegmentRetries, policy.Name, segmentOpenRetries)
 		}
 	}
 
-	whole, err := For(Shape{}, configuredDeadline)
-	if err != nil {
-		t.Fatal(err)
-	}
+	whole := For(Shape{}, configuredDeadline)
 	if whole.SegmentRetries != 0 {
 		t.Errorf("one long GET carries a segment retry budget of %d, though it fetches no segments and the flag is one no plain-file demuxer accepts", whole.SegmentRetries)
 	}
@@ -168,7 +182,7 @@ func TestASegmentedReadRefetchesASegmentWhoseOpenFailed(t *testing.T) {
 // ceiling spends a viewer's time reaching the conclusion the first answer already gave, and
 // a spent signed link is the commonest of them.
 func TestEveryPolicyCanWaitOutATransientOrigin(t *testing.T) {
-	for _, r := range policies {
+	for _, r := range append(slices.Clone(policies.rules), policies.total) {
 		policy := r.read(configuredDeadline)
 		if policy.Backoff != BackoffMax {
 			t.Errorf("row %q backs off for %s, want the shared ceiling of %s", r.name, policy.Backoff, BackoffMax)
@@ -192,19 +206,13 @@ func TestEveryPolicyCanWaitOutATransientOrigin(t *testing.T) {
 // against, so a row that paced a VOD source at 1.0 would make a starved link
 // indistinguishable from a healthy live one.
 func TestOnlyALiveSourceIsPacedAtRealtime(t *testing.T) {
-	live, err := For(Shape{Segmented: true, Live: true}, configuredDeadline)
-	if err != nil {
-		t.Fatal(err)
-	}
+	live := For(Shape{Segmented: true, Live: true}, configuredDeadline)
 	if live.Pace.Realtime != 1.0 || live.Pace.Burst != 0 {
 		t.Errorf("a live edge is read at %+v, want realtime with no burst", live.Pace)
 	}
 
 	for _, shape := range []Shape{{}, {Segmented: true}, {Segmented: true, Framing: media.FramingOutOfBand}} {
-		policy, err := For(shape, configuredDeadline)
-		if err != nil {
-			t.Fatal(err)
-		}
+		policy := For(shape, configuredDeadline)
 		if policy.Pace.Realtime <= 1.0 {
 			t.Errorf("For(%s) is paced at %v, which leaves a reader no headroom over 1x playback", shape, policy.Pace.Realtime)
 		}
@@ -236,22 +244,26 @@ func TestTheShapeIsHarvestedAndNotDerived(t *testing.T) {
 	}
 }
 
-// TestAShapeNoRowAnswersIsNamed covers the failure mode the last row's predicate
-// creates. It walks the table directly rather than through For, because the point is
-// that For reports rather than answers, and with the shipped rows every shape matches.
-func TestAShapeNoRowAnswersIsNamed(t *testing.T) {
-	shape := Shape{Segmented: true, Framing: media.FramingOutOfBand}
-	if matched := slices.ContainsFunc(policies, func(r rule) bool { return r.when(shape) }); !matched {
-		t.Fatalf("the shipped table no longer answers %s, so this test is measuring the wrong thing", shape)
+// TestTheOrderedRowsStopWhereTheTotalRowBegins is the totality guarantee in the form the
+// type now carries it. The total row holds no predicate at all, so it cannot decline and
+// For cannot fail; what needs pinning is that it really is held apart from the ordered
+// rows, because a `when` on it would be a predicate the walk never asks and a shape it
+// would silently refuse to answer.
+//
+// The unmatched outcome is reached over rows that deliberately answer nothing, because
+// with the shipped table it is unreachable: that is what having a total row rather than a
+// last predicate bought, and it is why For hands back a Policy instead of an error nobody
+// can produce.
+func TestTheOrderedRowsStopWhereTheTotalRowBegins(t *testing.T) {
+	if policies.total.when != nil {
+		t.Error("the total row carries a predicate the walk never asks: a row that can decline belongs in policies.rules, where the walk reads it")
 	}
-
-	// The unmatched path, over a table that deliberately answers nothing.
-	policy, err := selectFrom([]rule{{name: "never", when: func(Shape) bool { return false }}}, shape, configuredDeadline)
-	if err == nil {
-		t.Fatalf("a shape no row answers produced %+v, and a zero policy reads with no deadline, no reconnection and no pace", policy)
+	if _, ok := selectFrom([]rule{{name: "never", when: func(Shape) bool { return false }}}, Shape{}); ok {
+		t.Fatal("a table whose every row declines matched one anyway")
 	}
-	if !strings.Contains(err.Error(), shape.String()) {
-		t.Errorf("the error is %q, which does not name the shape %q anyone would write the missing row from", err, shape)
+	// The shape the ordered rows are written to leave over: not live, not segmented.
+	if got := For(Shape{}, configuredDeadline); got.Name != policies.total.name {
+		t.Errorf("a source no playlist described is read as %q, want the total row %q", got.Name, policies.total.name)
 	}
 }
 
@@ -273,10 +285,7 @@ func TestACautiousReadGivesUpOnlyWhatCouldBeThrottled(t *testing.T) {
 		{},
 	} {
 		t.Run(shape.String(), func(t *testing.T) {
-			was, err := For(shape, configuredDeadline)
-			if err != nil {
-				t.Fatal(err)
-			}
+			was := For(shape, configuredDeadline)
 			got, ok := Cautious(was)
 			if !ok {
 				t.Fatalf("a %s read has a wire-speed burst to give up", was.Name)
@@ -293,7 +302,7 @@ func TestACautiousReadGivesUpOnlyWhatCouldBeThrottled(t *testing.T) {
 			// Stated as a value rather than only as an equality, because on the fragile shape
 			// both sides are zero and an equality alone passes for a relaxation that took a
 			// withheld deadline and handed the read one.
-			if shape.Segmented && shape.Framing == media.FramingOutOfBand && got.Deadline != 0 {
+			if shape.Segmented && shape.Framing != media.FramingInBand && got.Deadline != 0 {
 				t.Errorf("a cautious read of a fragile source carries a %s mid-read deadline; a stall is no reason to start abandoning fragments partway through", got.Deadline)
 			}
 			if got.Name == was.Name || got.Name == "" || got.Why == "" {

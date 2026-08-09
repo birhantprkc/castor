@@ -120,7 +120,8 @@ var evidenceFacts = []evidenceFact{{
 	},
 }}
 
-// evidences walks the cross product of the facts above.
+// evidences walks the cross product of the facts above, yielding only the ones a finished
+// attempt can leave behind.
 func evidences() iter.Seq[Evidence] {
 	return func(yield func(Evidence) bool) {
 		at := make([]int, len(evidenceFacts))
@@ -129,7 +130,7 @@ func evidences() iter.Seq[Evidence] {
 			for i, f := range evidenceFacts {
 				f.values[at[i]](&e)
 			}
-			if !yield(e) {
+			if producible(e) && !yield(e) {
 				return
 			}
 			i := len(at) - 1
@@ -145,6 +146,35 @@ func evidences() iter.Seq[Evidence] {
 			}
 		}
 	}
+}
+
+// producible drops the evidence no finished attempt assembles. Searching over it would be
+// worse than searching over less: a row reachable ONLY through evidence nothing produces is
+// exactly the dead rule this file exists to catch, so a space that admits it would report the
+// row as covered and the recovery beside it as reached.
+//
+// Every clause is read off the parties that fill an Evidence and nowhere else: the leg, which
+// states how far it got and what its reader ended with, and pipeline's outcome, which adds the
+// cancellation and whatever a verdict in the cast's error says.
+func producible(e Evidence) bool {
+	switch {
+	case e.Verdict == watch.Starting && e.Health != (watch.Health{}):
+		// The verdict and the measurements are written together, out of the one fault found in
+		// the cast's error, and Starting IS the absence of one (see Evidence.Verdict).
+		// Measurements with no verdict beside them are a reading nobody published.
+		return false
+	case e.Verdict != watch.Starting && e.Reached == PhaseUnstarted:
+		// A fault carries the window it was reached in, and the phase is raised to that
+		// window's own, whose lowest value is the read. A judged attempt has started.
+		return false
+	case e.Reached == PhaseDelivered && (e.Verdict != watch.Starting || e.Undelivered != nil || e.PlayErr != nil):
+		// Delivered is what a leg reports on the one return it makes with no error at all.
+		// Everything that ends a cast is reported with the phase the delivery had reached,
+		// which stops at playing, so a verdict, a renderer's refusal and the delivery's own
+		// account of a cast nobody took cannot sit beside it.
+		return false
+	}
+	return true
 }
 
 // TestEveryClassRuleIsTheFirstMatchForSomeEvidence is the shadowing property. A row that is
@@ -163,7 +193,7 @@ func TestEveryClassRuleIsTheFirstMatchForSomeEvidence(t *testing.T) {
 	for e := range evidences() {
 		first := classFor(e)
 		won[first.Name] = true
-		for _, r := range classes {
+		for _, r := range classes.rules {
 			if r.Name == first.Name || !r.When(e) {
 				continue
 			}
@@ -177,7 +207,7 @@ func TestEveryClassRuleIsTheFirstMatchForSomeEvidence(t *testing.T) {
 		}
 	}
 
-	for _, r := range classes {
+	for _, r := range all() {
 		switch {
 		case won[r.Name]:
 		case matched[r.Name]:
@@ -194,7 +224,7 @@ func TestEveryClassRuleIsTheFirstMatchForSomeEvidence(t *testing.T) {
 // here and to anybody reading which rule read the evidence out of a cast castor gave up on.
 func TestEveryClassRuleHasItsOwnName(t *testing.T) {
 	seen := map[string]bool{}
-	for _, r := range classes {
+	for _, r := range all() {
 		if r.Name == "" {
 			t.Error("a classification rule carries no name, so nothing it classifies can be attributed to it")
 		}

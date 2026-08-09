@@ -2,7 +2,6 @@ package pipeline
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/stupside/castor/internal/cast/core"
 )
@@ -24,7 +23,8 @@ type composition struct {
 	needs needs
 
 	// when is the rule. It is pure and reads nothing but the shape, so every row is a
-	// table-driven test over values.
+	// table-driven test over values. It is nil on the total row, which is never asked:
+	// see table.
 	when func(core.Shape) bool
 
 	// policy is how much this composition's copy is allowed to refuse. It is zero on a
@@ -61,9 +61,21 @@ const (
 	negotiated
 )
 
+// table is the ordered rows plus the row that answers whatever they did not. The total row
+// carries no predicate, which is what makes compose total: a cast that reached the second
+// pass is composed, so the only error compose can still report is the connect's own.
+//
+// The total row is a NEGOTIATED row, and that is what keeps the first pass honest: it is
+// unreachable until a renderer has been acquired, so the pass that asks only the static
+// profile can still answer "none of mine" and go connect one.
+type table struct {
+	rules []composition
+	total composition
+}
+
 // compositions is the whole of what a cast can be, in the order rows are asked. It replaced
 // two nested booleans, and it reproduces them exactly.
-var compositions = []composition{{
+var compositions = table{rules: []composition{{
 	// A renderer that never fetches for itself can only play what castor serves it, so this
 	// cast is a served buffer whatever the renderer turns out to advertise. That is knowable
 	// from the family alone, which is what lets the read start first: SSDP discovery plus
@@ -97,15 +109,14 @@ var compositions = []composition{{
 	when:  core.Shape.Passthrough,
 	// No policy: this composition produces no encode, so no copy rule is asked anything.
 	run: passthrough,
-}, {
-	// The total row, and the reason a missing composition is nearly unreachable rather than
-	// merely reported: a renderer that fetches for itself but cannot be handed this source
-	// (it rejects the container, or the source only answers to the request headers castor
-	// holds and a renderer is handed none of them) is served a remux of it.
+}}, total: composition{
+	// The total row, and the reason a missing composition is not a thing that can happen: a
+	// renderer that fetches for itself but cannot be handed this source (it rejects the
+	// container, or the source only answers to the request headers castor holds and a
+	// renderer is handed none of them) is served a remux of it.
 	name:  "remux",
 	why:   "the renderer fetches for itself but cannot be handed this source",
 	needs: negotiated,
-	when:  func(core.Shape) bool { return true },
 	// A remux changes the wrapper and not the picture, so the bitstream it copies is the one
 	// the source published for players in general, and holding it to what this renderer
 	// happened to advertise buys a whole title of re-encode against a device that probably
@@ -133,10 +144,10 @@ var compositions = []composition{{
 // it, the ceiling the operator set, and the operator's say over delivery. The only two fields
 // this fills in are the two only it can, the renderer and whether one has answered yet, which
 // is exactly the difference between the two passes.
-func compose(ctx context.Context, rows []composition, t Target, renderer *held, base core.Shape) (composition, core.Shape, error) {
+func compose(ctx context.Context, rows table, t Target, renderer *held, base core.Shape) (composition, core.Shape, error) {
 	shape := base
 	shape.Renderer, shape.Negotiated = t.Profile(), false
-	if row, ok := match(rows, shape, profileOnly); ok {
+	if row, ok := match(rows.rules, shape, profileOnly); ok {
 		return row, shape, nil
 	}
 
@@ -145,10 +156,12 @@ func compose(ctx context.Context, rows []composition, t Target, renderer *held, 
 		return composition{}, shape, err
 	}
 	shape.Renderer, shape.Negotiated = dev.Capabilities(), true
-	if row, ok := match(rows, shape, negotiated); ok {
+	if row, ok := match(rows.rules, shape, negotiated); ok {
 		return row, shape, nil
 	}
-	return composition{}, shape, fmt.Errorf("no composition for a cast of this shape: %s", shape)
+	// The connect is the only thing that can still fail here: past it every cast is composed,
+	// because the total row answers whatever the rows above declined.
+	return rows.total, shape, nil
 }
 
 // match answers with the first row this pass may ask that the shape satisfies. Declaration

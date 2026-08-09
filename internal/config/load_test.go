@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stupside/castor/internal/cast/core"
+	"github.com/stupside/castor/internal/media"
 )
 
 // A load is one row: the files on disk, the environment around them, and what
@@ -125,8 +125,8 @@ func TestLoad(t *testing.T) {
 		name: "the file's delivery preference reaches the cast",
 		yaml: "device:\n  name: tv\n  type: chromecast\ncast:\n  delivery: serve\n",
 		want: func(t *testing.T, cfg *Config) {
-			if got := cfg.Playback().Delivery; got != core.DeliveryServe {
-				t.Errorf("cast.delivery = %q, want %q", got, core.DeliveryServe)
+			if got := cfg.Playback().Delivery; got != media.DeliveryServe {
+				t.Errorf("cast.delivery = %q, want %q", got, media.DeliveryServe)
 			}
 		},
 	}, {
@@ -137,15 +137,15 @@ func TestLoad(t *testing.T) {
 		yaml: "device:\n  name: tv\n  type: chromecast\n",
 		env:  map[string]string{"CASTOR_CAST__DELIVERY": "serve"},
 		want: func(t *testing.T, cfg *Config) {
-			if got := cfg.Playback().Delivery; got != core.DeliveryServe {
-				t.Errorf("cast.delivery = %q, want %q", got, core.DeliveryServe)
+			if got := cfg.Playback().Delivery; got != media.DeliveryServe {
+				t.Errorf("cast.delivery = %q, want %q", got, media.DeliveryServe)
 			}
 		},
 	}, {
 		name: "an unset delivery preference decides nothing",
 		yaml: "device:\n  name: tv\n  type: chromecast\n",
 		want: func(t *testing.T, cfg *Config) {
-			if got := cfg.Playback().Delivery; got == core.DeliveryServe {
+			if got := cfg.Playback().Delivery; got == media.DeliveryServe {
 				t.Errorf("cast.delivery = %q; nobody asked for a relay", got)
 			}
 		},
@@ -196,5 +196,63 @@ func TestLoad(t *testing.T) {
 			}
 			tt.want(t, cfg)
 		})
+	}
+}
+
+// TestOneResolverServesTheWholeProcess pins what the memo buys. A run ranks its candidates
+// and then casts one of them, and those were two calls to the same constructor: two ffprobe
+// adapters and, more expensively, two http.Clients with two connection pools, so the playlist
+// GET that follows a candidate's probe opened a second connection and a second TLS handshake
+// to a host the ranker is deliberately gentle with (see resolve's per-host probe cap).
+//
+// It is asserted by identity rather than by counting constructions, because identity is the
+// property that matters: the same value, so the same pool, whoever asks and however often.
+func TestOneResolverServesTheWholeProcess(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("device:\n  name: tv\n  type: chromecast\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	ranking := cfg.Source()
+	if ranking == nil {
+		t.Fatal("the process has no source resolver at all")
+	}
+	if again := cfg.Source(); again != ranking {
+		t.Error("a second caller was handed a second resolver, so the client that probed a candidate is not the client that fetches its playlist")
+	}
+	// The cast phase reaches it through the configuration it is handed rather than by asking
+	// again, which is the half a memo alone would not have fixed.
+	if casting := cfg.Playback().Source; casting != ranking {
+		t.Error("the cast runs on a different resolver than the ranking did")
+	}
+}
+
+// TestTheCastLayerIsHandedTheResolverSectionsTwoAnswersAndNotTheSection is the other half of
+// the same change. The cast layer reads exactly two things an operator states under
+// `resolver:`, and it used to receive the whole section beside the resolver already built
+// from it: two homes for one ceiling inside one struct, either of which a stage could read.
+func TestTheCastLayerIsHandedTheResolverSectionsTwoAnswersAndNotTheSection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	yaml := "device:\n  name: tv\n  type: chromecast\nresolver:\n  max_height: 2160\n  ffprobe_path: /opt/ffprobe\n"
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	play := cfg.Playback()
+	if play.MaxHeight != 2160 {
+		t.Errorf("the cast's ceiling is %d, want the 2160 the operator set: a cast that reads a different ceiling than the ranker did casts more than was asked for", play.MaxHeight)
+	}
+	if play.Transcode.FFprobePath != "/opt/ffprobe" {
+		t.Errorf("the cast measures with %q, want the binary the operator named: a cast that cannot measure its source falls back on every axis it would have measured", play.Transcode.FFprobePath)
 	}
 }

@@ -344,8 +344,8 @@ const startupLag = 2473 * time.Millisecond
 
 // minSpeedSamples is how many times the reader must have stated a speed before that
 // speed is allowed to convict it, and the confidence window the pre-playback hold exists
-// to fill. Decision 3 names it as the one dial: shrink this if the added
-// time-to-first-frame ever proves unacceptable, rather than removing the hold.
+// to fill. It is the one dial the hold has: shrink this if the added time-to-first-frame
+// ever proves unacceptable, rather than removing the hold.
 //
 // It is a count of reader report blocks (read.StatsPeriod each), and the property that
 // fixes it is that the stated window must OUTLAST the startup lag above, which is what

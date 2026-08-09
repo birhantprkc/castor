@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"os"
 	"slices"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -21,7 +20,6 @@ import (
 	"github.com/stupside/castor/internal/cast/core"
 	"github.com/stupside/castor/internal/device"
 	"github.com/stupside/castor/internal/media"
-	"github.com/stupside/castor/internal/source/resolve"
 )
 
 // fakeTarget is the configured renderer without a network: a static profile, the
@@ -62,7 +60,7 @@ func TestCompositionsReproduceTheForksTheyReplaced(t *testing.T) {
 		headers    http.Header
 		height     int
 		maxHeight  media.HeightCap
-		preference core.DeliveryPreference
+		preference media.DeliveryPreference
 
 		composition string
 		connects    bool
@@ -113,7 +111,7 @@ func TestCompositionsReproduceTheForksTheyReplaced(t *testing.T) {
 		profile:     selfFetching(),
 		caps:        chromecastLike(media.MP4),
 		sourceCT:    media.MP4,
-		preference:  core.DeliveryServe,
+		preference:  media.DeliveryServe,
 		composition: "remux",
 		connects:    true,
 	}, {
@@ -123,7 +121,7 @@ func TestCompositionsReproduceTheForksTheyReplaced(t *testing.T) {
 		profile:     pushOnly(),
 		caps:        dlnaLike(),
 		sourceCT:    media.MP4,
-		preference:  core.DeliveryServe,
+		preference:  media.DeliveryServe,
 		composition: "read-once",
 		connects:    false,
 	}, {
@@ -250,33 +248,47 @@ func TestNoNegotiatedRowIsReachableWhenTheStaticRowMatched(t *testing.T) {
 	// depended on which pass asked.
 	for _, negotiatedCaps := range []media.Renderer{chromecastLike(media.MP4), dlnaLike(), {}} {
 		static := core.Shape{Renderer: pushOnly(), Source: source}
-		first, ok := match(compositions, static, profileOnly)
+		first, ok := match(compositions.rules, static, profileOnly)
 		if !ok {
 			t.Fatal("no first-pass row answers a push-only profile")
 		}
 		full := core.Shape{Renderer: negotiatedCaps, Source: source, Negotiated: true}
 		full.Renderer.SelfFetch = static.Renderer.SelfFetch // the fact the two passes share
-		if second, _ := match(compositions, full, negotiated); second.name != first.name {
+		if second, _ := match(compositions.rules, full, negotiated); second.name != first.name {
 			t.Errorf("a shape the profile composed as %q composes as %q once connected", first.name, second.name)
 		}
 	}
 }
 
-// TestAShapeNoRowAnswersIsReportedAsSuch covers the arm every other table here has: a missing
-// row is an error naming the shape, never a fall-through into whichever wiring happened to be
-// last. The shipped table's last row is total, so this drives a table with it removed.
-func TestAShapeNoRowAnswersIsReportedAsSuch(t *testing.T) {
-	partial := slices.DeleteFunc(slices.Clone(compositions), func(row composition) bool { return row.name == "remux" })
+// TestTheTotalRowComposesWhateverTheOrderedRowsDecline is the arm every other table here
+// has, in the shape the type now carries: the total row holds no predicate, so it cannot
+// decline and there is no "no composition for this shape" left to report. What needs
+// pinning is that it is genuinely apart from the ordered rows and that it stays a
+// NEGOTIATED row, because a total row the first pass could reach would compose every cast
+// as a remux before the profile rows were ever asked.
+func TestTheTotalRowComposesWhateverTheOrderedRowsDecline(t *testing.T) {
+	if compositions.total.when != nil {
+		t.Error("the total row carries a predicate the walk never asks: a row that can decline belongs in compositions.rules")
+	}
+	if compositions.total.needs != negotiated {
+		t.Error("the total row is answerable from the static profile, so the first pass would compose every cast as it before a renderer ever answered")
+	}
 
+	// A renderer that fetches for itself and takes a container this source is not in: no
+	// ordered row answers it, and the total row is what the cast is composed as.
 	target := &fakeTarget{profile: selfFetching(), caps: chromecastLike(media.MKV)}
 	source := &media.Stream{URL: &url.URL{Scheme: "https", Host: "cdn.example"}, ContentType: media.MP4}
-
-	_, _, err := compose(t.Context(), partial, target, newHeld(target.Acquire), core.Shape{Source: source})
-	if err == nil {
-		t.Fatal("a shape no row answers was composed anyway")
+	shape := core.Shape{Source: source, Renderer: target.caps, Negotiated: true}
+	if row, ok := match(compositions.rules, shape, negotiated); ok {
+		t.Fatalf("the ordered rows answer %s with %q, so this case no longer reaches the total row", shape, row.name)
 	}
-	if !strings.Contains(err.Error(), "self_fetch=true") || !strings.Contains(err.Error(), media.MP4) {
-		t.Errorf("error = %q, which does not name the shape nobody wrote a row for", err)
+
+	row, _, err := compose(t.Context(), compositions, target, newHeld(target.Acquire), core.Shape{Source: source})
+	if err != nil {
+		t.Fatalf("compose: %v", err)
+	}
+	if row.name != compositions.total.name {
+		t.Errorf("composition = %q, want the total row %q", row.name, compositions.total.name)
 	}
 }
 
@@ -292,7 +304,7 @@ func TestOnlyARendererThatNeverFetchesForItselfIsServedABuffer(t *testing.T) {
 		chromecastLike(media.MKV),
 		{SelfFetch: true},
 	} {
-		for _, pref := range []core.DeliveryPreference{core.DeliveryAuto, core.DeliveryServe} {
+		for _, pref := range []media.DeliveryPreference{media.DeliveryAuto, media.DeliveryServe} {
 			target := &fakeTarget{profile: selfFetching(), caps: caps}
 			row, shape, err := compose(t.Context(), compositions, target, newHeld(target.Acquire), core.Shape{Source: source, Delivery: pref})
 			if err != nil {
@@ -323,7 +335,7 @@ func TestEachCompositionsPolicyIsTheOneItsPictureRequires(t *testing.T) {
 		// rule to be asked about, and a value here would be one nobody reads.
 		"passthrough": 0,
 	}
-	for _, row := range compositions {
+	for _, row := range append(slices.Clone(compositions.rules), compositions.total) {
 		policy, stated := want[row.name]
 		if !stated {
 			t.Errorf("composition %q carries a copy policy nobody has said what it is for", row.name)
@@ -333,8 +345,8 @@ func TestEachCompositionsPolicyIsTheOneItsPictureRequires(t *testing.T) {
 			t.Errorf("composition %q may refuse %v, want %v", row.name, row.policy, policy)
 		}
 	}
-	if len(want) != len(compositions) {
-		t.Errorf("%d compositions are shipped and %d have a stated policy", len(compositions), len(want))
+	if shipped := len(compositions.rules) + 1; len(want) != shipped {
+		t.Errorf("%d compositions are shipped and %d have a stated policy", shipped, len(want))
 	}
 }
 
@@ -358,7 +370,7 @@ func TestTheCompositionsPolicyDecidesWhatItsCopyMayRefuse(t *testing.T) {
 
 	decide := func(policy core.VideoPolicy, source media.ProbeInfo) string {
 		c := &cast{
-			cfg:    core.Config{Transcode: core.TranscodeConfig{FFmpegPath: ffmpegPath}, Resolver: resolve.Config{MaxHeight: 1080}},
+			cfg:    core.Config{Transcode: core.TranscodeConfig{FFmpegPath: ffmpegPath}, MaxHeight: 1080},
 			policy: policy,
 		}
 		return c.encode(t.Context(), caps, into, encodeInput{facts: core.Facts{Probe: source, Measured: true}}).Video.Name()
@@ -382,6 +394,21 @@ func TestTheCompositionsPolicyDecidesWhatItsCopyMayRefuse(t *testing.T) {
 		if got := decide(policy, tall); got == "copy" {
 			t.Errorf("under %v a 2160p source was copied under the configured 1080 ceiling", policy)
 		}
+	}
+
+	// The other clause that is not the policy's, and the one the remux leg was silently
+	// lifting: an HDR source is refused for every renderer alike, because nothing says an
+	// arbitrary set engages HDR on a stream it was handed, and one that does not plays the
+	// whole title as a washed-out grey picture with no error anywhere. It used to be a term
+	// of the renderer's own envelope, so the leg that copies past that envelope never asked
+	// it: this is the composition whose policy is CopyWhatever, reached through the same
+	// wiring a real remux runs.
+	hdr := media.ProbeInfo{
+		VideoCodec: media.CodecHEVC, VideoProfile: "Main 10", VideoHeight: 1080, VideoBitDepth: 10, VideoHDR: true,
+		AudioCodec: media.CodecAAC, AudioChannels: 2,
+	}
+	if got := decide(core.CopyWhatever, hdr); got == "copy" {
+		t.Error("under the remux composition's policy an HDR 10-bit source was handed over as it is; the picture, unlike the wrapper, is not this leg's to gamble with")
 	}
 }
 
@@ -411,7 +438,7 @@ func TestTheAttemptsDecodeOrderOutranksEveryCompositionsPolicy(t *testing.T) {
 	// whichever encoder a host can prove is beside the point.
 	decide := func(policy core.VideoPolicy, decode carriage.Axes) (string, string) {
 		c := &cast{
-			cfg:     core.Config{Resolver: resolve.Config{MaxHeight: 1080}},
+			cfg:     core.Config{MaxHeight: 1080},
 			attempt: attempt.Attempt{Decode: decode},
 			policy:  policy,
 		}
@@ -642,7 +669,7 @@ func conditionedOn(body *ast.BlockStmt) []string {
 // every attempt's buffer fills the disk with titles nobody is watching.
 func TestEveryAttemptOwnsAFreshWorkDirectoryAndLeavesNoneBehind(t *testing.T) {
 	var dirs []string
-	withCompositions(t, []composition{{
+	withCompositions(t, table{rules: []composition{{
 		name:  "records its work directory",
 		why:   "the property under test is the directory, not the cast",
 		needs: profileOnly,
@@ -654,7 +681,7 @@ func TestEveryAttemptOwnsAFreshWorkDirectoryAndLeavesNoneBehind(t *testing.T) {
 			}
 			return landing{err: errors.New("this attempt failed")}
 		},
-	}})
+	}}})
 
 	target := &fakeTarget{profile: pushOnly(), caps: dlnaLike()}
 	source := &media.Stream{URL: &url.URL{Scheme: "https", Host: "cdn.example"}, ContentType: media.MP4}
@@ -674,7 +701,7 @@ func TestEveryAttemptOwnsAFreshWorkDirectoryAndLeavesNoneBehind(t *testing.T) {
 
 // withCompositions swaps the shipped table for one row, so a property of the lifecycle
 // around a leg is exercisable without a real cast, a real renderer or an ffmpeg.
-func withCompositions(t *testing.T, rows []composition) {
+func withCompositions(t *testing.T, rows table) {
 	t.Helper()
 	shipped := compositions
 	compositions = rows

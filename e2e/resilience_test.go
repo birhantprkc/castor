@@ -18,7 +18,6 @@ import (
 	"github.com/stupside/castor/internal/cast/watch"
 	"github.com/stupside/castor/internal/device"
 	"github.com/stupside/castor/internal/media"
-	"github.com/stupside/castor/internal/source/resolve"
 )
 
 // What castor does about a hostile origin, over the real executor.
@@ -217,10 +216,7 @@ func TestAHostileOriginIsRefusedRatherThanCast(t *testing.T) {
 				}
 			}
 
-			policy, err := read.For(read.ShapeOf(tt.origin), rwTimeout)
-			if err != nil {
-				t.Fatal(err)
-			}
+			policy := read.For(read.ShapeOf(tt.origin), rwTimeout)
 			// The read policy is the case's premise, so the case states it: two of these rows differ
 			// only in whether ffmpeg was given a mid-read deadline, and a table that merely hoped
 			// for that would silently stop testing it the day the read table changed.
@@ -370,10 +366,7 @@ func TestAStallInFlightEndsTheCastRatherThanRestartingIt(t *testing.T) {
 	tl := newTools(t)
 
 	origin := startHostile(t, tl, fmp4Segments, stallsMidSegment)
-	policy, err := read.For(read.ShapeOf(media.Origin{Segmented: true, Framing: media.FramingOutOfBand}), rwTimeout)
-	if err != nil {
-		t.Fatal(err)
-	}
+	policy := read.For(read.ShapeOf(media.Origin{Segmented: true, Framing: media.FramingOutOfBand}), rwTimeout)
 	if policy.Deadline != 0 {
 		t.Fatalf("this case is about a read given no mid-read deadline, and the policy carries %s", policy.Deadline)
 	}
@@ -472,10 +465,7 @@ func TestAHealthyOriginPointsTheRendererAtTheBuffer(t *testing.T) {
 	tl := newTools(t)
 
 	origin := startHostile(t, tl, tsSegments, servesEverything)
-	policy, err := read.For(read.ShapeOf(media.Origin{Segmented: true, Framing: media.FramingInBand}), rwTimeout)
-	if err != nil {
-		t.Fatal(err)
-	}
+	policy := read.For(read.ShapeOf(media.Origin{Segmented: true, Framing: media.FramingInBand}), rwTimeout)
 
 	dev := &servedRenderer{played: make(chan string, 1)}
 	// The gate's own hold is what this bound is about: it holds for the derived number of
@@ -600,15 +590,8 @@ const rwTimeout = 30 * time.Second
 func hostileConfig(tl tools) core.Config {
 	return core.Config{
 		Device:    core.DeviceConfig{Type: device.TypeDLNA},
-		Transcode: core.TranscodeConfig{FFmpegPath: tl.ffmpeg, RWTimeout: rwTimeout},
-		Resolver: resolve.Config{
-			FFprobePath: tl.ffprobe,
-			MaxHeight:   1080,
-			// Required rather than optional, here as in production: a zero value is an expired
-			// deadline rather than an absent one, so every probe would fail instantly and every
-			// copy decision would silently fall back.
-			ProbeTimeout: 30 * time.Second,
-		},
+		Transcode: core.TranscodeConfig{FFmpegPath: tl.ffmpeg, FFprobePath: tl.ffprobe, RWTimeout: rwTimeout},
+		MaxHeight: 1080,
 	}
 }
 

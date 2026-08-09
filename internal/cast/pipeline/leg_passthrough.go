@@ -29,8 +29,8 @@ func passthrough(ctx context.Context, c *cast) landing {
 
 	slog.InfoContext(ctx, "starting playback", "url", source.URL.String(), "content_type", source.ContentType)
 	if err := dev.Play(ctx, source.URL, source.ContentType); err != nil {
-		return landing{playErr: err, err: fmt.Errorf("starting playback: %w", err)}
+		return landing{err: fmt.Errorf("starting playback: %w", err), Evidence: attempt.Evidence{PlayErr: err}}
 	}
 	slog.InfoContext(ctx, "playback handed off to device")
-	return landing{reached: attempt.PhaseDelivered}
+	return landing{Evidence: attempt.Evidence{Reached: attempt.PhaseDelivered}}
 }

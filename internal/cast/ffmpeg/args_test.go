@@ -38,18 +38,19 @@ const testReadDeadline = 30 * time.Second
 // pipeline takes them, so no test ever renders terms production could not have
 // chosen.
 var (
-	vodRead     = testRead(read.Shape{Segmented: true})
+	// Framing is stated on the VOD read rather than left at its zero, because the read
+	// table withholds the mid-read deadline from every segmented source that is NOT known
+	// to carry its configuration in band. A zero Framing means no playlist said so, which
+	// is answered by the fragile row; the read these cases render is the one a playlist
+	// castor actually read described as MPEG-TS.
+	vodRead     = testRead(read.Shape{Segmented: true, Framing: media.FramingInBand})
 	liveRead    = testRead(read.Shape{Segmented: true, Live: true})
 	fragileRead = testRead(read.Shape{Segmented: true, Framing: media.FramingOutOfBand})
 	longGETRead = testRead(read.Shape{})
 )
 
 func testRead(shape read.Shape) read.Policy {
-	p, err := read.For(shape, testReadDeadline)
-	if err != nil {
-		panic(err)
-	}
-	return p
+	return read.For(shape, testReadDeadline)
 }
 
 // argValue returns the token immediately after the last occurrence of flag, or

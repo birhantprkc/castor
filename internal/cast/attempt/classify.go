@@ -75,10 +75,19 @@ type classRule struct {
 	Why string
 	// When reports whether this row recognises this evidence. It reads Evidence and nothing
 	// else, which is what makes every class reachable from a test with no process, no
-	// network and no renderer.
+	// network and no renderer. It is nil where the row is not reached by a predicate at
+	// all: the total row, and the rows a verdict names outright (see verdictClasses).
 	When func(Evidence) bool
 	// Kind is the class.
 	Kind Kind
+}
+
+// table is the ordered rows plus the row that answers whatever they did not. The total row
+// carries no predicate, so classFor answers with a named class for every attempt rather
+// than with a value a walk could fall off the end of.
+type table struct {
+	rules []classRule
+	total classRule
 }
 
 // classes is what castor makes of a failed attempt, in order, first match.
@@ -91,7 +100,7 @@ type classRule struct {
 //
 // Adding a class is one row here plus one entry in the playbook plus one case in
 // classify_test.go, and the two coupling tests keep the tables in agreement.
-var classes = []classRule{{
+var classes = table{rules: []classRule{{
 	// First, because a cancellation is upstream of every symptom the rows below read:
 	// castor kills the reader and the encoder, both report a broken pipe, the delivery
 	// reports a severed client, and each of those would happily be named as the fault. A
@@ -122,15 +131,13 @@ var classes = []classRule{{
 	Kind: Unreachable,
 }, {
 	// The reader exited on its own account while passing packets through untouched. This is
-	// the failure that reached a user as "encoder: spool producer failed: upstream pull:
-	// exit status 183", with the reader's own status buried inside the name of the stage
-	// that read the wreckage, and the fix for it is the one thing nothing here could say:
-	// which party failed at what.
+	// the failure that used to reach a user with the reader's own status buried inside the
+	// name of the stage that read the wreckage, and the fix for it is the one thing nothing
+	// there could say: which party failed at what.
 	//
 	// It is keyed on the READER because the reader is the process that copies into MPEG-TS,
-	// and therefore the one carrying the *_mp4toannexb filter ffmpeg inserts itself. A
-	// fragment abandoned mid-read is truncated, a truncated AVCC stream desynchronises that
-	// filter, and it exits 183 on "Invalid NAL unit size (-1140850681 > 97253)". The
+	// and therefore the one carrying the *_mp4toannexb filter ffmpeg inserts itself and the
+	// only one a truncated bitstream can kill (see read's segment-fragile row). The
 	// discriminator is structural: a POSITIVE exit status (castor kills the reader on every
 	// fault it names itself, and a killed process has no status, so reading "no status" as
 	// an exit would blame the copy for every stall) and at least one axis being copied (a
@@ -145,22 +152,6 @@ var classes = []classRule{{
 		return e.Reached <= PhaseReading && e.ReadExit > 0 && e.Copied.Any()
 	},
 	Kind: CopyBrokeUpstream,
-}, {
-	// The verdict already waited out two reconnect ceilings before it fired, so by the time
-	// this class is reached the link has had every chance ffmpeg's own retries could give
-	// it. The likeliest cause is a signed playlist whose segments have expired.
-	Name: "source-stalled",
-	Why:  "the source stopped delivering entirely while it was still supposed to be delivering",
-	When: func(e Evidence) bool { return e.Verdict == watch.Stalled },
-	Kind: SourceStalled,
-}, {
-	// The failure this whole layer was built for. It is a fact about the LINK and not about
-	// the media: the run that named it delivered 33 KB and one second of picture in thirty
-	// seconds against a reader allowed twice realtime.
-	Name: "under-delivering",
-	Why:  "the source delivers fewer media seconds per wall-clock second than playback consumes, so the cast can never catch up however long it is given",
-	When: func(e Evidence) bool { return e.Verdict == watch.Undeliverable },
-	Kind: UnderDelivering,
 }, {
 	// Three shapes, one class, because one change answers all of them: stop asking this
 	// renderer to fetch and hand it something it will take. A renderer that refused the URL
@@ -184,16 +175,46 @@ var classes = []classRule{{
 	Why:  "the delivery ended without producing anything a renderer could fetch",
 	When: func(e Evidence) bool { return e.Verdict == watch.Dead && e.Reached == PhaseOpening },
 	Kind: ProducedNothing,
-}, unclassified}
+}}, total: unclassified}
 
-// unclassified is the total row, and it is both the table's last entry and the answer to a
-// table that lost it. Naming an unrecognised failure is worth a row of its own: the fault
-// still carries the phase, the measurements and the evidence, which is the whole material
-// the next row is written from.
+// verdictClasses is what castor makes of the health verdicts whose whole discriminator IS
+// the verdict: no phase, no exit status and no party's error narrows them further, so as
+// rows they were two predicates comparing one field.
+//
+// A map rather than two rows because a map can be checked for COMPLETENESS, and the gap
+// that closes is real: a verdict nobody has been told about falls to the total row, whose
+// playbook entry is deliberately empty, so the cast stops recovering with nothing said
+// anywhere (see TestEveryVerdictThatEndsACastNamesAClassWithARecovery).
+//
+// The verdicts NOT here are the ones a row reads together with something else: Dead means a
+// link that established nothing or a delivery that produced nothing depending on how far the
+// attempt got, and Unfetched is one of the three shapes of a renderer that would not take
+// what it was pointed at.
+var verdictClasses = map[watch.Kind]classRule{
+	// The verdict already waited out two reconnect ceilings before it fired, so by the time
+	// this class is reached the link has had every chance ffmpeg's own retries could give
+	// it. The likeliest cause is a signed playlist whose segments have expired.
+	watch.Stalled: {
+		Name: "source-stalled",
+		Why:  "the source stopped delivering entirely while it was still supposed to be delivering",
+		Kind: SourceStalled,
+	},
+	// The failure this whole layer was built for. It is a fact about the LINK and not about
+	// the media: the run that named it delivered 33 KB and one second of picture in thirty
+	// seconds against a reader allowed twice realtime.
+	watch.Undeliverable: {
+		Name: "under-delivering",
+		Why:  "the source delivers fewer media seconds per wall-clock second than playback consumes, so the cast can never catch up however long it is given",
+		Kind: UnderDelivering,
+	},
+}
+
+// unclassified is the total row. Naming an unrecognised failure is worth a row of its own:
+// the fault still carries the phase, the measurements and the evidence, which is the whole
+// material the next row is written from.
 var unclassified = classRule{
 	Name: "unclassified",
 	Why:  "the attempt failed in a way no rule recognises",
-	When: func(Evidence) bool { return true },
 	Kind: Unclassified,
 }
 
@@ -212,17 +233,18 @@ func classify(in Intent, a Attempt, o Outcome) *Fault {
 	}
 }
 
-// classFor walks the table for one attempt's evidence.
+// classFor walks the table for one attempt's evidence: the structural rows first, then the
+// verdicts that name a class on their own, then the total row.
 func classFor(e Evidence) classRule {
-	for _, r := range classes {
+	for _, r := range classes.rules {
 		if r.When(e) {
 			return r
 		}
 	}
-	// Reachable only if the total row is edited out from under this walk. Answering with it
-	// anyway is what keeps such an edit from producing a fault with no name and no reason,
-	// which is the one thing worse here than an unrecognised failure.
-	return unclassified
+	if r, ok := verdictClasses[e.Verdict]; ok {
+		return r
+	}
+	return classes.total
 }
 
 // Fault is a failed attempt, classified: what class of thing went wrong, why, on which
@@ -319,8 +341,9 @@ func (f *Fault) arithmetic() []string {
 }
 
 // tells is what the blamed party printed, quoted into the refusal so that an opaque exit
-// status is actionable: "exit status 183" gives a user nothing to move on, and "Invalid NAL
-// unit size" beside it says the bitstream arrived truncated.
+// status is actionable: a bare exit status gives a user nothing to move on, while the line
+// the process printed beside it says whether the bitstream arrived truncated, whether the
+// link answered at all, or whether the container refused what it was handed.
 //
 // It quotes and never decides. Prose is not a contract (see the carriage package doc), so a
 // wording change in ffmpeg may cost this line its sharpness and may never cost a cast its

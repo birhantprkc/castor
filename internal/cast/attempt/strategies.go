@@ -5,7 +5,6 @@ import (
 	"log/slog"
 
 	"github.com/stupside/castor/internal/cast/carriage"
-	"github.com/stupside/castor/internal/cast/core"
 	"github.com/stupside/castor/internal/cast/read"
 	"github.com/stupside/castor/internal/media"
 )
@@ -82,15 +81,7 @@ var SwitchCandidate = Strategy{
 		// an unresolved master instead lets the demuxer choose, which on these sources is how
 		// a cast escaping a 4K rung that cannot deliver reaches for another one.
 		a.Source, a.Origin, a.Rendition = resolved(ctx, c.Program, c.Intent.Candidates[next])
-
-		policy, err := read.For(read.ShapeOf(a.Origin), c.Intent.Deadline)
-		if err != nil {
-			// A shape no row answers is not a shape to read on a zero policy, which renders no
-			// deadline, no reconnection and no pacing. Refusing the recovery leaves the cast to
-			// be refused with the fault that prompted it, which is the honest one to report.
-			return a, false
-		}
-		a.Read = policy
+		a.Read = read.For(read.ShapeOf(a.Origin), c.Intent.Deadline)
 
 		// A different link is a different bitstream, so what a copy of the last one broke on is
 		// no evidence against this one. Clearing it costs at most one repeat of a fault the
@@ -176,11 +167,10 @@ var DegradeRendition = Strategy{
 // DecodeAxis stops copying the half of the program whose packets the reader died on, and
 // decodes it into the buffer instead.
 //
-// It is the recovery for the failure decision 1 gave up on resuming: a fragile read
-// abandoned mid-fragment truncates it, a truncated AVCC stream desynchronises the
-// h264_mp4toannexb filter a copy into MPEG-TS cannot do without, and the reader exits 183
-// on "Invalid NAL unit size (-1140850681 > 97253)". Decoded, the same fragment costs a
-// re-encode and produces packets nothing has to resynchronise.
+// It is the recovery for the one failure a cast cannot be resumed from, the bitstream a
+// stream copy cannot resynchronise (read's segment-fragile row states the mechanism and
+// what it costs). Decoded, the same packets cost a re-encode and arrive with nothing left
+// to resynchronise.
 //
 // It blames every axis the reader was COPYING and not the one the prose named. Which half
 // broke is not knowable from an exit status, the line that names it is prose and prose is
@@ -234,7 +224,7 @@ var RelaxRead = Strategy{
 //
 // It is the recovery for a renderer that refused what it was pointed at, and it needs no
 // new evidence and no new mechanism: it sets the same value the operator's one knob writes
-// (core.DeliveryServe), which the composition table already reads. The failure it answers
+// (media.DeliveryServe), which the composition table already reads. The failure it answers
 // is a source castor has no way to convict, one that lies about itself (a playlist whose
 // segments are served under a disguised extension) and so looks fetchable while the
 // renderer refuses it.
@@ -247,10 +237,10 @@ var ServeInstead = Strategy{
 	Why:  "read the source and serve it locally, since the renderer would not fetch it itself",
 	Apply: func(_ context.Context, c Change) (Attempt, bool) {
 		a := c.Attempt
-		if a.Delivery == core.DeliveryServe {
+		if a.Delivery == media.DeliveryServe {
 			return a, false
 		}
-		a.Delivery = core.DeliveryServe
+		a.Delivery = media.DeliveryServe
 		return a, true
 	},
 }

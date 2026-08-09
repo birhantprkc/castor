@@ -1,7 +1,6 @@
 package read
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/stupside/castor/internal/media"
@@ -10,13 +9,13 @@ import (
 // rule is one row of the read table: which shapes of source it answers, why, and the
 // policy it answers with.
 type rule struct {
-	// name identifies the row in a log line, and is what a shape no row matched is
-	// reported against.
+	// name identifies the row in a log line.
 	name string
 	// why is the reasoning, carried out to the caller so a read that was deliberately
 	// cautious says so where a reader can see it rather than only in this file.
 	why string
-	// when reports whether this row answers a source of this shape.
+	// when reports whether this row answers a source of this shape. It is nil on the total
+	// row, which is never asked: see table.
 	when func(Shape) bool
 	// read is the row's policy. It is a function of the configured mid-read deadline
 	// because that duration is the one term in a read an operator still owns, and
@@ -25,16 +24,24 @@ type rule struct {
 	read func(deadline time.Duration) Policy
 }
 
+// table is an ordered set of rows plus the row that answers whatever they did not. The
+// total row carries no predicate at all, which is what makes For total by construction
+// rather than by a `return true` at the bottom of a slice: there is no walk to fall off
+// the end of, so no caller carries an error for a shape that cannot exist.
+type table struct {
+	rules []rule
+	total rule
+}
+
 // policies is how castor fetches each shape of source, in order, first match. It is
 // walked by For, which is the only way a policy is obtained.
 //
-// The rows are ordered from the most specific fact to the least, and the last row is
-// a predicate rather than a default, so a shape that matches nothing is an error
-// naming the shape instead of a silent set of flags nobody chose. Adding a rule is one
+// The rows are ordered from the most specific fact to the least, and what is left over
+// (a source no playlist described, so one long GET) is the total row. Adding a rule is one
 // row, or one field on an existing row: a CDN that answers a mid-stream segment with a
 // status nothing retries is a wider RetryStatuses on the segmented rows, and a source
 // that needs a different pace is a Pace. No flag list is edited to do either.
-var policies = []rule{{
+var policies = table{rules: []rule{{
 	name: "live-edge",
 	why:  "a live edge arrives at 1x and cannot be outrun, and a burst against it only asks a CDN for segments that do not exist yet",
 	when: func(s Shape) bool { return s.Live },
@@ -81,9 +88,19 @@ var policies = []rule{{
 	// holds no lead to spend waiting, and the fragment it is stalled on rolls out of the live
 	// window while it waits. Both answers end that cast, and nothing observed says which
 	// ends it better.
+	//
+	// THE PREDICATE IS AN ABSENCE OF PERMISSION, NOT A PRESENCE OF FRAGILITY, and that is the
+	// whole of why it reads `!= FramingInBand` rather than `== FramingOutOfBand`. Framing is
+	// unknown whenever the chosen variant's own playlist could not be fetched, which is a
+	// reachable outcome and not a theoretical one (resolve/program.go stops describing the
+	// origin there and hands back what the master already said). An fMP4 master whose variant
+	// document went missing is still fMP4; keying on the positive fact routed it to the row
+	// below, whose reasoning asserts in-band framing as established, and handed it the exact
+	// deadline that manufactures the exit-183 truncation this row exists to prevent. Only a
+	// document that positively SAID in-band earns the mid-read deadline.
 	name: "segment-fragile",
-	why:  "the segments are fMP4 (the playlist declares a Media Initialization Section), so a read abandoned mid-fragment truncates a fragment nothing downstream can resynchronise, and no mid-read deadline is applied at all",
-	when: func(s Shape) bool { return s.Segmented && s.Framing == media.FramingOutOfBand },
+	why:  "nothing established that these segments carry their configuration in band (an fMP4 playlist declares a Media Initialization Section, and an unread variant playlist declares nothing at all), so a read abandoned mid-fragment may truncate a fragment nothing downstream can resynchronise, and no mid-read deadline is applied at all",
+	when: func(s Shape) bool { return s.Segmented && s.Framing != media.FramingInBand },
 	read: func(time.Duration) Policy {
 		return Policy{
 			Backoff:        BackoffMax,
@@ -93,9 +110,12 @@ var policies = []rule{{
 		}
 	},
 }, {
-	// MPEG-TS segments, or segments whose framing no document stated. A read abandoned
-	// mid-segment costs a retry here and nothing more, because every frame carries its
-	// own configuration, so the deadline is the cheapest way to notice a tarpit.
+	// MPEG-TS segments, and nothing else: a playlist castor read and found no Media
+	// Initialization Section in. A read abandoned mid-segment costs a retry here and nothing
+	// more, because every frame carries its own configuration, so the deadline is the
+	// cheapest way to notice a tarpit. The predicate is a bare s.Segmented only because the
+	// row above already took every segmented shape whose framing is not established fact;
+	// what reaches here has a document behind it saying so.
 	name: "segment-in-band",
 	why:  "the segments carry their configuration in band, so an abandoned read costs a retry rather than a stream nothing can resynchronise",
 	when: func(s Shape) bool { return s.Segmented },
@@ -108,17 +128,17 @@ var policies = []rule{{
 			Pace:           paceVOD,
 		}
 	},
-}, {
-	// One long GET. Nothing throttles it, and the deadline is the only way a connection
-	// that was accepted and then went quiet is ever noticed: this is the duration the
-	// configuration knob was written for, and this is the row it survives untouched on.
+}}, total: rule{
+	// One long GET, and the total row: every segmented shape is answered above, so what
+	// reaches here is a source no playlist described. Nothing throttles it, and the deadline
+	// is the only way a connection that was accepted and then went quiet is ever noticed:
+	// this is the duration the configuration knob was written for, and this is the row it
+	// survives untouched on.
 	//
-	// No segment retry budget, because there are no segments to re-fetch: this shape is
-	// reached by a source no playlist described, so a dropped read is answered by the
-	// reconnect terms above and by nothing else.
+	// No segment retry budget, because there are no segments to re-fetch: a dropped read is
+	// answered by the reconnect terms above and by nothing else.
 	name: "whole-file",
 	why:  "one long GET, where a stalled read is the only symptom a tarpit has",
-	when: func(s Shape) bool { return !s.Segmented },
 	read: func(deadline time.Duration) Policy {
 		return Policy{Deadline: deadline, Backoff: BackoffMax, RetryStatuses: transient, Pace: paceVOD}
 	},
@@ -127,12 +147,17 @@ var policies = []rule{{
 // For selects the policy a source of this shape is read with. deadline is the
 // configured mid-read timeout, which rows are free to apply or to withhold.
 //
-// A shape no row answers is an error rather than a bare Policy, and the error names
-// the shape: a zero Policy renders no deadline, no reconnection and no pacing, which
-// is the most dangerous read castor can perform and the last thing a missing row
-// should silently produce.
-func For(s Shape, deadline time.Duration) (Policy, error) {
-	return selectFrom(policies, s, deadline)
+// It cannot fail. A zero Policy renders no deadline, no reconnection and no pacing, which
+// is the most dangerous read castor can perform, so the table answers with its total row
+// rather than leaving a caller to decide what an unanswered shape means.
+func For(s Shape, deadline time.Duration) Policy {
+	r, ok := selectFrom(policies.rules, s)
+	if !ok {
+		r = policies.total
+	}
+	p := r.read(deadline)
+	p.Name, p.Why = r.name, r.why
+	return p
 }
 
 // Cautious is the same source asked for at the pace a source that has already stopped
@@ -167,16 +192,14 @@ func Cautious(p Policy) (Policy, bool) {
 	return p, true
 }
 
-// selectFrom is For's walk over an explicit table, so the unmatched outcome is
-// reachable from a test without editing the shipped rows out from under the caller.
-func selectFrom(rules []rule, s Shape, deadline time.Duration) (Policy, error) {
+// selectFrom is the ordered half of For's walk, over an explicit slice of rows so the
+// unmatched outcome is reachable from a test without editing the shipped rows out from
+// under the caller. Production never sees it: the total row is what For answers with.
+func selectFrom(rules []rule, s Shape) (rule, bool) {
 	for _, r := range rules {
-		if !r.when(s) {
-			continue
+		if r.when(s) {
+			return r, true
 		}
-		p := r.read(deadline)
-		p.Name, p.Why = r.name, r.why
-		return p, nil
 	}
-	return Policy{}, fmt.Errorf("no read policy for a source with %s", s)
+	return rule{}, false
 }

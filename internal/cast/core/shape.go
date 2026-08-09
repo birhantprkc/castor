@@ -46,7 +46,7 @@ type Shape struct {
 
 	// Delivery is the operator's answer on the delivery axis, and the only operator-facing
 	// axis a cast has.
-	Delivery DeliveryPreference
+	Delivery media.DeliveryPreference
 
 	// Negotiated reports whether Renderer is what a connected renderer answered or the
 	// family profile that was knowable without one. It is the difference between "this
@@ -76,13 +76,13 @@ type Shape struct {
 // URL cast by hand is never probed and declares nothing) and it is not a licence for a
 // measured source, which is what it silently became while the measurement went uncarried.
 //
-// Configured DeliveryServe skips the question. It is the operator's answer for a source
+// Configured media.DeliveryServe skips the question. It is the operator's answer for a source
 // none of the evidence above can convict, a source that lies about itself (a playlist whose
 // segments are served under a disguised extension, say) and so is fetchable as far as castor
 // can tell while the renderer refuses it. Every other value, including the unset one, leaves
 // the decision to the evidence.
 func (s Shape) Passthrough() bool {
-	if s.Delivery == DeliveryServe {
+	if s.Delivery == media.DeliveryServe {
 		return false
 	}
 	return s.Renderer.SelfFetch && s.Source.SelfFetchable() &&
@@ -112,7 +112,7 @@ func (s Shape) String() string {
 		source.SelfFetchable(),
 		slices.Sorted(maps.Keys(source.Headers)),
 		s.Height, s.MaxHeight,
-		cmp.Or(s.Delivery, DeliveryAuto))
+		cmp.Or(s.Delivery, media.DeliveryAuto))
 }
 
 // ServedFormat is the container a served cast produces, as the registry describes it: the

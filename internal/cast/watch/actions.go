@@ -32,8 +32,8 @@ type verdict struct {
 // The split down the Window axis is the whole safety property of this layer. Every fault
 // reached before a renderer holds a URL is revisable, because nothing is watching yet
 // and each attempt owns a fresh buffer, so nothing is ever rewound. Every fault reached
-// while a renderer is playing abandons with attribution instead, because replaying a
-// film from the beginning at minute forty is worse than a clear error. A revision is
+// while a renderer is playing abandons with attribution instead, because nothing castor
+// can do to a cast someone is watching starts it anywhere but at the beginning. A revision is
 // therefore unreachable from the playing window by construction rather than by a check
 // somebody has to remember, which is what TestNoPlayingVerdictCanRevise pins.
 //

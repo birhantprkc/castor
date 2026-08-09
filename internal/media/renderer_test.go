@@ -47,7 +47,14 @@ func TestRendererCanCopyVideo(t *testing.T) {
 		{"high 4:2:2 rejected", withProfile(h264(), "High 4:2:2"), false},
 		{"unknown profile rejected", withProfile(h264(), ""), false},
 		{"10-bit rejected", withBitDepth(h264(), 10), false},
-		{"hdr rejected", withHDR(h264()), false},
+		// The envelope answers what the renderer said it decodes, and an HDR stream in
+		// an advertised profile is inside it. Whether castor HANDS one over is a
+		// separate question with a separate answer (no, on any leg and for any
+		// renderer), and it is asked where the copy is decided rather than here: it
+		// used to live in this predicate, which meant the leg that trusts a renderer
+		// past its envelope never asked it at all. Its coverage is
+		// TestDecideVideo/"an HDR source is never handed over on any policy".
+		{"hdr inside an advertised profile is inside the envelope", withHDR(h264()), true},
 		{"hevc rejected", withCodec(h264(), CodecHEVC), false},
 		{"zero value rejected", ProbeInfo{}, false},
 	}

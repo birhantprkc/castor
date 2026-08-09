@@ -11,6 +11,7 @@ import (
 	"github.com/stupside/castor/internal/cast"
 	"github.com/stupside/castor/internal/cast/core"
 	"github.com/stupside/castor/internal/device"
+	"github.com/stupside/castor/internal/media"
 	"github.com/stupside/castor/internal/source/extract"
 	"github.com/stupside/castor/internal/source/resolve"
 	"github.com/stupside/castor/internal/source/resolve/ffprobe"
@@ -29,6 +30,15 @@ type Config struct {
 	Transcode cast.TranscodeConfig  `yaml:"transcode" validate:"required"`
 	Whisper   cast.WhisperConfig    `yaml:"whisper"`
 	TMDB      TMDB                  `yaml:"tmdb"`
+
+	// source is THE source resolver for this process, memoised (see defaults). A run
+	// ranks its candidates and then casts one of them, and those were two resolvers: two
+	// http.Clients with two connection pools, so the playlist GET that follows a
+	// candidate's probe opened a second TCP connection and a second TLS handshake to a
+	// host the ranker is deliberately gentle with, and the keep-alive the probe had
+	// already paid for was thrown away. It is unexported and reached through Source, so
+	// no caller can build a second one by accident.
+	source func() *resolve.Resolver
 }
 
 // TMDB holds settings for the TMDB browse subcommand. The API key may also
@@ -49,7 +59,7 @@ type CastConfig struct {
 	// refuses even though nothing about it looks unfetchable, e.g. an HLS
 	// playlist whose segments are served under a disguised extension. It costs
 	// this machine's bandwidth and CPU on every cast, which is why it is opt-in.
-	Delivery core.DeliveryPreference `yaml:"delivery" validate:"omitempty,oneof=auto serve"`
+	Delivery media.DeliveryPreference `yaml:"delivery" validate:"omitempty,oneof=auto serve"`
 }
 
 // DeviceConfig is the composition-root device section: the generic cast target
@@ -84,13 +94,22 @@ func (d DeviceConfig) resolve() device.Config {
 
 // Playback assembles the configuration a cast runs on, collapsing this root's
 // sections into the domain types the cast layer consumes.
+//
+// The resolver section is SPLIT here rather than handed down whole, which is the
+// composition root's job: the cast layer reads exactly two things an operator states
+// under `resolver:` (the height ceiling and the measurement binary), and carrying the
+// whole section beside the resolver already built from it gave those two values two
+// homes in one struct, with a stage free to read either. What goes down is the resolver
+// itself plus those two values, under the names the cast layer knows them by.
 func (c *Config) Playback() cast.Config {
+	transcode := c.Transcode
+	transcode.FFprobePath = c.Resolver.FFprobePath
 	return cast.Config{
 		Config: core.Config{
 			Device:    c.Device.resolve(),
 			Network:   c.Network,
-			Transcode: c.Transcode,
-			Resolver:  c.Resolver,
+			Transcode: transcode,
+			MaxHeight: c.Resolver.MaxHeight,
 			Source:    c.Source(),
 			Whisper:   c.Whisper,
 			Delivery:  c.Cast.Delivery,
@@ -98,12 +117,16 @@ func (c *Config) Playback() cast.Config {
 	}
 }
 
-// Source builds the source resolver with its two adapters bound: measurement to
-// the ffprobe binary, playlist reads to net/http. This is the only place in the
-// process that decides what those adapters are, which is the point: resolve
-// declares both as ports so the judgements it makes are exercisable over fakes,
-// and a port bound anywhere but the composition root would give that up again.
-func (c *Config) Source() *resolve.Resolver {
+// Source is the one source resolver this process uses, built on first call and shared
+// by every caller after (see the source field, and defaults, which installs the memo).
+func (c *Config) Source() *resolve.Resolver { return c.source() }
+
+// newResolver binds the resolver's policy to its two adapters: measurement to the
+// ffprobe binary, playlist reads to net/http. This is the only place in the process that
+// decides what those adapters are, which is the point: resolve declares both as ports so
+// the judgements it makes are exercisable over fakes, and a port bound anywhere but the
+// composition root would give that up again.
+func (c *Config) newResolver() *resolve.Resolver {
 	return resolve.New(c.Resolver,
 		ffprobe.New(c.Resolver.FFprobePath, c.Resolver.ProbeTimeout),
 		httpfetch.New(c.Resolver.HLSTimeout),

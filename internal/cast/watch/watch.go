@@ -93,6 +93,7 @@ func Watch(ctx context.Context, m Monitor) error {
 		case open:
 			slog.InfoContext(ctx, "watch cleared",
 				"gate", m.Subject,
+				"rule", rule.Name,
 				"waited", time.Since(t.start).Round(time.Millisecond),
 				"landed_bytes", h.Landed,
 				"transcribed_lead_seconds", int(h.Lead),
@@ -260,6 +261,13 @@ func (t *tracker) fault(ctx context.Context, r Rule, act action, h Health) error
 // report says what the watch is waiting on, at the reporting cadence, and on every fresh
 // sample while the read is short of playback rate.
 //
+// It names the ROW and not only the verdict, as every other statement a watch makes does.
+// Several rows reach the same verdict on different evidence (a cast is Starting because
+// nothing has been established yet, or because the read is measurably short of playback
+// rate), and a line carrying the verdict alone cannot be told apart from the other: an
+// operator reads the wrong cause off it, and a coverage check driven off these lines cannot
+// tell a row that fired from a row that has been dead since the day it was written.
+//
 // The deficit case is deliberately louder, and it is tied to the producer's own report
 // period rather than to the polling rate: an in-flight deficit is acted on only after it
 // has outlasted two reconnect ceilings, and two and a half minutes of a cast quietly
@@ -274,6 +282,7 @@ func (t *tracker) report(ctx context.Context, r Rule, h Health) {
 		"gate", t.m.Subject,
 		"window", t.m.Window.String(),
 		"verdict", r.Kind.String(),
+		"rule", r.Name,
 		"landed_bytes", h.Landed,
 		"media_position", h.Position.Round(time.Second),
 		"speed", float64(h.Speed),

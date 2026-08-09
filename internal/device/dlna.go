@@ -259,31 +259,6 @@ func negotiateCaps(ctx context.Context, loc *goupnp.RootDevice, u *url.URL) medi
 	return caps
 }
 
-// codecEnvelope is the codec-fixed part of a stream-copy envelope: the profiles
-// and bit depths that black-screen or mis-tone a renderer that can't handle them
-// (10-bit H.264 is the rare High 10 profile; HDR needs a TV that engages it).
-// Adding a codec the pipeline can encode to is one entry here.
-type codecEnvelope struct {
-	profiles  []string
-	bitDepths []int // nil == 8-bit only
-}
-
-var codecEnvelopes = map[media.Codec]codecEnvelope{
-	media.CodecH264: {profiles: []string{"Constrained Baseline", "Baseline", "Main", "High"}},
-	media.CodecHEVC: {profiles: []string{"Main", "Main 10"}, bitDepths: []int{8, 10}},
-}
-
-// videoSupportFor builds the copy envelope for a codec: its decode-safety
-// profile and bit-depth constraints.
-func videoSupportFor(codec media.Codec) media.VideoSupport {
-	env := codecEnvelopes[codec]
-	return media.VideoSupport{
-		Codec:     codec,
-		Profiles:  env.profiles,
-		BitDepths: env.bitDepths,
-	}
-}
-
 // audioSupportFor builds the copy envelope for an audio codec. The Sink carries
 // no channel count, so AAC (which a renderer commonly decodes stereo-only, its
 // multichannel form being a separate profile most sets don't list) is capped at

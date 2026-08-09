@@ -18,6 +18,7 @@ import (
 
 	"github.com/stupside/castor/internal/cast/subtitle"
 	"github.com/stupside/castor/internal/device"
+	"github.com/stupside/castor/internal/media"
 	"github.com/stupside/castor/internal/source/resolve"
 )
 
@@ -29,27 +30,41 @@ type Config struct {
 	Device    DeviceConfig
 	Network   NetworkConfig
 	Transcode TranscodeConfig
-	Resolver  resolve.Config
 
-	// Source is the source resolver with its adapters already bound: it is handed
-	// in rather than built here from Resolver, because a package that constructs
-	// its own ffprobe subprocess and http.Client cannot be run without them, and
-	// the judgements the resolver makes (which candidate is real, which rendition
-	// to read) are exactly the ones worth testing. The composition root owns the
-	// wiring; this layer owns none of it.
+	// MaxHeight is the tallest picture this cast may put in front of the renderer, and
+	// it is the user's instruction rather than anything measured or negotiated. It is a
+	// term of the CAST and not of an encode, which is why it sits here and not on
+	// TranscodeConfig: it decides a composition as well (a source known to be taller
+	// cannot be handed over untouched, see Shape.Passthrough) and it bounds a copy as well
+	// as a scale. What the number means is media.HeightCap's to state.
+	//
+	// The operator writes it under `resolver:`, where the ranker reads it to prefer the
+	// largest variant that fits. It arrives here as a value of its own rather than inside
+	// that whole section, so there is exactly one place in this struct to read the ceiling
+	// from and no path by which a stage reads a second copy of it.
+	MaxHeight media.HeightCap
+
+	// Source is the source resolver with its adapters already bound: it is handed in
+	// rather than built here, because a package that constructs its own ffprobe
+	// subprocess and http.Client cannot be run without them, and the judgements the
+	// resolver makes (which candidate is real, which rendition to read) are exactly the
+	// ones worth testing. The composition root owns the wiring; this layer owns none of
+	// it, and there is one resolver per process so the client that probed a candidate is
+	// the client that fetches its playlist.
 	Source *resolve.Resolver
 
 	// Delivery is the operator's say over the delivery axis, read by the composition
 	// rule that would otherwise hand the renderer the source URL (see
-	// Shape.Passthrough). Unset (the zero value) means DeliveryAuto, so a cast nobody
+	// Shape.Passthrough). Unset (the zero value) means media.DeliveryAuto, so a cast nobody
 	// configured is decided entirely from capabilities and the source.
-	Delivery DeliveryPreference
+	Delivery media.DeliveryPreference
 
-	// Whisper is the subtitle-transcription knob the subtitle axis reads (Enable gates
-	// burn-in, see SubtitleForServed). Its type lives in the cgo-free subtitle package,
-	// not the whisper transcriber, so this decision layer carries it without importing
-	// whisper's cgo. A renderer that fetches for itself never reaches the question, and
-	// a disabled transcriber answers SubtitleOff.
+	// Whisper is the subtitle-transcription knob, and Enable is the whole of the subtitle
+	// axis: the composition root builds a burn-in stage when it is set and none when it is
+	// not (see cast.burnInStage). Its type lives in the cgo-free subtitle package, not the
+	// whisper transcriber, so this decision layer carries it without importing whisper's
+	// cgo. A renderer that fetches for itself never reaches the question at all, because
+	// only the composition castor produces the picture for has frames to draw cues into.
 	Whisper subtitle.Whisper
 }
 
@@ -65,11 +80,18 @@ type NetworkConfig struct {
 }
 
 // TranscodeConfig holds the small set of ffmpeg settings that aren't decided by
-// the plan. Codec/bitrate/format choices are resolved from capabilities (see the
-// Resolve* functions); only the binary path and the upstream I/O timeout, which
-// no capability can determine, come from config.
+// the plan. Codec/bitrate/format choices are decided from capabilities (see DecideVideo
+// and DecideAudio); only the binary path and the upstream I/O timeout, which no
+// capability can determine, come from config.
 type TranscodeConfig struct {
 	FFmpegPath string `yaml:"ffmpeg_path" validate:"required"`
+
+	// FFprobePath is the measurement binary, beside the transcoding one because both are
+	// the same kind of fact: which executable this install runs. It carries no YAML tag
+	// because the operator states it once, under `resolver:`, where the source layer's own
+	// prober is built from it; the composition root copies it here rather than letting a
+	// cast layer reach into the source resolver's configuration section for it.
+	FFprobePath string `yaml:"-"`
 
 	// RWTimeout is the mid-read deadline: how long one upstream read may stall before
 	// it is abandoned and retried. It is an input to the read policy (see read.For)

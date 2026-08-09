@@ -25,7 +25,6 @@ import (
 	"github.com/stupside/castor/internal/cast/read"
 	"github.com/stupside/castor/internal/device"
 	"github.com/stupside/castor/internal/media"
-	"github.com/stupside/castor/internal/source/resolve"
 )
 
 // fakeDevice is a Device stand-in that records what Run tells it to Play. On a
@@ -161,7 +160,7 @@ type castCase struct {
 	// capabilities it negotiates.
 	family   device.Type
 	caps     media.Renderer
-	delivery core.DeliveryPreference
+	delivery media.DeliveryPreference
 
 	// What must come out. served is the content type the device is told it is
 	// fetching, empty for a cast castor should hand over untouched. The rest are
@@ -243,7 +242,7 @@ func TestCastMatrix(t *testing.T) {
 		source:   serveFixture,
 		family:   device.TypeChromecast,
 		caps:     chromecastLike(media.MP4),
-		delivery: core.DeliveryServe,
+		delivery: media.DeliveryServe,
 		served:   media.MP4,
 	}, {
 		name:   "a renderer that rejects the container gets a network remux",
@@ -465,7 +464,7 @@ func TestCastMatrix(t *testing.T) {
 			cfg := castConfig(tt.family, ffmpegPath, ffprobePath)
 			cfg.Delivery = tt.delivery
 			if tt.ceiling > 0 {
-				cfg.Resolver.MaxHeight = tt.ceiling
+				cfg.MaxHeight = tt.ceiling
 			}
 
 			ctx, cancel := context.WithTimeout(t.Context(), castTimeout)
@@ -751,10 +750,7 @@ func TestAReadThatDiesWithARendererPlayingIsNeverCastAgain(t *testing.T) {
 	// fMP4 fragments, which is the read policy such a source gets in production: the one shape
 	// where a read abandoned partway through a fragment is worse than waiting for it.
 	shape := media.Origin{Segmented: true, Framing: media.FramingOutOfBand}
-	policy, err := read.For(read.ShapeOf(shape), 30*time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
+	policy := read.For(read.ShapeOf(shape), 30*time.Second)
 	in := attempt.Intent{
 		Candidates: []*media.Stream{source, &second},
 		Origin:     shape,
@@ -953,7 +949,7 @@ func castRung(ctx context.Context, t *testing.T, cfg core.Config, connect Connec
 	// which is where a recovery would change it: an executor reading its own configuration
 	// instead would be answering a question that has since been asked again.
 	delivery := cfg.Delivery
-	cfg.Delivery = core.DeliveryAuto
+	cfg.Delivery = media.DeliveryAuto
 	return NewExecutor(cfg, connect, noStage, "127.0.0.1").Run(ctx, attempt.Attempt{
 		Try:       1,
 		Source:    source,
@@ -967,10 +963,7 @@ func castRung(ctx context.Context, t *testing.T, cfg core.Config, connect Connec
 // here drives: they call the executor directly, so no resolution ran.
 func sourcePolicy(t *testing.T, rwTimeout time.Duration) read.Policy {
 	t.Helper()
-	policy, err := read.For(read.ShapeOf(media.Origin{}), rwTimeout)
-	if err != nil {
-		t.Fatalf("read policy: %v", err)
-	}
+	policy := read.For(read.ShapeOf(media.Origin{}), rwTimeout)
 	return policy
 }
 
@@ -984,14 +977,13 @@ const castTimeout = 90 * time.Second
 // to vary an axis takes this and edits the field it cares about.
 func castConfig(deviceType device.Type, ffmpegPath, ffprobePath string) core.Config {
 	return core.Config{
-		Device:    core.DeviceConfig{Type: deviceType},
-		Transcode: core.TranscodeConfig{FFmpegPath: ffmpegPath, RWTimeout: 30 * time.Second},
-		// ProbeTimeout is required rather than optional, here as in production: it
-		// bounds the source probe, and a zero value is an expired deadline rather than
-		// an absent one, so every probe fails instantly and each axis it measures
-		// silently falls back. Leaving it unset is what turned the two carriage cells
+		Device: core.DeviceConfig{Type: deviceType},
+		// The measurement binary travels beside the transcoding one, because both are the
+		// same kind of fact and a cast that cannot measure its source silently falls back
+		// on every axis it would have measured: that is what turned the two carriage cells
 		// below into a bare copy into a container that cannot carry it.
-		Resolver: resolve.Config{FFprobePath: ffprobePath, MaxHeight: 1080, ProbeTimeout: 30 * time.Second},
+		Transcode: core.TranscodeConfig{FFmpegPath: ffmpegPath, FFprobePath: ffprobePath, RWTimeout: 30 * time.Second},
+		MaxHeight: 1080,
 	}
 }
 
@@ -1240,9 +1232,8 @@ func serveGenerated(t *testing.T, ffmpegPath, filename, urlPath, contentType str
 // reaches its terminal state before anything downstream has looked at the spool.
 // Under that timing every ordering rule between the pull's carriage verdict and
 // the readers that tail its artifact holds by accident, including the one that
-// makes the restart legal (Spool.Reset refuses once a tail exists). Pacing the
-// origin is what makes those rules load-bearing in the test the way they are in a
-// cast.
+// makes the restart legal. Pacing the origin is what makes those rules
+// load-bearing in the test the way they are in a cast.
 func serveGeneratedOver(t *testing.T, ffmpegPath, filename, urlPath, contentType string, seconds int, over time.Duration, outputArgs ...string) fixtureOrigin {
 	t.Helper()
 	path := generateFixture(t, ffmpegPath, filename, seconds, outputArgs)

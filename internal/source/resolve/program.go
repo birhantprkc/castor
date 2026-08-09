@@ -33,10 +33,19 @@ import (
 // intent for the life of the cast. Resolving one in place would rewrite the record of
 // what was tried, and narrowing a master to a rung would leave the ordering holding a
 // rung where it had published a master.
-type Programs struct{ r *Resolver }
+//
+// handoffPossible is bound here rather than asked per call because it is a property of the
+// cast and not of the link: it is what the renderer can do plus what the operator asked
+// for, and neither changes while a cast walks its candidates.
+type Programs struct {
+	r               *Resolver
+	handoffPossible bool
+}
 
 // NewPrograms binds the port to the resolver the composition root already built.
-func NewPrograms(r *Resolver) Programs { return Programs{r: r} }
+func NewPrograms(r *Resolver, handoffPossible bool) Programs {
+	return Programs{r: r, handoffPossible: handoffPossible}
+}
 
 // Refetch establishes what one link publishes, on a copy of it. The shallow copy is
 // enough because resolution writes only the fields it establishes (the URL, the audio
@@ -44,7 +53,7 @@ func NewPrograms(r *Resolver) Programs { return Programs{r: r} }
 // which are extraction's and which every rendition of that link answers to alike.
 func (p Programs) Refetch(ctx context.Context, s *media.Stream) (*media.Stream, media.Origin, media.Rendition, error) {
 	link := *s
-	return p.r.Resolve(ctx, &link)
+	return p.r.Resolve(ctx, &link, p.handoffPossible)
 }
 
 // identify fills in what the source is when the caller could not say, and what it establishes
@@ -128,10 +137,9 @@ func (r *Resolver) program(ctx context.Context, stream *media.Stream, origin med
 	// The segment facts are stated by the document that LISTS the segments, so a
 	// master costs one more GET: the chosen variant's own playlist, with the same
 	// headers, and the very next document the reader opens. It is worth one request
-	// because EXT-X-MAP is knowable no other way before the read starts, and it is
-	// what a fragile-read policy keys on: abandoning an fMP4 fragment mid-read
-	// truncates it, a truncated AVCC stream desyncs the h264_mp4toannexb filter a copy
-	// into MPEG-TS cannot do without, and that kills a cast forty minutes in.
+	// because EXT-X-MAP is knowable no other way before the read starts, and it is the
+	// fact the read policy that cannot afford a mid-read deadline is keyed on: a source
+	// this GET failed on gets the careful row rather than the one it needed.
 	//
 	// One GET per CAST, never one per candidate. Ranking is where a burst of requests
 	// behind one signature earns an embed proxy's 429 (see maxProbePerHost), and this
@@ -194,11 +202,17 @@ func reportRendition(ctx context.Context, variant hlsVariant, origin media.Origi
 // default checks. What fails that, no reader applying its own defaults will take
 // either, and a renderer is nothing but such a reader.
 //
-// It runs only while pass-through is still on the table: a source already ruled
-// out, header-gated or demuxed just above, is served whatever this would say, so
-// the probe is never spent to confirm a decision already made.
-func (r *Resolver) verifyRendererCanFetch(ctx context.Context, stream *media.Stream) {
-	if !stream.SelfFetchable() || r.measurer.OpensUnaided(ctx, stream) {
+// It runs only while a hand-off is still on the table, so the probe is never spent to
+// confirm a decision already made, and BOTH ways of it being decided have to arrive for
+// that to be true. Two of them are visible here: a source that is header-gated or demuxed
+// is served whatever this would say. The third is not, and is why handoffPossible is a
+// parameter: no renderer that has to be served the bytes will ever be handed this URL, and
+// neither will any renderer at all once the operator has asked for a relay. Both were once
+// invisible from here, and the cost was a whole extra ffprobe of a possibly single-use link
+// on every cast to a push-only renderer and every cast the operator had already told to
+// relay, spent to establish a fact no composition would go on to read.
+func (r *Resolver) verifyRendererCanFetch(ctx context.Context, stream *media.Stream, handoffPossible bool) {
+	if !handoffPossible || !stream.SelfFetchable() || r.measurer.OpensUnaided(ctx, stream) {
 		return
 	}
 	stream.NeedsLeniency = true

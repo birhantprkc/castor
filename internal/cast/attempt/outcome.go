@@ -55,7 +55,7 @@ type Outcome struct {
 	// of the parties that can end a cast, in the order that attributes it rather than in
 	// the order they noticed: the read that lands the media first, then whatever the
 	// delivery has of its own to add. Returning only the delivery's account is how a
-	// source that exited 183 mid-copy was reported as "encoder: spool producer failed".
+	// source that died mid-copy was reported as "encoder: spool producer failed".
 	Err error
 
 	// Evidence is what the attempt left behind, and the only material a classification
@@ -92,8 +92,8 @@ type Evidence struct {
 	ReadErr error
 
 	// ReadExit is the exit status that error came with, and it is the structural
-	// discriminator behind a broken copy: a reader that exited 183 mid-stream failed at
-	// something it was doing, where a reader castor killed failed at nothing.
+	// discriminator behind a broken copy: a reader that exited on its own account mid-stream
+	// failed at something it was doing, where a reader castor killed failed at nothing.
 	//
 	// Zero is a clean exit and NEGATIVE is no status to read (the process was killed, or
 	// has not been waited on), so a rule about a failure must require a POSITIVE one. That

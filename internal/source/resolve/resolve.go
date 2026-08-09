@@ -54,7 +54,13 @@ func New(cfg Config, measurer Measurer, playlists Playlists) *Resolver {
 // only statement of which rung a cast is reading (see program). It is zero for a source
 // that published no ladder, which a caller must read as the absence of evidence and
 // never as a free rendition.
-func (r *Resolver) Resolve(ctx context.Context, stream *media.Stream) (*media.Stream, media.Origin, media.Rendition, error) {
+//
+// handoffPossible is the caller's statement that a renderer being handed this URL is a
+// live possibility for this cast. It is a bool and not a device, a family or a config
+// section because the only thing resolution does with it is decline to establish a fact
+// nobody will read: see verifyRendererCanFetch, which is the one thing here that costs a
+// second open of a link that may be single-use.
+func (r *Resolver) Resolve(ctx context.Context, stream *media.Stream, handoffPossible bool) (*media.Stream, media.Origin, media.Rendition, error) {
 	if err := r.identify(ctx, stream); err != nil {
 		return nil, media.Origin{}, media.Rendition{}, err
 	}
@@ -71,7 +77,7 @@ func (r *Resolver) Resolve(ctx context.Context, stream *media.Stream) (*media.St
 	var chosen media.Rendition
 	if stream.ContentType == media.HLS {
 		origin, chosen = r.program(ctx, stream, origin)
-		r.verifyRendererCanFetch(ctx, stream)
+		r.verifyRendererCanFetch(ctx, stream, handoffPossible)
 	}
 	return stream, origin, chosen, nil
 }

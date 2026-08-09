@@ -25,7 +25,7 @@ import (
 // against.
 func ResolveSource(ctx context.Context, cfg Config, stream *media.Stream) (*media.Stream, media.Origin, media.Rendition, string, error) {
 	slog.InfoContext(ctx, "resolving stream", "url", stream.URL.String())
-	resolved, origin, chosen, err := cfg.Source.Resolve(ctx, stream)
+	resolved, origin, chosen, err := cfg.Source.Resolve(ctx, stream, HandoffPossible(cfg))
 	if err != nil {
 		return nil, media.Origin{}, media.Rendition{}, "", fmt.Errorf("resolving URL: %w", err)
 	}
@@ -36,6 +36,21 @@ func ResolveSource(ctx context.Context, cfg Config, stream *media.Stream) (*medi
 		return nil, media.Origin{}, media.Rendition{}, "", fmt.Errorf("resolving local IP: %w", err)
 	}
 	return resolved, origin, chosen, localIP, nil
+}
+
+// HandoffPossible reports whether any composition of this cast could hand the renderer the
+// source URL instead of serving it the bytes. It is the two facts that settle the question
+// before a source has been looked at: what the family can do, read off the static profile
+// (device.Profile), and what the operator asked for. Everything else Shape.Passthrough
+// weighs is a property of the source, and this is here so that the parties who establish
+// those properties can stop paying for them when nobody will read the answer.
+//
+// The profile is capability data, so no family is named here or anywhere below: the same
+// expression answers for a family added tomorrow. It agrees with what a connected renderer
+// reports (see device.Profile), which is what lets it be asked before one has been
+// acquired, which is the only moment it is useful.
+func HandoffPossible(cfg Config) bool {
+	return device.Profile(cfg.Device.Type).SelfFetch && cfg.Delivery != media.DeliveryServe
 }
 
 // Connect locates and connects the renderer named in cfg. WHEN it is called is the

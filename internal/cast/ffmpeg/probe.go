@@ -58,12 +58,18 @@ func (p FileProber) Probe(ctx context.Context) (media.ProbeInfo, error) {
 // SourceProbe binds an upstream to the ffprobe that measures it. It opens the source
 // exactly as the reader that follows it will: the same request headers, the same
 // container-specific input flags, and the same read policy (its mid-read deadline and its
-// reconnect terms, see NetworkSource.Read), so it cannot fail where the read would succeed.
-// That matters for a playlist whose segments are served under a disguised extension, where
-// without the relaxed extension checks the probe reports an unreadable stream while the
-// remux plays it fine, and it matters just as much for the terms: a probe that gave up on
-// the first 429 while the reader would have waited it out convicted a link the cast could
-// have read.
+// reconnect terms, see NetworkSource.Read), so it cannot fail for a reason the read would
+// not also meet. That matters for a playlist whose segments are served under a disguised
+// extension, where without the relaxed extension checks the probe reports an unreadable
+// stream while the remux plays it fine, and it matters just as much for the terms: a probe
+// that gave up on the first 429 while the reader would have waited it out convicted a link
+// the cast could have read.
+//
+// ONE reason is castor's own and is not the read's: the caller's deadline is deliberately
+// shorter than the patience the read is granted (see core.probeBudget against
+// read.BackoffMax), so a source that only answers slowly is measured as nothing rather than
+// as dead. That is why the failure below names the deadline as castor's, and why nothing
+// downstream may read a failed measurement as a verdict on the link.
 func SourceProbe(ffprobePath string, src NetworkSource) SourceProber {
 	return SourceProber{ffprobePath: ffprobePath, src: src}
 }

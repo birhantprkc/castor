@@ -41,7 +41,7 @@ func remux(ctx context.Context, c *cast) landing {
 	// cost. It reads on the same terms the remux itself will, so it fails only where the remux
 	// would.
 	source := ffmpeg.NewNetworkSource(c.attempt.Source, c.attempt.Read)
-	facts := core.Measure(ctx, "the source this remux reads", ffmpeg.SourceProbe(c.cfg.Resolver.FFprobePath, source))
+	facts := core.Measure(ctx, "the source this remux reads", ffmpeg.SourceProbe(c.cfg.Transcode.FFprobePath, source))
 
 	opts := c.encode(ctx, dev.Capabilities(), into, encodeInput{facts: facts, source: source})
 
@@ -58,7 +58,7 @@ func remux(ctx context.Context, c *cast) landing {
 	// a header-gated source to a self-fetching renderer with no in-flight judgement at all.
 	reached, err := c.serve(ctx, dev, attempt.PhaseUnstarted, core.OpenParams{Opts: opts}, nil)
 	if err != nil {
-		return landing{reached: reached, err: err}
+		return landing{err: err, Evidence: attempt.Evidence{Reached: reached}}
 	}
-	return landing{reached: attempt.PhaseDelivered}
+	return landing{Evidence: attempt.Evidence{Reached: attempt.PhaseDelivered}}
 }

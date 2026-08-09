@@ -136,21 +136,35 @@ func (c *chromecastDevice) Close() error {
 	return c.app.Close(false)
 }
 
-// chromecastCapabilities: Chromecast decides pass-through purely on the
-// container (it never re-encodes video, so it carries no video envelope),
-// accepting these MIME types directly. SelfFetch is true: handed a URL, Cast
-// pulls it over the network itself, so an accepted container casts straight
-// through with no castor-served stream. The audio envelope drives the remux
-// path only (a non-accepted container remuxed to mp4): Cast decodes AAC, AC-3,
-// and E-AC-3, so a 5.1 track in an MKV is stream-copied intact instead of
-// downmixed. There is no runtime query as there is for DLNA, so this is the
-// documented Cast media profile. AAC is capped at 5.1 (6 channels): Cast decodes
-// multichannel AAC only up to 5.1, so a 7.1 AAC track is re-encoded (to a Dolby
-// codec, else stereo) rather than copied to a receiver that can't play it.
+// chromecastCapabilities is the documented Cast media profile, which is the whole
+// of what castor can know here: unlike DLNA there is no runtime query, so the
+// envelope is declared rather than negotiated. SelfFetch is true, so an accepted
+// container casts straight through with no castor-served stream and anything else
+// is remuxed to mp4.
+//
+// The video envelope is the profile Cast publishes: H.264 and HEVC, each with the
+// profiles and bit depths that decode rather than black-screen (see
+// codecEnvelopes, which is where a codec's safe envelope is stated once for every
+// family). It used to be nil, described as deliberate on the grounds that Cast
+// "never re-encodes video", and that was a fact about the LEG rather than about
+// the device: the remux this family lands on copies a bitstream the renderer never
+// listed, so the nil envelope was never consulted, and the one decision it does
+// reach was being made against a device that had declared nothing. That decision
+// is which codec a re-encode castor was forced into (by the height ceiling, by an
+// HDR source, by a copy that already broke) aims at, and answering it with "the
+// renderer advertised nothing we can encode to" spent a 4K title's quality on the
+// floor codec for a receiver that decodes HEVC at half the bitrate.
+//
+// The audio envelope drives the remux path only: Cast decodes AAC, AC-3 and
+// E-AC-3, so a 5.1 track in an MKV is stream-copied intact instead of downmixed.
+// AAC is capped at 5.1 (6 channels): Cast decodes multichannel AAC only up to 5.1,
+// so a 7.1 AAC track is re-encoded (to a Dolby codec, else stereo) rather than
+// copied to a receiver that cannot play it.
 var chromecastCapabilities = media.Renderer{
 	SelfFetch:       chromecast{}.selfFetches(),
 	Containers:      []string{media.HLS, media.MP4, media.MKV, media.WebM},
 	ServedContainer: media.MP4,
+	Video:           videoSupportForAll(media.CodecH264, media.CodecHEVC),
 	Audio: []media.AudioSupport{
 		{Codec: media.CodecAAC, MaxChannels: 6},
 		{Codec: media.CodecAC3},

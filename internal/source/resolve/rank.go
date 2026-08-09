@@ -22,8 +22,10 @@ import (
 // different set, and the pick itself. A user reading --dry-run was reading a
 // ranking no cast would ever walk.
 //
-// The shape is core.deliveries': the rules are data, ordered, first match wins, and
-// what a row decides is a field on the row rather than control flow around it.
+// The shape is every other ordered table in castor's: the rules are data, walked in
+// declaration order, first match wins, what a row decides is a field on the row rather
+// than control flow around it, and the row that answers whatever the refusals did not is
+// held apart as the total row so a walk cannot fall off the end of the table.
 
 // minContentDuration is the shortest runtime treated as real content. Pre-roll
 // ads and ad-pods run well under it; the shortest real title (a ~11-minute
@@ -154,9 +156,6 @@ const (
 	reasonBrowserInternal reason = "a browser-internal handle: the real stream was never captured"
 	reasonNoProgram       reason = "carried no castable video+audio"
 	reasonTooShort        reason = "too short to be content, treated as an ad"
-	// reasonNoRule is not a row. It is what admit answers when the table matched
-	// nothing, which can only happen if the total row at the bottom is removed.
-	reasonNoRule reason = "matched no admission rule"
 )
 
 // verdict is what the table decided about one candidate: whether it enters the pool
@@ -170,12 +169,21 @@ type verdict struct {
 
 // admissionRule is one row: the shape it recognises, and what that shape earns.
 // Rows hold no logic beyond `when`, which is what lets the whole policy be read as
-// data and exercised without an ffprobe.
+// data and exercised without an ffprobe. `when` is nil on the total row, which is
+// never asked: see admissionTable.
 type admissionRule struct {
 	reason     reason
 	when       func(m measurement) bool
 	admit      bool
 	lastResort bool
+}
+
+// admissionTable is the ordered rows plus the row that answers whatever they did not.
+// The total row carries no predicate, so admit answers with a verdict for every
+// candidate and there is no "matched no rule" outcome for the tally to count.
+type admissionTable struct {
+	rules []admissionRule
+	total admissionRule
 }
 
 // browserInternalSchemes are the URL schemes a browser mints to name bytes it is
@@ -227,7 +235,7 @@ func browserInternal(u *url.URL) bool {
 // refused it (media.ReachUnproven), and it is kept strictly below every measured
 // candidate (see preference), so it can win only when nothing measured was admitted
 // at all.
-var admissions = []admissionRule{{
+var admissions = admissionTable{rules: []admissionRule{{
 	// A handle no reader outside the browser can open, and the one row here that reads
 	// the URL instead of a measurement. It is first because no measurement can rescue
 	// it, and specifically because of the reasonUnproven row below: a field run captured
@@ -269,26 +277,25 @@ var admissions = []admissionRule{{
 	// well above the title they interrupt.
 	reason: reasonTooShort,
 	when:   func(m measurement) bool { return m.info.Duration > 0 && m.info.Duration < minContentDuration },
-}, {
-	// The measured, castable candidate. It is a row rather than the table's
-	// fall-through so that "castor will attempt this" is stated as explicitly as
-	// every refusal above it, and so admit's own default arm means what it says.
+}}, total: admissionRule{
+	// The measured, castable candidate, and the total row: it is stated as explicitly as
+	// every refusal above it, because "castor will attempt this" is a decision and not the
+	// absence of one.
 	reason: reasonCastable,
-	when:   func(measurement) bool { return true },
 	admit:  true,
 }}
 
-// admit walks the table and returns the first matching row's verdict. A shape no
-// row recognises is refused with the shape named, not admitted by default: the last
-// row matches everything, so arriving here means a row was deleted, and a table
-// that has stopped covering a shape must say so rather than cast it.
+// admit walks the table and returns the first matching row's verdict, or the total
+// row's, which is what a candidate none of the refusals recognised earns.
 func admit(m measurement) verdict {
-	for _, rule := range admissions {
-		if rule.when(m) {
-			return verdict{reason: rule.reason, admit: rule.admit, lastResort: rule.lastResort}
+	rule := admissions.total
+	for _, candidate := range admissions.rules {
+		if candidate.when(m) {
+			rule = candidate
+			break
 		}
 	}
-	return verdict{reason: reasonNoRule}
+	return verdict{reason: rule.reason, admit: rule.admit, lastResort: rule.lastResort}
 }
 
 // logRejection reports a dropped candidate together with the facts its reason was
@@ -310,13 +317,10 @@ func logRejection(ctx context.Context, m measurement, v verdict) {
 // candidates tells them nothing they can act on.
 func tally(rejected map[reason]int) string {
 	counts := make([]string, 0, len(rejected))
-	for _, rule := range admissions {
+	for _, rule := range admissions.rules {
 		if n := rejected[rule.reason]; n > 0 {
 			counts = append(counts, fmt.Sprintf("%d %s", n, rule.reason))
 		}
-	}
-	if n := rejected[reasonNoRule]; n > 0 {
-		counts = append(counts, fmt.Sprintf("%d %s", n, reasonNoRule))
 	}
 	return strings.Join(counts, ", ")
 }

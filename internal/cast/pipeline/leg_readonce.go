@@ -37,14 +37,13 @@ func readOnce(ctx context.Context, c *cast) landing {
 	// is the only party that can explain a stall, since castor kills it and its own error path
 	// never runs.
 	landed := func(reached attempt.Phase, err error) landing {
-		return landing{
-			reached:    reached,
-			err:        err,
-			readErr:    settled(pl),
-			readLines:  pl.Evidence(),
-			readExit:   pl.ExitStatus(),
-			readCopied: pl.Copying(),
-		}
+		return landing{err: err, Evidence: attempt.Evidence{
+			Reached:  reached,
+			ReadErr:  settled(pl),
+			ReadExit: pl.ExitStatus(),
+			Copied:   pl.Copying(),
+			Lines:    pl.Evidence(),
+		}}
 	}
 
 	// A nil lead tells the readiness rules that no transcription frontier is part of being
@@ -62,11 +61,10 @@ func readOnce(ctx context.Context, c *cast) landing {
 		return landed(attempt.PhaseReading, err)
 	}
 	// The phase the delivery answers with, never a literal: past its Play call this cast is one a
-	// viewer is watching, and there are ordinary failures past it. A fragment that arrives
-	// unresynchronisable kills the reader mid-title on "Invalid NAL unit size" at exit 183, and
-	// that status over the axes it was copying is the whole of the broken-copy class. Reported as
-	// reading, it earned a second attempt with a fresh work directory, a fresh connect and a fresh
-	// Play, which is the film started over from the beginning at minute forty.
+	// viewer is watching, and there are ordinary failures past it (the reader dying mid-title on
+	// a fragment nothing can resynchronise is one, see read's segment-fragile row). Reported as
+	// reading, such a failure earned a second attempt with a fresh work directory, a fresh
+	// connect and a fresh Play, which is what attempt.Outcome refuses to do to a viewer.
 	reached, err := c.serveBuffer(ctx, dev, sp, pl, stage)
 	if err != nil {
 		return landed(reached, err)
@@ -87,12 +85,12 @@ func (c *cast) startReading(ctx context.Context, stage Stage) (*spool.Spool, *pu
 	}
 
 	facts := core.Measure(ctx, "the source this cast buffers",
-		ffmpeg.SourceProbe(c.cfg.Resolver.FFprobePath, ffmpeg.NewNetworkSource(c.attempt.Source, c.attempt.Read)))
+		ffmpeg.SourceProbe(c.cfg.Transcode.FFprobePath, ffmpeg.NewNetworkSource(c.attempt.Source, c.attempt.Read)))
 
 	// The tee is asked for exactly when something will drain it: the pipe is unbuffered, so a
 	// feed nobody reads blocks the whole download.
 	pl, err := startPull(ctx, c.cfg.Transcode, c.attempt.Source, c.attempt.Read, sp,
-		bufferCarriage(ctx, facts, c.attempt.Decode), c.cfg.Resolver.MaxHeight, stage != nil)
+		bufferCarriage(ctx, facts, c.attempt.Decode), c.cfg.MaxHeight, stage != nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -164,7 +162,7 @@ func (c *cast) bufferedEncode(ctx context.Context, caps media.Renderer, buffer s
 			return ffmpeg.EncodeOptions{}, err
 		}
 	}
-	facts := core.Measure(ctx, "the local buffer this encode reads", ffmpeg.FileProbe(c.cfg.Resolver.FFprobePath, buffer))
+	facts := core.Measure(ctx, "the local buffer this encode reads", ffmpeg.FileProbe(c.cfg.Transcode.FFprobePath, buffer))
 	return c.encode(ctx, caps, into, encodeInput{facts: facts, pipe: ffmpeg.SpoolFormat, burnIn: burnIn}), nil
 }
 
@@ -173,18 +171,18 @@ func (c *cast) bufferedEncode(ctx context.Context, caps media.Renderer, buffer s
 // cannot be copied at all.
 //
 // The first is worth a measurement of the source before the read opens it, a second touch of a
-// URL the read is otherwise careful to touch once: MPEG-TS does not refuse a codec it has no
-// stream type for, it writes the track as unreadable private data and exits cleanly, so without
-// this the cast silently loses a track for the whole title. What was never measured answers
-// "nothing known against it" and the copy is attempted, which is the same answer castor gives
-// any source it could not measure, and it needs no clause of its own to say so: an unmeasured
-// codec matches no carriage rule.
+// URL the read is otherwise careful to touch once: the buffer's container accepts codecs it
+// cannot describe and loses them silently rather than refusing them (see carriage's refusal
+// rows), so without this the cast loses a track for the whole title. What was never measured
+// answers "nothing known against it" and the copy is attempted, which is the same answer castor
+// gives any source it could not measure, and it needs no clause of its own to say so: an
+// unmeasured codec matches no carriage rule.
 //
-// The second cannot be measured at all, which is why it arrives as a term of the attempt. A
-// truncated fragment desynchronises the bitstream filter this copy carries into MPEG-TS and
-// kills the reader on "Invalid NAL unit size", and nothing about the source's codecs predicts
-// it: the same packets copy cleanly when they arrive whole. Only having watched a reader die
-// on them is evidence, and that evidence belongs to the cast rather than to this leg.
+// The second cannot be measured at all, which is why it arrives as a term of the attempt.
+// Nothing about the source's codecs predicts a bitstream the filter cannot resynchronise: the
+// same packets copy cleanly when they arrive whole (see read's segment-fragile row). Only
+// having watched a reader die on them is evidence, and that evidence belongs to the cast
+// rather than to this leg.
 func bufferCarriage(ctx context.Context, facts core.Facts, decode carriage.Axes) carriage.Axes {
 	refused := carriage.Known(facts.Probe, ffmpeg.SpoolFormat)
 	if refused.Any() {

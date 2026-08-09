@@ -52,6 +52,52 @@ func Profile(t Type) media.Renderer {
 	return media.Renderer{SelfFetch: r.selfFetches()}
 }
 
+// codecEnvelope is the codec-fixed part of a stream-copy envelope: the profiles
+// and bit depths that black-screen a renderer that cannot handle them (10-bit
+// H.264 is the rare High 10 profile, which the sets in this package's families
+// decode as a green smear or not at all). Adding a codec the pipeline can encode
+// to is one entry here.
+//
+// It lives in this file rather than with any one family because all three read
+// it: DLNA pairs it with whatever a renderer answered over GetProtocolInfo, while
+// Chromecast and Roku pair it with the codecs their vendor publishes. What varies
+// between families is WHICH codecs are decoded; what a given codec's safe
+// envelope is does not vary, and stating it three times is how two of them end up
+// disagreeing about High 10.
+type codecEnvelope struct {
+	profiles  []string
+	bitDepths []int // nil == 8-bit only
+}
+
+var codecEnvelopes = map[media.Codec]codecEnvelope{
+	media.CodecH264: {profiles: []string{"Constrained Baseline", "Baseline", "Main", "High"}},
+	media.CodecHEVC: {profiles: []string{"Main", "Main 10"}, bitDepths: []int{8, 10}},
+}
+
+// videoSupportFor builds the copy envelope for a codec: its decode-safety
+// profile and bit-depth constraints.
+func videoSupportFor(codec media.Codec) media.VideoSupport {
+	env := codecEnvelopes[codec]
+	return media.VideoSupport{
+		Codec:     codec,
+		Profiles:  env.profiles,
+		BitDepths: env.bitDepths,
+	}
+}
+
+// videoSupportForAll is the declared decode envelope of a family whose codecs are
+// published rather than negotiated, in the order given. A family with no runtime
+// capability query still has an envelope; what it does not have is a way to ask,
+// so it declares the vendor's published profile and this is where that declaration
+// is turned into the one capability shape every layer above reads.
+func videoSupportForAll(codecs ...media.Codec) []media.VideoSupport {
+	support := make([]media.VideoSupport, 0, len(codecs))
+	for _, c := range codecs {
+		support = append(support, videoSupportFor(c))
+	}
+	return support
+}
+
 type Info struct {
 	Name    string
 	Type    Type

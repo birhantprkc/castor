@@ -233,6 +233,44 @@ func TestDecideVideo(t *testing.T) {
 		}
 	})
 
+	// The other clause no policy lifts, and the one that was silently lifted on two of
+	// the three compositions. It used to be a term of media.VideoSupport.accepts, so it
+	// was only ever asked on the leg that consults the renderer's envelope at all: on a
+	// remux, CopyWhatever answers before the envelope is read, and an HDR master was
+	// handed to a self-fetching renderer untouched. Nothing establishes that an arbitrary
+	// set engages HDR on a stream it was handed, and one that does not renders it as a
+	// washed-out grey picture for the whole title, which is a failure with no error
+	// anywhere and no way for a viewer to attribute it.
+	//
+	// The source is one every other clause admits: an envelope this renderer advertises,
+	// inside the ceiling, in a container that carries it, at a bit depth the envelope
+	// lists. Dynamic range is the only thing left to answer.
+	t.Run("an HDR source is never handed over on any policy", func(t *testing.T) {
+		hdrRenderer := media.Renderer{Video: []media.VideoSupport{
+			{Codec: media.CodecHEVC, Profiles: []string{"Main 10"}, BitDepths: []int{8, 10}},
+		}}
+		hdr := media.ProbeInfo{
+			VideoCodec: media.CodecHEVC, VideoProfile: "Main 10",
+			VideoHeight: 720, VideoBitDepth: 10, VideoHDR: true,
+		}
+		for _, policy := range []VideoPolicy{CopyWhatFits, CopyWhatever} {
+			in := VideoInputs{
+				Caps: hdrRenderer, Probe: hdr, Into: mp4Format,
+				Policy: policy, MaxHeight: 1080, FFmpegPath: requireFFmpeg(t),
+			}
+			if _, ok := DecideVideo(t.Context(), in).Encode(); !ok {
+				t.Errorf("under %v an HDR bitstream was stream-copied to a renderer that advertised the profile: an advertised profile is not a statement that HDR engages", policy)
+			}
+			// And the same source without the HDR transfer is copied, so what the row
+			// isolates is the dynamic range and not the profile or the bit depth.
+			in.Probe.VideoHDR = false
+			if enc, ok := DecideVideo(t.Context(), in).Encode(); ok {
+				t.Errorf("under %v the same 10-bit Main 10 source re-encoded to %q with no HDR transfer on it, so this row is measuring something else",
+					policy, enc.Encoder.Name)
+			}
+		}
+	})
+
 	// TestDecideVideo's ceiling row above proves it under CopyWhatFits; this is the half
 	// that used to be missing, and its absence is what let one delivery path honour
 	// max_height while the other ignored it.

@@ -156,8 +156,8 @@ type OpenParams struct {
 	// OnPlaying, if set, is called once the renderer has accepted the URL and before the
 	// delivery is waited on. It is how a caller finds out that the line no recovery crosses has
 	// been crossed, and the reason it is reported at all: a leg that answered "reading" for
-	// everything past this point had a reader that died mid-title at exit 183 classified as a
-	// broken copy, and the cast was run again from byte zero with a viewer watching.
+	// everything past this point had a reader that died mid-title classified as a broken copy,
+	// and the cast was run again from byte zero with a viewer watching.
 	//
 	// It runs on Serve's own goroutine, between Play returning and the delivery being waited
 	// on, so a caller that reads what it recorded after Serve returns needs no
@@ -215,12 +215,19 @@ type opening struct {
 	made    func() media.Progress
 }
 
-// mechanisms maps a format's DeliveryKind to the constructor that fronts it. This is the whole
-// per-delivery dispatch: no switch, no content-type conditional. A constructor starts no process
-// and owns no lifetime, which is what leaves the ordering in one place (see open).
-var mechanisms = map[media.DeliveryKind]func(opening) (mechanism, error){
-	media.DeliverStream:    newStreamed,
-	media.DeliverSegmented: newSegmented,
+// mechanismFor is the whole per-delivery dispatch: a format's DeliveryKind names the
+// constructor that fronts it, with no content-type conditional anywhere and no error arm.
+// DeliverStream is the zero DeliveryKind and its constructor is the total answer, in the
+// manner of every String method here: a kind nobody wrote a case for is served the growing
+// single file, which is the mechanism that needs nothing of the format but its bytes.
+//
+// A constructor starts no process and owns no lifetime, which is what leaves the ordering in
+// one place (see open).
+func mechanismFor(k media.DeliveryKind) func(opening) (mechanism, error) {
+	if k == media.DeliverSegmented {
+		return newSegmented
+	}
+	return newStreamed
 }
 
 // session is one opened delivery: the mechanism serving it, the encode behind it, and the one
@@ -332,10 +339,7 @@ func open(ctx context.Context, p OpenParams, headers map[string]string) (*sessio
 		return err
 	})
 
-	build, ok := mechanisms[p.Opts.Format.Delivery]
-	if !ok {
-		return nil, errors.Join(fmt.Errorf("no delivery mechanism for format %q", p.Opts.Format.ContentType), stop())
-	}
+	build := mechanismFor(p.Opts.Format.Delivery)
 	// The mechanism's artifacts live in a directory of their own, never in the cast's work
 	// directory itself: the file server that fronts a segmented delivery publishes everything in
 	// the directory it is given, and the cast's own private files (the buffer a read-once leg
@@ -425,11 +429,11 @@ func (s *session) deliver(ctx context.Context, supervise Supervisor) error {
 // settle asks the mechanism what the renderer took, and asks it ONLY of a delivery that ran its
 // course cleanly.
 //
-// The ordering is the whole of it. Both statements say they are never made about a cast the user
-// stopped (see undelivered and unfetched), and while this was one cmp.Or the ordering was a claim
-// rather than a fact: cmp.Or is a function, so its second argument is evaluated on every cancelled
-// cast and only its answer discarded. Harmless while these two are pure arithmetic, and not
-// harmless the day one of them logs, counts, or reads a clock that has been running since Play.
+// The branch is the whole of it, and it is a branch rather than a cmp.Or so that the ordering
+// is a fact and not a claim: cmp.Or is an ordinary function, so it would evaluate the
+// completeness statement on every cancelled cast and discard the answer. Harmless while
+// undelivered and unfetched are pure arithmetic, and not harmless the day one of them logs,
+// counts, or reads a clock that has been running since Play.
 func (s *session) settle(delivered error) error {
 	if delivered != nil {
 		return delivered

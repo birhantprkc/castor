@@ -3,15 +3,15 @@ package attempt
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/stupside/castor/internal/cast/watch"
 )
 
 // playbook is what castor tries after each class of fault, in order, first strategy that
-// applies. It is keyed exactly like core.deliveries: a Kind missing from it is an error
-// naming the kind rather than a fall-through, because a fault nobody decided about is a
-// cast that quietly stopped recovering.
+// applies. Every Kind has an entry, which is a property of the table rather than a check in
+// the loop: the coupling tests walk the classification table against this one in both
+// directions, so a class with no entry and an entry no class reaches are both caught where
+// the tables are read rather than on the run that reached one.
 //
 // An empty entry is a decision and not an oversight: it says castor has nothing to offer
 // for that class, so the cast is refused with the fault, the measurements and what had
@@ -88,18 +88,13 @@ type revision struct {
 // revise chooses what to try after a fault: the first strategy the playbook offers for its
 // kind that both applies and produces an attempt this cast has not already run, and only
 // where the failure is one that may be answered by changing the attempt at all.
-func revise(ctx context.Context, in Intent, o Outcome, f *Fault, led *ledger, prog Program) (revision, error) {
+func revise(ctx context.Context, in Intent, o Outcome, f *Fault, led *ledger, prog Program) revision {
 	if !revisable(o) {
-		return revision{}, nil
-	}
-
-	strategies, ok := playbook[f.Kind]
-	if !ok {
-		return revision{}, fmt.Errorf("no playbook entry for a %s fault", f.Kind)
+		return revision{}
 	}
 
 	change := Change{Intent: in, Attempt: f.Attempt, Outcome: o, Program: prog}
-	for _, s := range strategies {
+	for _, s := range playbook[f.Kind] {
 		next, ok := s.Apply(ctx, change)
 		if !ok {
 			continue
@@ -108,19 +103,17 @@ func revise(ctx context.Context, in Intent, o Outcome, f *Fault, led *ledger, pr
 		if !led.admit(next) {
 			continue
 		}
-		return revision{Attempt: next, Strategy: s, Offered: true}, nil
+		return revision{Attempt: next, Strategy: s, Offered: true}
 	}
-	return revision{}, nil
+	return revision{}
 }
 
 // revisable answers whether a failed attempt may be changed and run again at all. It is a
 // CONJUNCTION, and that shape is the point: both terms have to be satisfied, so a failure
 // nobody characterised is abandoned rather than retried.
 //
-// The first term is the phase, and decision 1 is the whole of it. Nothing in castor seeks,
-// each attempt owns a fresh work directory and a fresh connect, and no renderer family is
-// known to accept a second Play mid-session, so a cast a viewer is already watching cannot be
-// started over: it would replay the film from the beginning at minute forty.
+// The first term is the phase, and Phase's own order is the whole of it: a cast a viewer is
+// already watching cannot be started over (see attempt.Phase for why nothing here can rewind).
 //
 // The second term is whether anybody judged the failure, and it defaults to no because the
 // alternative defaults to retrying. A watch's fault carries the action table's own answer
@@ -132,7 +125,7 @@ func revise(ctx context.Context, in Intent, o Outcome, f *Fault, led *ledger, pr
 // Everything else is a failure castor cannot aim a recovery from, and spending a viewer's time
 // re-reading a whole title on it is the wrong direction for a rule whose point is never to
 // restart a cast someone is watching. The failure that made this a conjunction rather than a
-// phase check: a reader that died mid-title at exit 183 arrived as a bare encoder error under a
+// phase check: a reader that died mid-title arrived as a bare encoder error under a
 // phase that said "reading", matched the copy-broke-upstream row on that status alone, and the
 // cast started over from byte zero.
 func revisable(o Outcome) bool {

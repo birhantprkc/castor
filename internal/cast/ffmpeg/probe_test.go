@@ -92,10 +92,7 @@ func TestSourceProbeWaitsOutARateLimiterTheReaderWouldHaveWaitedOut(t *testing.T
 	}))
 	defer srv.Close()
 
-	policy, err := read.For(read.Shape{}, testReadDeadline)
-	if err != nil {
-		t.Fatal(err)
-	}
+	policy := read.For(read.Shape{}, testReadDeadline)
 	src := NetworkSource{URL: mustURL(t, srv.URL+"/video.mp4"), ContentType: media.MP4, Read: policy}
 
 	info, err := SourceProbe(ffprobePath, src).Probe(t.Context())

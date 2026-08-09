@@ -154,7 +154,7 @@ func run(parent context.Context, cfg core.Config, t Target, stage StageFunc, a a
 		// leads where the source made one, since it describes the rung this cast will read
 		// while a probe of a master reports whichever variant ffprobe opened.
 		Height:    cmp.Or(a.Rendition.Height, a.Source.Height),
-		MaxHeight: cfg.Resolver.MaxHeight,
+		MaxHeight: cfg.MaxHeight,
 	})
 	if err != nil {
 		return landing{err: err}
@@ -293,7 +293,7 @@ func (c *cast) encode(ctx context.Context, caps media.Renderer, into media.Forma
 			Probe:     in.facts.Probe,
 			Into:      into,
 			Policy:    c.policy,
-			MaxHeight: c.cfg.Resolver.MaxHeight,
+			MaxHeight: c.cfg.MaxHeight,
 			// The attempt's own evidence, on both served legs at once: an axis a reader of this
 			// cast already died copying is not handed to a second process to copy again. On the
 			// buffered leg that second process reads the very packets the first produced.
@@ -333,11 +333,12 @@ func (c *cast) encode(ctx context.Context, caps media.Renderer, into media.Forma
 // states what watches its read instead of being able to omit one.
 //
 // It reports how far the cast got as well as what it ended with, and that phase is the whole
-// input to decision 1: PhasePlaying once the renderer has accepted the URL, and otherwise
-// before, which is what the caller states because only the caller knows what it had already
-// established. Everything a delivery does after Play (the wait, the supervisor, the encoder's
-// teardown) fails with a viewer watching, and a leg that reported those as reading is what let
-// a reader's exit 1 forty minutes into a film be answered by casting it again from zero.
+// input to the line no recovery crosses (see attempt.Phase): PhasePlaying once the renderer
+// has accepted the URL, and otherwise before, which is what the caller states because only
+// the caller knows what it had already established. Everything a delivery does after Play
+// (the wait, the supervisor, the encoder's teardown) fails with a viewer watching, and a leg
+// that reported those as reading is what let a mid-title failure be answered by casting the
+// title again from zero.
 func (c *cast) serve(ctx context.Context, dev Renderer, before attempt.Phase, p core.OpenParams, supervise core.Supervisor) (attempt.Phase, error) {
 	p.FFmpegPath = c.cfg.Transcode.FFmpegPath
 	p.LocalIP = c.localIP

@@ -60,12 +60,8 @@ func Play(ctx context.Context, cfg Config, candidates []*media.Stream) error {
 	}
 
 	// How the source is fetched, decided once from what it published and then carried
-	// by every reader that touches it. A shape no row answers stops the cast rather
-	// than reading on whatever terms a zero policy renders, which are none.
-	policy, err := read.For(read.ShapeOf(origin), cfg.Transcode.RWTimeout)
-	if err != nil {
-		return err
-	}
+	// by every reader that touches it.
+	policy := read.For(read.ShapeOf(origin), cfg.Transcode.RWTimeout)
 
 	// The resolved head takes its own place in the ordering, so the record of what a cast
 	// tried stays the ranking it was given: candidate 0 is the link that was read, spelled
@@ -83,7 +79,8 @@ func Play(ctx context.Context, cfg Config, candidates []*media.Stream) error {
 		Read:       policy,
 		Deadline:   cfg.Transcode.RWTimeout,
 		Delivery:   cfg.Delivery,
-	}, pipeline.NewExecutor(cfg.Config, core.Connect, burnInStage, localIP), resolve.NewPrograms(cfg.Source))
+	}, pipeline.NewExecutor(cfg.Config, core.Connect, burnInStage, localIP),
+		resolve.NewPrograms(cfg.Source, core.HandoffPossible(cfg.Config)))
 }
 
 // burnInStage is the one Stage a production cast can run, named here because the composition
@@ -91,8 +88,14 @@ func Play(ctx context.Context, cfg Config, candidates []*media.Stream) error {
 // ending up with none are decided here and only here, so nothing downstream re-reads the answer
 // off a nil pointer: the operator did not ask for subtitles, or whisper could not start, and the
 // second downgrades to a subtitle-less cast rather than blocking playback.
+//
+// The operator's answer is read straight off the transcriber's own knob. The two-value enum
+// that used to stand between them, and the function whose whole body was this condition, named
+// no axis this layer could act on: only the read-once composition draws cues, so "which
+// subtitle mode" is already answered by which composition ran, and a separately served caption
+// track is another Stage implementation rather than another case here.
 func burnInStage(ctx context.Context, cfg core.Config, workDir string) pipeline.Stage {
-	if core.SubtitleForServed(cfg) != core.SubtitleBurnIn {
+	if !cfg.Whisper.Enable {
 		return nil
 	}
 	// Returned through the interface only once it is known to be non-nil: a typed nil pointer

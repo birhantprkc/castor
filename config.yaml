@@ -19,14 +19,14 @@ device:
   # host: 192.168.0.3
 
 cast:
-  # How the device gets the bytes. On "auto" (the default) Castor hands a smart
-  # device the source URL only when it has checked the device can fetch it: not
-  # when the source answers only with the headers Castor captured, publishes its
-  # audio as a separate rendition, or opens only under relaxed reader checks
-  # (segments served under a disguised extension). Anything else is relayed.
-  # Set "serve" to relay always, for a source a device refuses for some reason
-  # Castor cannot see. Relaying spends this machine's bandwidth and CPU on every
-  # cast, so it stays opt-in.
+  # How the device gets the bytes, and the only knob there is for it.
+  #   auto  (the default) hand the source URL to a device that fetches for itself,
+  #         but only where Castor has established that it can: the checks are
+  #         several and they change, so they are not listed here. Every cast logs
+  #         which path it took and why, on the "cast composition" line.
+  #   serve relay always, for a source a device refuses for some reason Castor
+  #         cannot see. This spends this machine's bandwidth and CPU on every
+  #         cast, so it stays opt-in.
   # delivery: serve
 
 sources:
@@ -55,17 +55,22 @@ whisper:
   # (no CLI flag). The transcription and VAD models download once to your
   # user cache; language defaults to English. Set `language` for anything
   # else, and `model_path` to trade speed for accuracy.
+  # Burn-in needs frames Castor is drawing, so it applies only where Castor
+  # relays the stream. A device that fetches the source itself gets no
+  # subtitles from this.
   enable: false
 
 resolver:
-  # The tallest video to cast. Source selection prefers the largest stream no
-  # taller than this, and everything Castor produces is scaled down to it: the
-  # spool it serves a DLNA renderer and the remux it serves a Chromecast alike.
-  # A source handed straight to a device that fetches for itself is untouched, so
-  # that path plays whatever the source is (Castor is not in the middle of it and
-  # cannot scale it). Defaults to 1080; raise it to your TV's native height (e.g.
-  # 2160 for a 4K panel), or lower it to save bandwidth. There is no "off": to
-  # lift the ceiling, set it above anything you own.
+  # The tallest video to cast. It is a maximum on what reaches the device, on
+  # every path: source selection prefers the largest stream no taller than this,
+  # everything Castor produces is scaled down to it, and a source Castor
+  # established is taller is relayed and scaled rather than handed over, because
+  # Castor cannot scale a stream it never reads. That relay re-encodes the whole
+  # title, so raise this if you would rather the device play the source as it is.
+  # A source whose height nothing established is still handed over.
+  # Defaults to 1080; raise it to your TV's native height (e.g. 2160 for a 4K
+  # panel), or lower it to save bandwidth. There is no "off": to lift the
+  # ceiling, set it above anything you own.
   # max_height: 1080
 
 tmdb:

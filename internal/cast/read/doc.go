@@ -16,8 +16,9 @@
 // fast the source may be consumed. Which policy a source gets is a function of what
 // the source itself published (see media.Origin, harvested from a playlist the
 // reader is about to open anyway), so the answer is a table keyed on those facts,
-// walked in order, first match, with an unmatched shape an explicit error naming
-// the shape rather than a silent fall-through.
+// walked in order, first match, ending in a row that carries no predicate at all: a
+// source no other row claimed is read on the careful terms rather than on the zero
+// value's, which are no deadline, no reconnection and no pace.
 //
 // The ownership direction is deliberate. The two thresholds other stages derive
 // their own bounds from (the backoff ceiling and the encoder's burst) live here,

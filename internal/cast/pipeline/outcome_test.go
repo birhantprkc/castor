@@ -30,7 +30,7 @@ func TestTheReadsOwnErrorIsWhatTheCastReports(t *testing.T) {
 	readErr := errors.New("upstream pull: exit status 183")
 	noticed := fmt.Errorf("encoder: spool producer failed: %w", readErr)
 
-	out := landing{reached: attempt.PhaseReading, err: noticed, readErr: readErr}.outcome(t.Context())
+	out := landing{err: noticed, Evidence: attempt.Evidence{Reached: attempt.PhaseReading, ReadErr: readErr}}.outcome(t.Context())
 
 	if out.Err.Error() != readErr.Error() {
 		t.Errorf("the cast reports %q, want the read's own %q: the encoder merely noticed", out.Err, readErr)
@@ -51,7 +51,7 @@ func TestADeliveryWithSomethingOfItsOwnToSayIsHeardToo(t *testing.T) {
 	readErr := errors.New("upstream pull: exit status 183")
 	ownFault := errors.New("encoder: an audio repack was applied toward a container that frames its streams in band")
 
-	out := landing{reached: attempt.PhaseReading, err: ownFault, readErr: readErr}.outcome(t.Context())
+	out := landing{err: ownFault, Evidence: attempt.Evidence{Reached: attempt.PhaseReading, ReadErr: readErr}}.outcome(t.Context())
 
 	for _, want := range []error{readErr, ownFault} {
 		if !errors.Is(out.Err, want) {
@@ -79,7 +79,7 @@ func TestAVerdictKeepsItsOwnAccount(t *testing.T) {
 		Err:     readErr,
 	}
 
-	out := landing{reached: attempt.PhaseReading, err: verdict, readErr: readErr}.outcome(t.Context())
+	out := landing{err: verdict, Evidence: attempt.Evidence{Reached: attempt.PhaseReading, ReadErr: readErr}}.outcome(t.Context())
 
 	var got *watch.Fault
 	if !errors.As(out.Err, &got) {
@@ -114,7 +114,7 @@ func TestHowFarACastGotIsTheLaterOfWhatEachPartySaw(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			l := landing{reached: tt.leg, err: &watch.Fault{Kind: watch.Stalled, Window: tt.win}}
+			l := landing{err: &watch.Fault{Kind: watch.Stalled, Window: tt.win}, Evidence: attempt.Evidence{Reached: tt.leg}}
 			if got := l.outcome(t.Context()).Reached(); got != tt.want {
 				t.Errorf("reached %s, want %s", got, tt.want)
 			}
@@ -130,7 +130,7 @@ func TestACancelledCastIsReadFromTheContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	l := landing{reached: attempt.PhaseReading, err: errors.New("signal: killed"), readErr: errors.New("signal: killed")}
+	l := landing{err: errors.New("signal: killed"), Evidence: attempt.Evidence{Reached: attempt.PhaseReading, ReadErr: errors.New("signal: killed")}}
 	if !l.outcome(ctx).Evidence.Cancelled {
 		t.Error("a cast killed by its own context does not report itself cancelled")
 	}
@@ -145,7 +145,7 @@ func TestACancelledCastIsReadFromTheContext(t *testing.T) {
 // a sentence somebody has to parse.
 func TestARendererThatRefusedTheURLIsReportedAsSuch(t *testing.T) {
 	refused := errors.New("SOAP SetAVTransportURI: 714")
-	out := landing{playErr: refused, err: fmt.Errorf("starting playback: %w", refused)}.outcome(t.Context())
+	out := landing{err: fmt.Errorf("starting playback: %w", refused), Evidence: attempt.Evidence{PlayErr: refused}}.outcome(t.Context())
 
 	if out.Evidence.PlayErr != refused {
 		t.Errorf("evidence carries PlayErr %v, want the renderer's own refusal", out.Evidence.PlayErr)
@@ -185,7 +185,7 @@ func TestTheExecutorBlamesARendererThatWouldNotPlay(t *testing.T) {
 // structurally instead of on what the message happens to say.
 func TestADeliveryNobodyTookTheStreamFromReachesTheEvidence(t *testing.T) {
 	short := &core.Undelivered{Handed: 2 * time.Minute, Produced: 2 * time.Hour}
-	l := landing{reached: attempt.PhasePlaying, err: fmt.Errorf("delivering the stream: %w", short)}
+	l := landing{err: fmt.Errorf("delivering the stream: %w", short), Evidence: attempt.Evidence{Reached: attempt.PhasePlaying}}
 
 	out := l.outcome(t.Context())
 
@@ -203,7 +203,7 @@ func TestADeliveryNobodyTookTheStreamFromReachesTheEvidence(t *testing.T) {
 // TestADeliveredCastReportsNothingAgainstItself is the ordinary path, and the one shape a
 // join must never invent a failure for.
 func TestADeliveredCastReportsNothingAgainstItself(t *testing.T) {
-	out := landing{reached: attempt.PhaseDelivered}.outcome(t.Context())
+	out := landing{Evidence: attempt.Evidence{Reached: attempt.PhaseDelivered}}.outcome(t.Context())
 	if out.Err != nil {
 		t.Errorf("a delivered cast reports %v", out.Err)
 	}
@@ -218,13 +218,12 @@ func TestADeliveredCastReportsNothingAgainstItself(t *testing.T) {
 // was passing them through or producing them.
 func TestTheReadsExitStatusAndCopiesReachTheEvidence(t *testing.T) {
 	readErr := errors.New("upstream pull: exit status 183")
-	l := landing{
-		reached:    attempt.PhaseReading,
-		err:        fmt.Errorf("encoder: spool producer failed: %w", readErr),
-		readErr:    readErr,
-		readExit:   183,
-		readCopied: carriage.Axes{Video: true, Audio: true},
-	}
+	l := landing{err: fmt.Errorf("encoder: spool producer failed: %w", readErr), Evidence: attempt.Evidence{
+		Reached:  attempt.PhaseReading,
+		ReadErr:  readErr,
+		ReadExit: 183,
+		Copied:   carriage.Axes{Video: true, Audio: true},
+	}}
 
 	out := l.outcome(t.Context())
 	if out.Evidence.ReadExit != 183 {

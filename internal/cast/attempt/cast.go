@@ -81,12 +81,7 @@ func Cast(ctx context.Context, in Intent, run Runner, prog Program) error {
 			return cmp.Or(context.Cause(ctx), out.Err)
 		}
 
-		rev, err := revise(ctx, in, out, f, led, prog)
-		if err != nil {
-			// A class the playbook was never told about. The cast fails with both, because the
-			// fault is what a user has to act on and the missing entry is what a contributor does.
-			return errors.Join(f, err)
-		}
+		rev := revise(ctx, in, out, f, led, prog)
 		if !rev.Offered {
 			// The arithmetic is on this line as well as in the error, because the two are read in
 			// different places: a user reads the returned error, and whoever is handed the log

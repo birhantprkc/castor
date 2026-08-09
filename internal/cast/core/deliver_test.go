@@ -26,22 +26,6 @@ import (
 	"github.com/stupside/castor/internal/media"
 )
 
-// TestSubtitlesFollowTheTranscriberAndNothingElse pins the whole of the subtitle axis
-// where it is now decided. The renderer clause a general rule would add (there must be a
-// local encode to draw cues into) is structural instead: only the composition chosen for a
-// renderer that never fetches for itself builds a burn-in, so a cast with no decoded frames
-// cannot reach this question at all.
-func TestSubtitlesFollowTheTranscriberAndNothingElse(t *testing.T) {
-	cfg := Config{}
-	if got := SubtitleForServed(cfg); got != SubtitleOff {
-		t.Errorf("with the transcriber off: got %v, want SubtitleOff", got)
-	}
-	cfg.Whisper.Enable = true
-	if got := SubtitleForServed(cfg); got != SubtitleBurnIn {
-		t.Errorf("with the transcriber on: got %v, want SubtitleBurnIn", got)
-	}
-}
-
 // TestEveryEncodeIsAskedToReportAndIsAlwaysRead covers the delivery driver's half of
 // the encoder's telemetry, against a real ffmpeg.
 //
@@ -56,10 +40,7 @@ func TestEveryEncodeIsAskedToReportAndIsAlwaysRead(t *testing.T) {
 	ffmpegPath := requireFFmpeg(t)
 	origin := serveFixture(t, ffmpegPath)
 
-	policy, err := read.For(read.Shape{}, 30*time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
+	policy := read.For(read.Shape{}, 30*time.Second)
 	format, ok := media.FormatForContentType(media.MP4)
 	if !ok {
 		t.Fatal("the format registry cannot produce mp4")
@@ -402,17 +383,14 @@ func TestServeReportsTheSupervisorsVerdict(t *testing.T) {
 	ffmpegPath := requireFFmpeg(t)
 	origin := serveFixture(t, ffmpegPath)
 
-	policy, err := read.For(read.Shape{}, 30*time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
+	policy := read.For(read.Shape{}, 30*time.Second)
 	format, ok := media.FormatForContentType(media.MP4)
 	if !ok {
 		t.Fatal("the format registry cannot produce mp4")
 	}
 
 	verdict := errors.New("the renderer accepted the stream URL and never requested it")
-	err = Serve(t.Context(), probingRenderer{}, OpenParams{
+	err := Serve(t.Context(), probingRenderer{}, OpenParams{
 		FFmpegPath: ffmpegPath,
 		LocalIP:    "127.0.0.1",
 		WorkDir:    t.TempDir(),
@@ -870,10 +848,7 @@ func openFixture(t *testing.T, contentType, workDir string) *session {
 	t.Helper()
 	ffmpegPath := requireFFmpeg(t)
 	origin := serveFixture(t, ffmpegPath)
-	policy, err := read.For(read.Shape{}, 30*time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
+	policy := read.For(read.Shape{}, 30*time.Second)
 	format, ok := media.FormatForContentType(contentType)
 	if !ok {
 		t.Fatalf("the format registry cannot produce %s", contentType)
@@ -964,9 +939,9 @@ func statusOf(t *testing.T, u *url.URL) int {
 // unwritable, because every mechanism has a Settled method and both of them are made to use it
 // here.
 func TestEveryDeliveryStatesWhatItCanBeJudgedOn(t *testing.T) {
-	// Keyed on the delivery kind and walked from the dispatch table itself, so a third mechanism
-	// cannot be added without a row here stating what it can answer: a mechanism nobody made
-	// state anything is how this failure shipped.
+	// Keyed on the delivery kind, and every kind the format registry can name is walked, so a
+	// third mechanism cannot be added without a row here stating what it can answer: a
+	// mechanism nobody made state anything is how this failure shipped.
 	expected := map[media.DeliveryKind]struct {
 		name        string
 		contentType string
@@ -978,7 +953,19 @@ func TestEveryDeliveryStatesWhatItCanBeJudgedOn(t *testing.T) {
 		media.DeliverSegmented: {name: "a rolling window has deleted most of what it produced", contentType: media.HLS},
 	}
 
-	for kind := range mechanisms {
+	// The kinds are read off the format registry, which is the only thing that can name one:
+	// the dispatch is a function now, so there is no table of mechanisms left to enumerate,
+	// and enumerating the formats is the same question asked of the party that answers it.
+	kinds := map[media.DeliveryKind]bool{}
+	for _, ct := range []string{media.MPEGTS, media.MP4, media.HLS} {
+		format, ok := media.FormatForContentType(ct)
+		if !ok {
+			t.Fatalf("the format registry cannot produce %s", ct)
+		}
+		kinds[format.Delivery] = true
+	}
+
+	for kind := range kinds {
 		tt, known := expected[kind]
 		if !known {
 			t.Fatalf("the %v delivery mechanism is not covered here, so nothing says what it can be judged on", kind)
@@ -1126,10 +1113,7 @@ func TestACastWhoseEncoderIsTheReadStopsThatEncoder(t *testing.T) {
 	if !ok {
 		t.Fatal("the format registry cannot produce mpegts")
 	}
-	policy, err := read.For(read.Shape{}, time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
+	policy := read.For(read.Shape{}, time.Hour)
 
 	verdict := errors.New("the source stopped feeding this cast")
 	done := make(chan error, 1)

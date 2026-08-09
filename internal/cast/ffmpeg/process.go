@@ -352,17 +352,18 @@ type silentFailure struct {
 // the carriage package, precisely because the ffmpeg CLI offers no
 // machine-readable error channel and prose is not a contract.
 //
-// A container refusing a codec is deliberately absent: that shape is recoverable,
-// so reporting it as terminal here would kill the cast before the recovery ran. Exit status is not a health signal for a stream
-// copy: three known shapes exit 0 with destroyed media, and every one of them
-// prints a line. Watching for the lines is what turns the worst results in the
-// whole matrix into detected ones, and it needs no codec allow-list, so it stays
-// correct as ffmpeg's muxers change. It observes; it gates nothing.
+// A container refusing a codec is deliberately absent: that shape is prevented
+// rather than detected (the carriage tables refuse the copy), and reporting it as
+// terminal here would kill the cast before the recovery ran.
 //
-// The copy adaptation tables already make the first two unreachable on the paths
-// castor plans. This is the net under the paths it cannot plan (the read-once
-// pull, which runs before any probe exists) and under every codec nobody has
-// characterised yet.
+// So the table below holds two rows and not a matrix. One is genuinely silent, an
+// ADTS repack aimed at an in-band container that exits 0 with the packets
+// discarded; the other exits non-zero and is kept because catching it on the first
+// line names the fix. Watching for lines needs no codec allow-list, so it stays
+// correct as ffmpeg's muxers change, and the copy adaptation tables already make
+// both unreachable on the paths castor plans. This is the net under the path it
+// cannot plan (the read-once pull, which runs before any probe exists) and under
+// every codec nobody has characterised yet. It observes; it gates nothing.
 var silentFailures = []silentFailure{
 	{
 		// aac_adtstoasc pointed at an in-band container with an ADTS input: the

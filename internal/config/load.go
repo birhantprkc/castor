@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-playground/validator/v10"
@@ -26,7 +27,7 @@ import (
 // so an explicit value always wins. Only what genuinely identifies an install
 // is left zero: the device to cast to and the sources to cast from.
 func defaults() *Config {
-	return &Config{
+	cfg := &Config{
 		Network: cast.NetworkConfig{Timeout: 5 * time.Second},
 		Browser: extract.BrowserConfig{Timeout: 30 * time.Second, Headless: true},
 		Resolver: resolve.Config{
@@ -54,6 +55,12 @@ func defaults() *Config {
 		// every buffer with auto, which misfires on music and quiet stretches.
 		Whisper: cast.WhisperConfig{Language: "en"},
 	}
+	// Installed here rather than at the first call, because "one per process" is a decision
+	// about the process and not a property any one caller can arrange. The memo closes over
+	// cfg, which the file and environment layers then overwrite in place, so the resolver it
+	// builds carries the settled configuration and not these defaults.
+	cfg.source = sync.OnceValue(cfg.newResolver)
+	return cfg
 }
 
 // envPrefix is the prefix for environment overrides. Convention:

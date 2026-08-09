@@ -9,26 +9,6 @@ import (
 	"github.com/stupside/castor/internal/media"
 )
 
-// SubtitleForServed is the subtitle axis of a cast castor produces the picture for.
-// Config is its only input, and that is a property of where it is asked: only the
-// read-once composition draws cues, and that composition is chosen exactly when the
-// renderer never fetches for itself, so the clause a general rule would add (there must be
-// a local drawtext encode to draw into) is already true of every cast that reaches here.
-// A renderer that fetches for itself either takes the source URL or is served a remux, and
-// neither has decoded frames to draw on; it takes captions as a native track instead.
-//
-// It takes config rather than a renderer because the answer is needed before one has
-// answered anything: the read must know whether to tee PCM the moment it starts, which is
-// long before there are capabilities to read. The only way to ask a renderer-shaped
-// question that early was to hand the planner a fabricated media.Renderer, a capability
-// record no device produced, standing in for one that had not connected yet.
-func SubtitleForServed(cfg Config) SubtitleMode {
-	if cfg.Whisper.Enable {
-		return SubtitleBurnIn
-	}
-	return SubtitleOff
-}
-
 // VideoPolicy answers exactly one question: how far does this leg trust the envelope
 // the renderer advertised. Being permissive there is right, because refusing a copy over
 // a profile a device probably decodes buys a whole title of needless transcode, and the
@@ -40,9 +20,10 @@ func SubtitleForServed(cfg Config) SubtitleMode {
 // stating what they want cast is not an opinion about a device, so no policy value may
 // short-circuit it: it used to, and resolver.max_height then meant one thing on a
 // buffered cast and nothing at all on a remux, decided by which delivery path a device
-// happened to land on and reported nowhere. Carriage is outside it too, for the mirror
-// reason: it is a fact about the muxer rather than a capability gate, and its only effect
-// is to route a doomed copy to the ladder.
+// happened to land on and reported nowhere. The same is true of an HDR bitstream, which
+// is refused for every renderer alike, and of carriage, which is a fact about the muxer
+// rather than a capability gate and whose only effect is to route a doomed copy to the
+// ladder.
 type VideoPolicy int
 
 const (
@@ -71,8 +52,8 @@ type VideoInputs struct {
 	// answer rather than a copy nobody asked for. It lifts nothing else.
 	Policy VideoPolicy
 	// Decode is the axes a previous attempt of this cast proved must not be copied,
-	// because the reader that was copying them exited on the bitstream (exit 183,
-	// "Invalid NAL unit size"). It overrules the policy, which is the point: a
+	// because the reader that was copying them exited on the bitstream it was handed
+	// (see read's segment-fragile row). It overrules the policy, which is the point: a
 	// CopyWhatever leg copies whatever the source is precisely because it has no
 	// evidence against the bitstream, and this is that evidence. Zero is the ordinary
 	// case, a first attempt with nothing against it.
@@ -102,19 +83,18 @@ type VideoInputs struct {
 // DecideVideo is the whole copy-vs-encode answer for the video axis, for both
 // served shapes:
 //
-//   - copy: nothing forces an encode. Three clauses have to hold, and only one of
+//   - copy: nothing forces an encode. Four clauses have to hold, and only one of
 //     them is the policy's to lift. The cast's height ceiling holds on every
 //     policy, because it is what the user asked for rather than a judgement about
-//     the renderer. The output container's carriage holds on every policy too, and
+//     the renderer. The source's dynamic range holds on every policy for the
+//     mirror reason: an HDR bitstream is refused for every renderer alike, because
+//     nothing establishes that an arbitrary set engages HDR on a stream it was
+//     handed. The output container's carriage holds on every policy too, and
 //     it is not a capability gate either: it asks whether ffmpeg's muxer has a
 //     stream type for the codec, and its entire effect is to route into the
-//     re-encode below a copy the muxer would otherwise have destroyed. -f mpegts
-//     writes VP8, VP9, AV1, MJPEG and msmpeg4v3 as private data at exit 0 with
-//     hundreds of KB written and no video stream at all in the output (av1 is
-//     worse: it reads back misidentified as mpeg4 with 7 of 150 packets readable,
-//     so the renderer is handed a video stream, just a corrupt one). Re-encoding
-//     into the identical destination flag set gave exit 0 and 150/150 decoded
-//     frames for every impossible cell. The third clause, the envelope the renderer
+//     re-encode below a copy the muxer would otherwise have destroyed at a clean
+//     exit (the codecs, and what each of them does instead of refusing, are the
+//     carriage tables' to state). The fourth clause, the envelope the renderer
 //     advertised, is the one CopyWhatever trusts past;
 //   - re-encode: otherwise, to the most efficient codec the renderer advertises
 //     and this host can hardware-encode (HEVC at half the bitrate, else H.264),
@@ -123,20 +103,26 @@ type VideoInputs struct {
 //     cast's and reaches both branches; the GOP bound is the encode's own, and a
 //     copy has nowhere to carry one.
 //
-// It returns the track rather than writing into an encode, which is what collapses
-// the old ResolveVideo/ReencodeVideo pair into one function: a caller holding a
-// that belong to it.
+// It returns the track rather than writing into an encode, so a caller holds one value
+// describing the whole video axis instead of assembling an encode from two functions that
+// each knew half of it.
 //
 // SelectEncoder proves an encoder with a real test encode (cached per process),
 // so this takes ctx: a slow or wedged probe is cancelled when the cast's context
 // ends rather than running detached.
 func DecideVideo(ctx context.Context, in VideoInputs) ffmpeg.VideoTrack {
 	blocked := carriage.Known(in.Probe, in.Into).Video
-	// The ceiling is conjoined with the policy's question, never a disjunct of it: as a
-	// disjunct CopyWhatever answers true before the ceiling is read at all, and a leg that
-	// silently stops honouring the ceiling is the drift media.HeightCap exists to prevent.
+	// The ceiling and the dynamic range are conjoined with the policy's question, never
+	// disjuncts of it: as a disjunct CopyWhatever answers true before either is read at all,
+	// and a leg that silently stops honouring one is the drift media.HeightCap exists to
+	// prevent. Neither was ever a judgement about the renderer, which is why neither sits in
+	// the envelope a renderer declares: the ceiling is what the user asked for, and HDR is a
+	// policy castor holds for every set alike, correct HDR playback not being something that
+	// can be assumed to engage on an arbitrary one. It used to live inside VideoSupport, so
+	// on the leg that trusts a renderer past its envelope it was never asked at all and an
+	// HDR master was handed over untouched.
 	tall := !in.MaxHeight.Admits(in.Probe.VideoHeight)
-	fits := (in.Policy == CopyWhatever || in.Caps.CanCopyVideo(in.Probe)) && !tall
+	fits := (in.Policy == CopyWhatever || in.Caps.CanCopyVideo(in.Probe)) && !tall && !in.Probe.VideoHDR
 	if in.BurnIn == "" && !blocked && !in.Decode.Video && fits {
 		return ffmpeg.CopyVideo()
 	}
@@ -166,9 +152,9 @@ func DecideVideo(ctx context.Context, in VideoInputs) ffmpeg.VideoTrack {
 		// The one cost the ceiling imposes, stated where a user can attribute it, and it is
 		// stated after the encoder is resolved because the encoder is half the answer: a decode,
 		// scale and re-encode of a 2160p source has to hold realtime for the whole title, which a
-		// hardware encoder does comfortably and a software one on a busy host does not (the
-		// deliverability rule's calibration runs measured 0.0627x to 0.39x against reads allowed
-		// twice realtime). hardware=false beside source_height=2160 is the line that says a stalling
+		// hardware encoder does comfortably and a software one on a busy host does not, well down
+		// into the range watch.Health's calibration convicts a link on. hardware=false beside
+		// source_height=2160 is the line that says a stalling
 		// cast is castor's own encode and not the link, which nothing downstream can say for it:
 		// no deliverability verdict is reached on an encode castor chose to run (see
 		// pipeline's pull.judgedPace, and the remux leg, which supplies no pace at all).

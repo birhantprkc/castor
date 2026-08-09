@@ -231,10 +231,7 @@ func produce(t *testing.T, in input, out output) result {
 	// source, chosen exactly as production chooses them (from what the source
 	// published, not from the URL), so this matrix exercises the flags a real cast
 	// sends rather than a set assembled here.
-	policy, err := read.For(read.ShapeOf(media.Origin{Segmented: true, Live: true}), 30*time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
+	policy := read.For(read.ShapeOf(media.Origin{Segmented: true, Live: true}), 30*time.Second)
 	source := ffmpeg.NewNetworkSource(stream, policy)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)

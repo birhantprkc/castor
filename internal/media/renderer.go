@@ -34,13 +34,17 @@ type Renderer struct {
 
 // VideoSupport is one video envelope a renderer decodes natively. A probed
 // source is copy-eligible when it matches at least one on the things that
-// black-screen a TV outright: codec, profile, bit depth, and dynamic range. An
-// HDR source is never copy-eligible: correct HDR playback cannot be assumed to
-// engage on an arbitrary renderer, so it is re-encoded to an SDR-safe output
-// rather than passed through (this is a generic conservative policy, not tied to
-// any device family). Resolution is deliberately absent: it is the user's
-// cast-quality preference (config max_height), applied at source selection and
-// the copy gate, not something guessed from the renderer.
+// black-screen a TV outright: codec, profile and bit depth.
+//
+// Two facts about a picture are deliberately NOT here, and for the same reason:
+// neither is anything a renderer said about itself, so a device declaring one
+// would be answering someone else's question. Resolution is the user's
+// cast-quality preference (HeightCap is the one type that says where it binds).
+// Dynamic range is a policy castor holds for every renderer alike, HDR playback
+// not being something that can be assumed to engage on an arbitrary set; both are
+// refused where the copy is actually decided (see core.DecideVideo), which is what
+// makes them bind on every leg rather than only on the legs that consult an
+// envelope at all.
 type VideoSupport struct {
 	Codec     Codec
 	Profiles  []string // nil or empty = any profile
@@ -57,6 +61,32 @@ type AudioSupport struct {
 	Codec       Codec
 	MaxChannels int // highest channel count the renderer decodes; 0 = no ceiling
 }
+
+// DeliveryPreference is what the operator asks of the delivery axis: whether a renderer
+// that fetches for itself may be handed the source URL at all. It exists for the one case
+// castor cannot infer: a source that lies about itself (a playlist whose segments are
+// served under a disguised extension, say) is fetchable as far as castor can tell, yet the
+// renderer refuses it. No evidence distinguishes that source from a well-formed one, so
+// only the operator can say.
+//
+// Nothing else about a cast is configurable this way on purpose. Every other axis is
+// inferred from evidence castor holds (a probe, advertised capabilities), and a renderer
+// that misbehaves there is a capability-data fix, not a knob.
+//
+// It lives beside Renderer.SelfFetch because it is the operator's answer to the same
+// question, and it lives in this leaf package because the recovery loop that flips it
+// performs no I/O of its own: a spine that had to import the delivery driver to name this
+// value would link an ffmpeg, a device adapter and two HTTP servers to say "serve".
+type DeliveryPreference string
+
+const (
+	// DeliveryAuto leaves the decision to the evidence (see core.Shape.Passthrough). It is
+	// also what an unset key means, so the zero value needs no default.
+	DeliveryAuto DeliveryPreference = "auto"
+	// DeliveryServe refuses pass-through for every cast: castor reads the source and serves
+	// the renderer a local stream, whatever the source looks like.
+	DeliveryServe DeliveryPreference = "serve"
+)
 
 // AcceptsContainer reports whether the device plays contentType directly over
 // the network (the pass-through decision).
@@ -113,8 +143,5 @@ func (s VideoSupport) accepts(v ProbeInfo) bool {
 	if len(depths) == 0 {
 		depths = []int{8}
 	}
-	if !slices.Contains(depths, v.VideoBitDepth) {
-		return false
-	}
-	return !v.VideoHDR
+	return slices.Contains(depths, v.VideoBitDepth)
 }

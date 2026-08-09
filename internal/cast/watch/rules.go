@@ -33,7 +33,7 @@ type Rule struct {
 	Windows []Window
 	// When reports whether this row answers a cast in this state. It reads Health and
 	// nothing else, which is what makes every row exercisable with no ffmpeg, no network
-	// and no renderer.
+	// and no renderer. It is nil on a total row, which is never asked (see total).
 	When func(Health) bool
 	// Kind is the verdict.
 	Kind Kind
@@ -44,10 +44,11 @@ type Rule struct {
 // rules is how castor judges a cast, in order, first match. It is walked by Watch,
 // which is the only way a verdict is reached.
 //
-// The rows run from the states that end a cast to the states that continue it, and the
-// last two rows are the totals: a Health no row answered would be an error, so every
-// window ends in a row that always matches. Adding a pathology is one row here plus one
-// case in rules_test.go, where the case builds a Health directly.
+// The rows run from the states that end a cast to the states that continue it, and what
+// none of them claims is answered by the window's own total row (see total): a judgement
+// is a verdict rather than a value-or-error, because a cast nobody could judge is a cast
+// nobody is watching. Adding a pathology is one row here plus one case in rules_test.go,
+// where the case builds a Health directly.
 //
 // EVERY ROW NAMES THE PRODUCTION MONITOR IT IS REACHED THROUGH, as the file and the FUNCTION
 // that opens it, and that is not documentation: a row is only worth its place if the shipping
@@ -148,7 +149,7 @@ var rules = []Rule{{
 	// readiness row for the second one.
 	//
 	// Holding rather than convicting is what lets a transient dip be a dip. Holding
-	// rather than opening is the whole of decision 3: past this point the deliverability
+	// rather than opening is why the hold exists at all: past this point the deliverability
 	// question is unreachable, because a revision is what would rescue a starving cast
 	// and no revision exists once a renderer holds a URL. A cast castor has measured
 	// under playback rate is one it is still deciding about, not one to hand over.
@@ -186,12 +187,9 @@ var rules = []Rule{{
 	// reported as SUCCESS: castor encodes the whole title, the delivery's idle grace expires
 	// with no client having ever arrived, and Wait returns nil.
 	//
-	// Keyed on what the renderer was HANDED and not on whether it asked, because asking is
-	// free and the delivery counts it before a byte of the response is written. A renderer's first
-	// move on a stream URL is a probe (a HEAD, then a short GET, then the real GET), so a row
-	// reading a request count is answered "it fetched" by a renderer that came to the door and
-	// took nothing, which is the observed run exactly: the URL accepted, a request in the log,
-	// bytes_sent=0. That is the one shape this verdict exists for, and a count could not see it.
+	// Keyed on what the renderer was HANDED and not on whether it asked: a request count says
+	// "it fetched" about a renderer that came to the door and took nothing, which is the one
+	// shape this verdict exists for (Consumer states why bytes are the only honest measure).
 	//
 	// Handed nothing is the whole of what this window can say about a renderer, and the
 	// boundary is deliberate. A renderer that took some of it and then STOPPED is not judged here
@@ -255,41 +253,61 @@ var rules = []Rule{{
 	Windows: []Window{Opening},
 	When:    func(h Health) bool { return h.playable() || h.Overdue },
 	Kind:    Ready,
-}, {
-	// Production path: every monitor opened before a renderer holds a URL
-	// (pipeline/gate.go:waitForPlayable, core/deliver.go:ready).
+}}
+
+// starting is the total row of both pre-playback windows: nothing has been established, so
+// there is nothing to act on and the watch takes another reading.
+//
+// Production path: every monitor opened before a renderer holds a URL
+// (pipeline/gate.go:waitForPlayable, core/deliver.go:ready).
+var starting = Rule{
 	Name:    "starting",
 	Why:     "nothing has been established yet",
 	Windows: []Window{BeforePlay, Opening},
-	When:    func(Health) bool { return true },
 	Kind:    Starting,
-}, {
-	// Production path: the playing cast (pipeline/gate.go:supervise,
-	// core/deliver.go:watchTheEncode).
+}
+
+// healthy is the total row of the playing window: a cast in flight with nothing against it.
+//
+// Production path: the playing cast (pipeline/gate.go:supervise,
+// core/deliver.go:watchTheEncode).
+var healthy = Rule{
 	Name:    "healthy",
 	Why:     "nothing is against this cast",
 	Windows: []Window{Playing},
-	When:    func(Health) bool { return true },
 	Kind:    Healthy,
-}}
+}
+
+// total is the row a window ends in: what a cast is judged as when no ordered row above
+// claimed it. It is a function over the window rather than two more rows at the bottom of
+// the table because that is what makes the walk total by construction: every Window value
+// has an answer here, so judge reaches a verdict instead of reporting that the totals
+// stopped being total. Neither row carries a When, since neither is ever asked one.
+func total(w Window) Rule {
+	if w == Playing {
+		return healthy
+	}
+	return starting
+}
 
 // judge walks the table for one window and returns the row that answers this state
 // together with what to do about it.
 //
-// Both failures are errors naming the shape rather than a fall-through, because a
-// silent default here is a cast nobody is judging: an unanswered Health means the totals
-// stopped being total, and a verdict with no action for its window means a row was given
-// a window the action table was never told about.
+// The one failure left is a verdict with no action for its window, which means a row was
+// given a window the action table was never told about: a cast being observed by something
+// with no idea what to do. It is an error naming the row rather than a fall-through for the
+// same reason the rest of this file has none.
 func judge(w Window, h Health) (Rule, action, error) {
-	for _, r := range rules {
-		if !slices.Contains(r.Windows, w) || !r.When(h) {
-			continue
+	r := total(w)
+	for _, candidate := range rules {
+		if slices.Contains(candidate.Windows, w) && candidate.When(h) {
+			r = candidate
+			break
 		}
-		act, ok := actions[verdict{Kind: r.Kind, Window: w}]
-		if !ok {
-			return Rule{}, 0, fmt.Errorf("rule %q reached a %s verdict in the %s window, which has no action", r.Name, r.Kind, w)
-		}
-		return r, act, nil
 	}
-	return Rule{}, 0, fmt.Errorf("no health rule answers a cast in the %s window with %s", w, h)
+	act, ok := actions[verdict{Kind: r.Kind, Window: w}]
+	if !ok {
+		return Rule{}, 0, fmt.Errorf("rule %q reached a %s verdict in the %s window, which has no action", r.Name, r.Kind, w)
+	}
+	return r, act, nil
 }

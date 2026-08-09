@@ -47,7 +47,7 @@ func TestResolveMarksLenientOnlySource(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			resolved, _, _, err := resolver.Resolve(t.Context(), &media.Stream{URL: u, ContentType: media.HLS})
+			resolved, _, _, err := resolver.Resolve(t.Context(), &media.Stream{URL: u, ContentType: media.HLS}, true)
 			if err != nil {
 				t.Fatalf("Resolve: %v", err)
 			}
@@ -61,12 +61,57 @@ func TestResolveMarksLenientOnlySource(t *testing.T) {
 	}
 }
 
-// TestResolveSkipsTheProbeItCannotUse guards the cost of that measurement. A
-// header-gated source is served whatever the conformance probe would say, so
-// spending one is spending a request against a single-use signed URL to confirm a
-// decision already made.
+// TestResolveSkipsTheProbeItCannotUse guards the cost of that measurement, on every
+// way the hand-off can already be off the table. Spending a conformance probe is
+// spending a whole extra open of a possibly single-use signed URL, and a source that
+// will be served whatever it says is a source nothing will read the answer about.
+//
+// The last two cases are the ones this could only learn by being told: the renderer
+// that has to be served the bytes, and the operator who asked for a relay outright.
+// Both were once decided outside this package and invisible from inside it, so every
+// cast to a push-only renderer paid for a fact no composition would go on to read.
 func TestResolveSkipsTheProbeItCannotUse(t *testing.T) {
-	const raw = "http://a.example/gated.m3u8"
+	for _, tc := range []struct {
+		name            string
+		headers         http.Header
+		handoffPossible bool
+	}{
+		{"a header-gated source is served whatever a plain reader makes of it", http.Header{"Referer": {"https://player.example/"}}, true},
+		{"a renderer that cannot fetch is never handed the URL to fetch", nil, false},
+		{"an operator who asked for a relay has answered for every source", nil, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const raw = "http://a.example/gated.m3u8"
+			measurer := &fakeMeasurer{answers: map[string]answer{raw: {unaided: false}}}
+			resolver := newTestResolver(measurer, &fakePlaylists{body: mediaPlaylist, status: http.StatusOK})
+
+			u, err := url.Parse(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resolved, _, _, err := resolver.Resolve(t.Context(), &media.Stream{
+				URL:         u,
+				ContentType: media.HLS,
+				Headers:     tc.headers,
+			}, tc.handoffPossible)
+			if err != nil {
+				t.Fatalf("Resolve: %v", err)
+			}
+			if got := measurer.conformanceProbes(); len(got) != 0 {
+				t.Errorf("the conformance probe ran for %v; this source is served whatever it would have said", got)
+			}
+			if resolved.NeedsLeniency {
+				t.Error("NeedsLeniency was set without the probe that establishes it")
+			}
+		})
+	}
+}
+
+// TestProgramsAsksTheSameQuestionTheCastWasComposedOn pins the recovery path to the
+// same answer: a loop that re-established what the next link publishes would otherwise
+// pay the probe the first resolution was spared, once per candidate it walks.
+func TestProgramsAsksTheSameQuestionTheCastWasComposedOn(t *testing.T) {
+	const raw = "http://a.example/next.m3u8"
 	measurer := &fakeMeasurer{answers: map[string]answer{raw: {unaided: false}}}
 	resolver := newTestResolver(measurer, &fakePlaylists{body: mediaPlaylist, status: http.StatusOK})
 
@@ -74,19 +119,11 @@ func TestResolveSkipsTheProbeItCannotUse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, _, _, err := resolver.Resolve(t.Context(), &media.Stream{
-		URL:         u,
-		ContentType: media.HLS,
-		Headers:     http.Header{"Referer": {"https://player.example/"}},
-	})
-	if err != nil {
-		t.Fatalf("Resolve: %v", err)
+	if _, _, _, err := NewPrograms(resolver, false).Refetch(t.Context(), &media.Stream{URL: u, ContentType: media.HLS}); err != nil {
+		t.Fatalf("Refetch: %v", err)
 	}
 	if got := measurer.conformanceProbes(); len(got) != 0 {
-		t.Errorf("the conformance probe ran for %v; a header-gated source is served regardless", got)
-	}
-	if resolved.NeedsLeniency {
-		t.Error("NeedsLeniency was set without the probe that establishes it")
+		t.Errorf("the conformance probe ran for %v on a cast that cannot hand anything over", got)
 	}
 }
 
@@ -104,7 +141,7 @@ func TestResolveKeepsTheStreamWhenThePlaylistIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, _, _, err := resolver.Resolve(t.Context(), &media.Stream{URL: u, ContentType: media.HLS})
+	resolved, _, _, err := resolver.Resolve(t.Context(), &media.Stream{URL: u, ContentType: media.HLS}, true)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -134,7 +171,7 @@ func TestResolveIdentifiesAnUnnamedSource(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		resolved, origin, _, err := newTestResolver(measurer, &fakePlaylists{}).Resolve(t.Context(), &media.Stream{URL: u})
+		resolved, origin, _, err := newTestResolver(measurer, &fakePlaylists{}).Resolve(t.Context(), &media.Stream{URL: u}, true)
 		if err != nil {
 			t.Fatalf("Resolve: %v", err)
 		}
@@ -166,7 +203,7 @@ func TestResolveIdentifiesAnUnnamedSource(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, _, _, err := newTestResolver(measurer, &fakePlaylists{}).Resolve(t.Context(), &media.Stream{URL: u}); err == nil {
+		if _, _, _, err := newTestResolver(measurer, &fakePlaylists{}).Resolve(t.Context(), &media.Stream{URL: u}, true); err == nil {
 			t.Fatal("resolution must fail when the source cannot be identified at all")
 		}
 	})
@@ -189,7 +226,7 @@ func TestResolveCarriesAnAlreadyNamedSourcesMeasurement(t *testing.T) {
 	measurer := &fakeMeasurer{}
 	// The stream as ranking leaves it: named, measured, and marked as measured.
 	resolved, origin, _, err := newTestResolver(measurer, &fakePlaylists{}).Resolve(t.Context(),
-		&media.Stream{URL: u, ContentType: media.MP4, Height: 2160, Duration: 2 * time.Hour, Probed: true})
+		&media.Stream{URL: u, ContentType: media.MP4, Height: 2160, Duration: 2 * time.Hour, Probed: true}, true)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -253,7 +290,7 @@ func resolveFixtureRung(t *testing.T, name string) (*media.Stream, media.Origin,
 		t.Fatal(err)
 	}
 	playlists := &fixturePlaylists{}
-	stream, origin, chosen, err := newTestResolver(&fakeMeasurer{}, playlists).Resolve(t.Context(), &media.Stream{URL: u, ContentType: media.HLS})
+	stream, origin, chosen, err := newTestResolver(&fakeMeasurer{}, playlists).Resolve(t.Context(), &media.Stream{URL: u, ContentType: media.HLS}, true)
 	if err != nil {
 		t.Fatalf("Resolve(%s): %v", name, err)
 	}
@@ -375,7 +412,7 @@ func TestResolveStatesWhichRungItChose(t *testing.T) {
 			t.Fatal(err)
 		}
 		_, _, chosen, err := newTestResolver(&fakeMeasurer{}, &fakePlaylists{err: fmt.Errorf("403")}).
-			Resolve(t.Context(), &media.Stream{URL: u, ContentType: media.HLS})
+			Resolve(t.Context(), &media.Stream{URL: u, ContentType: media.HLS}, true)
 		if err != nil {
 			t.Fatalf("Resolve: %v", err)
 		}
@@ -487,7 +524,7 @@ func TestLivenessComesFromTheDocumentThatListsTheSegments(t *testing.T) {
 			// The container is declared, as it is for every ranked candidate, and the runtime is
 			// on the stream because that is where a measurement travels (see media.Stream).
 			_, origin, _, err := newTestResolver(&fakeMeasurer{}, &fixturePlaylists{}).
-				Resolve(t.Context(), &media.Stream{URL: u, ContentType: media.HLS, Duration: tc.measured, Probed: tc.probed})
+				Resolve(t.Context(), &media.Stream{URL: u, ContentType: media.HLS, Duration: tc.measured, Probed: tc.probed}, true)
 			if err != nil {
 				t.Fatalf("Resolve: %v", err)
 			}
@@ -1032,7 +1069,7 @@ func TestRefetchLeavesTheLinkItWasGivenAlone(t *testing.T) {
 	}
 	link := &media.Stream{URL: u, ContentType: media.HLS, Headers: http.Header{"Referer": {"https://player.example/"}}}
 
-	resolved, origin, chosen, err := NewPrograms(newTestResolver(&fakeMeasurer{}, &fixturePlaylists{})).
+	resolved, origin, chosen, err := NewPrograms(newTestResolver(&fakeMeasurer{}, &fixturePlaylists{}), true).
 		Refetch(t.Context(), link)
 	if err != nil {
 		t.Fatalf("Refetch: %v", err)

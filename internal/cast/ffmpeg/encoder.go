@@ -15,8 +15,8 @@ import (
 // Encoder is one concrete way to produce a codec on this host: the ffmpeg -c:v
 // name plus the command fragments it contributes. EncodeArgs splices those
 // fragments in verbatim and never special-cases an encoder, so supporting a new
-// codec or backend is a registry entry, not new control flow. A nil *Encoder in
-// EncodeOptions means stream-copy.
+// codec or backend is a registry entry, not new control flow. Whether an axis is
+// encoded at all is the track's to say (see VideoTrack), never this type's absence.
 type Encoder struct {
 	Name     string      // -c:v value, e.g. "libx264", "hevc_videotoolbox"
 	Codec    media.Codec // the abstract codec produced, independent of the name

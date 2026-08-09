@@ -5,40 +5,25 @@ import (
 	"errors"
 
 	"github.com/stupside/castor/internal/cast/attempt"
-	"github.com/stupside/castor/internal/cast/carriage"
 	"github.com/stupside/castor/internal/cast/core"
 	"github.com/stupside/castor/internal/cast/watch"
 )
 
-// landing is what one composition reports about itself: how far it got, what it ended with,
-// and separately what the parties whose failure is not the same statement as the cast's left
-// behind.
+// landing is what one composition reports about itself: what it ended with, and the evidence
+// it left behind.
 //
-// The read is held apart from the cast's error for the reason the attempt layer exists: a
-// dead upstream used to reach a user through the encoder's stdin as "encoder: spool producer
-// failed: upstream pull: exit status 183", blaming the process that merely noticed. Its own
-// error and its own stderr are kept here so the join can lead with them.
+// The evidence is attempt's own value rather than a set of fields transposed into it one by
+// one. A leg fills in what it established (how far it got, the read's own terminal error and
+// stderr, the status it exited with and the axes it was copying, the renderer's refusal of
+// the URL) and outcome adds only what a leg cannot know: whether the cast was cancelled, and
+// what a verdict wrapped in the error says.
+//
+// The read's own error is held apart from the cast's for the reason the attempt layer exists:
+// a dead upstream used to reach a user under the name of the process that merely noticed it
+// (see attribute, which holds the sentence a user was shown).
 type landing struct {
-	reached attempt.Phase
-	err     error
-
-	// readErr and readLines are the source read's own terminal error and retained stderr, on
-	// the compositions that run a reader of their own. One whose reader IS its encoder leaves
-	// them nil: there is one party there, and the delivery already reports it.
-	readErr   error
-	readLines []string
-
-	// readExit is the status that read exited with and readCopied the axes it was passing
-	// through untouched. Together they are what makes a broken copy nameable rather than
-	// merely fatal: a positive status is a read that failed at something it was doing, and
-	// the copied axes are what it was doing. A leg with no reader of its own leaves the
-	// status at zero, which reads as no exit to blame.
-	readExit   int
-	readCopied carriage.Axes
-
-	// playErr is the renderer's own refusal of the URL, on the composition that asks it to
-	// play itself rather than through the delivery driver.
-	playErr error
+	err error
+	attempt.Evidence
 }
 
 // outcome folds the landing and the judgement that ended it into the one value the loop
@@ -53,15 +38,8 @@ type landing struct {
 // And the read's error leads the cast's error, because the party that failed is the party to
 // name.
 func (l landing) outcome(ctx context.Context) attempt.Outcome {
-	e := attempt.Evidence{
-		Reached:   l.reached,
-		Cancelled: ctx.Err() != nil,
-		ReadErr:   l.readErr,
-		ReadExit:  l.readExit,
-		Copied:    l.readCopied,
-		PlayErr:   l.playErr,
-		Lines:     l.readLines,
-	}
+	e := l.Evidence
+	e.Cancelled = ctx.Err() != nil
 
 	// Read off the error rather than carried as a field of the landing: the statement is the
 	// DELIVERY's, made after the sink's own Wait had already ended cleanly, so the leg that
@@ -81,7 +59,7 @@ func (l landing) outcome(ctx context.Context) attempt.Outcome {
 		}
 	}
 
-	return attempt.Outcome{Err: attribute(l.err, l.readErr, judged), Evidence: e}
+	return attempt.Outcome{Err: attribute(l.err, e.ReadErr, judged), Evidence: e}
 }
 
 // attribute decides whose account of a failure the cast reports.

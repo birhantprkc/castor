@@ -129,8 +129,11 @@ type Shape struct {
 	// playlist's EXT-X-MAP. Out-of-band means fMP4 fragments, which is the one shape
 	// where abandoning a read mid-fragment is worse than waiting: a truncated AVCC
 	// stream desyncs the h264_mp4toannexb filter a copy into MPEG-TS cannot do without.
-	// FramingUnknown means no document said so, and a rule reading it must treat
-	// unknown as unknown.
+	// FramingUnknown means no document said so, which happens whenever the chosen
+	// variant's own playlist could not be fetched, so a rule reading it must ask for
+	// the fact it needs established rather than for its opposite to be established:
+	// the fragile row keys on "not known to be in band", because an unread playlist
+	// is exactly as likely to have been fMP4 as the one that killed a cast.
 	Framing media.Framing
 
 	// Live reports that the source has no end, so it arrives at 1x and cannot be

@@ -193,11 +193,7 @@ tmdb:
 
 ### Forcing a relay
 
-Castor decides per source whether the **device fetches the stream itself** or **Castor relays it**. It hands over the URL only after checking the device can actually fetch it, and relays when:
-
-- the source answers only with the request headers Castor captured;
-- the source publishes its audio as a separate rendition (one URL is one rendition, so the device would play in silence);
-- the source opens only under relaxed reader checks, e.g. an HLS playlist whose segments are disguised as `.jpg` with `image/jpeg`.
+Castor decides per source whether the **device fetches the stream itself** or **Castor relays it**. It hands over the URL only after establishing that the device can actually fetch it: a source that answers only with the request headers Castor captured, one that publishes its audio as a separate rendition, and one taller than `max_height` are all relayed instead. The full set of checks is not reproduced here because it changes; every cast logs the path it took and the reason on its `cast composition` line.
 
 Set `delivery: serve` to relay **always**, for a source a device refuses for some reason Castor cannot see:
 

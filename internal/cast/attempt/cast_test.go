@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/stupside/castor/internal/cast/carriage"
-	"github.com/stupside/castor/internal/cast/core"
 	"github.com/stupside/castor/internal/cast/read"
 	"github.com/stupside/castor/internal/cast/watch"
 	"github.com/stupside/castor/internal/media"
@@ -167,10 +166,7 @@ func rung(t *testing.T, raw string, bitrate media.Bitrate, height int) media.Ren
 // intent is built exactly the way the composition root builds one.
 func policy(t *testing.T, o media.Origin) read.Policy {
 	t.Helper()
-	p, err := read.For(read.ShapeOf(o), 30*time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
+	p := read.For(read.ShapeOf(o), 30*time.Second)
 	return p
 }
 
@@ -625,10 +621,102 @@ func TestTheLedgerStallsALoopAStrategyWouldSpin(t *testing.T) {
 	}
 }
 
-// TestCastReportsAClassThePlaybookWasNeverTold keeps a missing key an error naming the
-// class rather than a silent end to recovery, which is the same discipline every other
-// table in castor is read with.
-func TestCastReportsAClassThePlaybookWasNeverTold(t *testing.T) {
+// TestTheLedgerSeesEveryChangeAStrategyMakes is the requirement the ledger above puts on
+// every strategy, stated from the other end: an attempt whose whole difference the ledger
+// cannot see is one it refuses as a repeat, so that recovery is never run at all and the cast
+// stops with the fault instead. It is the exact shape the height carried before this: the
+// ledger's half of the identity was written without it, so a degrade onto a shorter rung at
+// the same bitrate stalled the loop.
+//
+// Each row changes ONE field a strategy really does change, and asserts that both readers of
+// the identity moved: the ledger, or the recovery is dead, and the line, or a reader watching
+// two attempts scroll past cannot tell them apart.
+func TestTheLedgerSeesEveryChangeAStrategyMakes(t *testing.T) {
+	base := Attempt{
+		Candidate: 0,
+		Source:    link(t, "https://cdn.example/one.m3u8"),
+		Rendition: media.Rendition{Bitrate: 5000000, Height: 1080},
+		Read:      read.For(read.Shape{Segmented: true, Framing: media.FramingInBand}, 30*time.Second),
+		Delivery:  media.DeliveryAuto,
+	}
+
+	changed := []struct {
+		name string
+		by   func(Attempt) Attempt
+	}{{
+		name: "the next link the ranker admitted (SwitchCandidate)",
+		by: func(a Attempt) Attempt {
+			a.Candidate, a.Source = 1, link(t, "https://cdn.example/two.m3u8")
+			return a
+		},
+	}, {
+		name: "a lighter rung of the same program (DegradeRendition)",
+		by: func(a Attempt) Attempt {
+			a.Source = link(t, "https://cdn.example/720.m3u8")
+			a.Rendition = media.Rendition{Bitrate: 2000000, Height: 720}
+			return a
+		},
+	}, {
+		// The rung a source published with no bitrate on it, which is the case the two
+		// halves of the identity disagreed about: same link, same bitrate, shorter picture.
+		name: "a rung that differs only in height",
+		by: func(a Attempt) Attempt {
+			a.Rendition.Height = 720
+			return a
+		},
+	}, {
+		name: "the same link asked for politely (RelaxRead)",
+		by: func(a Attempt) Attempt {
+			a.Read, _ = read.Cautious(a.Read)
+			return a
+		},
+	}, {
+		name: "a relay instead of a hand-off (ServeInstead)",
+		by: func(a Attempt) Attempt {
+			a.Delivery = media.DeliveryServe
+			return a
+		},
+	}, {
+		name: "an axis whose copy already broke (DecodeBrokenAxis)",
+		by: func(a Attempt) Attempt {
+			a.Decode.Video = true
+			return a
+		},
+	}}
+
+	for _, tt := range changed {
+		t.Run(tt.name, func(t *testing.T) {
+			revised := tt.by(base)
+			if revised.key() == base.key() {
+				t.Errorf("the ledger reads this attempt as one already run (%s), so the strategy that produced it would never run twice", base.key())
+			}
+			if revised.String() == base.String() {
+				t.Errorf("both attempts print as %q, so nothing reading a failed run can tell them apart", base.String())
+			}
+		})
+	}
+
+	// And the field that is NOT part of what an attempt does: a second try of the same
+	// attempt is the same attempt, which is what makes the ledger a loop stop rather than a
+	// counter of tries.
+	again := base
+	again.Try = 7
+	if again.key() != base.key() {
+		t.Error("the try counter is part of the ledger's identity, so a loop that changes nothing else would run forever")
+	}
+}
+
+// TestAClassWithNothingToOfferIsRefusedWithTheFault pins what a class the playbook answers
+// with nothing does: the cast stops on the fault a user has to act on, having run the failed
+// attempt exactly once.
+//
+// A class the playbook was never TOLD about used to be a second error joined onto that
+// fault, and it is now caught where it can be acted on instead of on the run that reached
+// it: the two coupling tests walk the classification table against the playbook in both
+// directions (see TestEveryClassTheTableReachesHasAPlaybookEntry and
+// TestEveryVerdictThatEndsACastNamesAClassWithARecovery), so an entry nobody wrote fails the
+// suite rather than a viewer's cast.
+func TestAClassWithNothingToOfferIsRefusedWithTheFault(t *testing.T) {
 	withPlaybook(t, map[Kind][]Strategy{})
 
 	in := Intent{Candidates: []*media.Stream{link(t, "https://cdn.example/one.m3u8")}, Deadline: 30 * time.Second}
@@ -639,8 +727,8 @@ func TestCastReportsAClassThePlaybookWasNeverTold(t *testing.T) {
 	if !errors.As(err, &f) || f.Kind != SourceStalled {
 		t.Fatalf("cast error = %v, want the fault a user has to act on", err)
 	}
-	if !strings.Contains(err.Error(), "no playbook entry for a source-stalled fault") {
-		t.Errorf("cast error = %q, want it to name the class nobody decided about", err)
+	if len(run.seen) != 1 {
+		t.Errorf("ran %d attempts though nothing was offered for the class", len(run.seen))
 	}
 }
 
@@ -924,8 +1012,8 @@ func TestServeInsteadStopsHandingTheRendererAURL(t *testing.T) {
 	if len(run.seen) != 2 {
 		t.Fatalf("ran %d attempts, want 2", len(run.seen))
 	}
-	if got := run.seen[1].Delivery; got != core.DeliveryServe {
-		t.Errorf("second attempt delivers %q, want %q: the renderer would not fetch the source itself", got, core.DeliveryServe)
+	if got := run.seen[1].Delivery; got != media.DeliveryServe {
+		t.Errorf("second attempt delivers %q, want %q: the renderer would not fetch the source itself", got, media.DeliveryServe)
 	}
 	if _, ok := ServeInstead.Apply(t.Context(), Change{Attempt: run.seen[1]}); ok {
 		t.Error("offered to serve a cast that was already being served, which is a refusal it cannot answer")

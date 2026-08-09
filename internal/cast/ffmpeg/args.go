@@ -1,7 +1,3 @@
-// spool lands with a track missing and the encode then dies mapping a stream
-// that is not there. Which axes those are is the caller's answer, taken from a
-// probe of the source before this ran, because a download cannot un-write what
-// it already put on disk.
 package ffmpeg
 
 import (
@@ -116,14 +112,15 @@ type EncodeOptions struct {
 
 // scaleFilter caps an encode's height while keeping the aspect ratio and an even width
 // (an encoder requirement, which is what -2 answers), or nothing at all where no ceiling
-// was given. Zero is no ceiling, matching core.Resolve's own convention.
+// was given. A configured cast always gives one (max_height is required), so the empty
+// answer is for a caller that built its options by hand.
 //
 // One expression, shared by every producer of a re-encode castor runs. The two that exist
 // (the served encode and the pull's floor) are both asked for a picture at whatever
 // resolution the source happens to be, on hardware nobody chose, and a producer that
 // skipped the cap asks a veryfast software encoder for 3840x2160 in realtime. It does not
 // hold it, and a read that cannot hold realtime is one the deliverability judgement
-// convicts as a starving source (speed=0.0627 is what that looks like).
+// convicts as a starving source (watch.Health's calibration holds the measurements).
 func scaleFilter(maxHeight media.HeightCap) string {
 	if maxHeight <= 0 {
 		return ""
@@ -736,7 +733,7 @@ type PullOptions struct {
 
 	// MaxHeight caps the height of the floor encode Reencode.Video asks for, and is
 	// ignored by a copy, which carries no filter it could apply. It is the ceiling this
-	// cast is already committed to (core.Resolve's MaxHeight): the served encode
+	// cast is already committed to (see media.HeightCap): the served encode
 	// downstream of this buffer scales to it anyway, so a floor encode that produced the
 	// source's own 2160p would spend an encoder castor cannot afford on pixels the next
 	// process throws away.
@@ -829,19 +826,14 @@ func PullArgs(opts PullOptions) []string {
 	// is an adaptation whose predicate requires a FramingOutOfBand destination and
 	// this output is SpoolFormat, which the registry declares FramingInBand.
 	//
-	// What IS still open here is carriage, and the pull cannot close it by planning.
-	// The MPEG-TS muxer never refuses a codec: FLAC, Vorbis, PCM, VP8, VP9, AV1,
-	// MJPEG and msmpeg4v3 are all written as private data streams at exit 0, so the
-	// spool lands with a track missing and the encode then dies mapping a stream
-	// that is not there. Every other stage asks a copy adaptation table before
-	// copying, which needs a probe; this one runs before any probe exists, on a URL
-	// that may be single-use and that the read-once composition is built to reach within
-	// milliseconds. So the pull is the one stage that adapts at runtime instead of
-	// at plan time: it probes the spool it is in the middle of writing, compares it
-	// to the source, and restarts itself with whatever axis went missing re-encoded
-	// (see the pipeline's pull). That observes, it does not gate, and it needs no
-	// codec allow-list to stay correct as ffmpeg changes. Reencode is how that
-	// restart is expressed here.
+	// What IS still open here is carriage: the spool's container loses a track it has
+	// no stream type for instead of refusing it, at a clean exit (the carriage tables
+	// hold which codecs and what each does), so the spool lands short and the encode
+	// then dies mapping a stream that is not there. This stage cannot decide that for
+	// itself, because it is what a copy adaptation needs a probe to answer and the
+	// caller holds the only probe there is: it measured the source before this ran, and
+	// a download cannot un-write what it already put on disk. Reencode is that caller's
+	// answer, carried in.
 	args = append(args, "-map", "0:v:0?", "-map", opts.Source.audioMap())
 	// A stream copy on each axis, or the re-encode the spool container needs. The
 	// targets are the floors core.DecideVideo and core.DecideAudio bottom out at,
@@ -856,10 +848,10 @@ func PullArgs(opts PullOptions) []string {
 		// be asked for it on a source nobody chose the resolution of: at 3840x2160 a bare
 		// -crf 23 asks a veryfast software encoder for tens of Mbit/s in realtime, which it
 		// cannot hold, and a read that cannot hold realtime is a read the deliverability
-		// judgement convicts (speed=0.0627 is what that looks like). So the recovery for a
-		// copy that broke upstream would manufacture the undeliverable cast it exists to
-		// escape. The cap is the budget the decision layer already gives H.264, read from
-		// the one place both producers of the floor read it.
+		// judgement convicts. So the recovery for a copy that broke upstream would
+		// manufacture the undeliverable cast it exists to escape. The cap is the budget the
+		// decision layer already gives H.264, read from the one place both producers of the
+		// floor read it.
 		floor, _ := softwareBaseline(media.FloorVideoCodec)
 		args = append(args, "-c:v", floor.Name, "-preset", "veryfast", "-crf", "23",
 			"-maxrate", media.FloorVideoMaxrate, "-bufsize", media.FloorVideoBufsize)

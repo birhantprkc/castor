@@ -112,6 +112,9 @@ type Stream struct {
 // Four hand-written comparisons are four chances for the leniency below to drift, and one
 // drifting is how max_height bound a buffered cast and did nothing at all to a remux of the
 // same source, decided by a routing decision no log line reported.
+//
+// It binds on every path and not only where castor is holding an encoder, which is why the
+// one path castor cannot scale is refused rather than exempted (see core.Shape.Passthrough).
 type HeightCap int
 
 // Admits reports whether a picture of this height may reach the renderer.

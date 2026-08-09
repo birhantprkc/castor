@@ -3,6 +3,7 @@ package attempt
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os/exec"
 	"slices"
 	"strings"
@@ -128,6 +129,16 @@ func TestClassify(t *testing.T) {
 	}
 }
 
+// all is every row an attempt can be classified by: the ordered rows, the rows a verdict
+// names outright, and the total row. The guarantees in this package (a name and a reason on
+// each row, a playbook entry for every class it reaches, one printed name per class) are
+// about every row a fault can carry, and a row held out of the ordered slice is exactly the
+// kind that stops being checked.
+func all() []classRule {
+	rows := slices.Concat(classes.rules, slices.Collect(maps.Values(verdictClasses)))
+	return append(rows, classes.total)
+}
+
 // TestUnclassifiedIsReachable pins the property that makes the table total rather than
 // exhaustive: a failure nobody characterised is a verdict castor can reach and report,
 // not an error arm and not a zero value.
@@ -135,15 +146,36 @@ func TestUnclassifiedIsReachable(t *testing.T) {
 	if got := classFor(Evidence{}).Kind; got != Unclassified {
 		t.Errorf("an evidence nothing recognises classified %s, want %s", got, Unclassified)
 	}
-	if !slices.ContainsFunc(classes, func(r classRule) bool { return r.Kind == Unclassified }) {
-		t.Error("the total row is not in the table, so an unrecognised failure has no row to name it")
+	if classes.total.Kind != Unclassified {
+		t.Errorf("the total row names %s, so an unrecognised failure is reported as a class castor has a recovery for", classes.total.Kind)
 	}
-	// The row itself, because the walk answers with it whether or not it matched: that
-	// fallback exists so a table edit cannot produce a fault with no name, and it would
-	// otherwise hide a total row that had stopped being total.
-	for _, tt := range classCases {
-		if !unclassified.When(tt.in) {
-			t.Errorf("the total row does not answer %q, so it is not total", tt.name)
+	// The total row carries no predicate at all, which is what makes it total: a When here
+	// would be a condition the walk never asks and an evidence it would silently refuse to
+	// name, which is the one thing worse than an unrecognised failure.
+	if classes.total.When != nil {
+		t.Error("the total row carries a predicate the walk never asks: a row that can decline belongs in classes.rules, where the walk reads it")
+	}
+}
+
+// TestEveryVerdictThatEndsACastNamesAClassWithARecovery closes the gap a verdict-keyed
+// table exists to close. A watch verdict this layer has never been told about falls to the
+// total row, whose playbook entry is deliberately empty, so the cast stops recovering with
+// nothing said anywhere: no compile error, no failing table, just a fault nobody aimed a
+// recovery from.
+//
+// The four verdicts are the ones a watch can END a cast with, which is what makes them the
+// ones that reach here: the others (Starting, Ready, Healthy) keep a watch running or open
+// a gate, and no fault carries them (see watch's action table).
+func TestEveryVerdictThatEndsACastNamesAClassWithARecovery(t *testing.T) {
+	for _, v := range []watch.Kind{watch.Dead, watch.Stalled, watch.Undeliverable, watch.Unfetched} {
+		r := classFor(Evidence{Verdict: v})
+		if r.Kind == Unclassified {
+			t.Errorf("a %s verdict on its own classifies as %s: name it in verdictClasses, or in a row that reads it beside the fact that narrows it",
+				v, Unclassified)
+			continue
+		}
+		if len(playbook[r.Kind]) == 0 {
+			t.Errorf("a %s verdict classifies as %s, which the playbook answers with nothing, so the cast stops recovering on a verdict a watch reaches", v, r.Kind)
 		}
 	}
 }
@@ -181,7 +213,7 @@ func TestNoClassIsDecidedByProse(t *testing.T) {
 // A class with no entry is a fault castor quietly stopped recovering from, which is the
 // failure mode a map lookup hides and this test exists to make impossible.
 func TestEveryClassTheTableReachesHasAPlaybookEntry(t *testing.T) {
-	for _, r := range classes {
+	for _, r := range all() {
 		if _, ok := playbook[r.Kind]; !ok {
 			t.Errorf("rule %q reaches %s, which the playbook was never told about", r.Name, r.Kind)
 		}
@@ -193,7 +225,7 @@ func TestEveryClassTheTableReachesHasAPlaybookEntry(t *testing.T) {
 // nothing can classify is a strategy nobody will ever see run.
 func TestNoPlaybookEntryIsOfferedForAClassNoRuleReaches(t *testing.T) {
 	for kind := range playbook {
-		if !slices.ContainsFunc(classes, func(r classRule) bool { return r.Kind == kind }) {
+		if !slices.ContainsFunc(all(), func(r classRule) bool { return r.Kind == kind }) {
 			t.Errorf("the playbook answers %s, which no classification rule reaches", kind)
 		}
 	}
@@ -204,7 +236,7 @@ func TestNoPlaybookEntryIsOfferedForAClassNoRuleReaches(t *testing.T) {
 // line, a refusal and a ledger key would all name the wrong thing.
 func TestEveryClassHasItsOwnName(t *testing.T) {
 	seen := map[string]Kind{}
-	for _, r := range classes {
+	for _, r := range all() {
 		name := r.Kind.String()
 		if other, ok := seen[name]; ok && other != r.Kind {
 			t.Errorf("%s and %s both print as %q", r.Kind, other, name)
@@ -217,7 +249,7 @@ func TestEveryClassHasItsOwnName(t *testing.T) {
 // happened: the Why is what reaches a user, and a row with none reports a class name and
 // nothing to act on.
 func TestEveryRuleCarriesItsReasoning(t *testing.T) {
-	for _, r := range classes {
+	for _, r := range all() {
 		if r.Name == "" || r.Why == "" {
 			t.Errorf("rule %+v has no name or no reasoning", r)
 		}

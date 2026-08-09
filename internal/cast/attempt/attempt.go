@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/stupside/castor/internal/cast/carriage"
-	"github.com/stupside/castor/internal/cast/core"
 	"github.com/stupside/castor/internal/cast/read"
 	"github.com/stupside/castor/internal/media"
 )
@@ -56,7 +55,7 @@ type Intent struct {
 
 	// Delivery is the operator's answer on the delivery axis, and the only operator-facing
 	// axis a cast has. It seeds the first attempt, which a recovery may then change.
-	Delivery core.DeliveryPreference
+	Delivery media.DeliveryPreference
 }
 
 // first is the attempt an intent starts from: the head of the ordering, read on the terms
@@ -128,36 +127,68 @@ type Attempt struct {
 	// from configuration by whoever needs it. A recovery is allowed to change it, so a
 	// stage reading the configured value would be reading the answer to a question that
 	// has since been asked again.
-	Delivery core.DeliveryPreference
+	Delivery media.DeliveryPreference
+}
+
+// identity is what an attempt DOES, as opposed to which try of a cast it is: exactly the
+// fields a strategy can change, and nothing a strategy cannot.
+//
+// It exists because the two things that read it used to spell it out separately, in different
+// words, next to each other. One is the line a failed run is read in, the other is what the
+// ledger tells a revised attempt from a repeat by, and the second carries a requirement: a
+// strategy whose whole effect is invisible to it produces an attempt the ledger refuses as a
+// repeat, so its recovery never runs at all. They had already drifted, the ledger's half
+// having been written without the rung's height while the line beside it printed one, so a
+// degrade onto a shorter rung at the same bitrate was a recovery that could not run.
+//
+// Both are rendered from this value, so extending the identity in one and forgetting it in
+// the other is no longer something that can be done.
+type identity struct {
+	Candidate int
+	URL       string
+	Bitrate   media.Bitrate
+	Height    int
+	Read      string
+	Delivery  media.DeliveryPreference
+	Decode    carriage.Axes
+}
+
+// identify spells the link rather than dereferencing it, and fills in what an unset field
+// means wherever the answer is a default rather than an absence. A strategy that returns an
+// attempt with no source is a table bug to be refused like any other repeat, not a panic in
+// the middle of a cast.
+func (a Attempt) identify() identity {
+	url := "none"
+	if a.Source != nil && a.Source.URL != nil {
+		url = a.Source.URL.String()
+	}
+	return identity{
+		Candidate: a.Candidate,
+		URL:       url,
+		Bitrate:   a.Rendition.Bitrate,
+		Height:    a.Rendition.Height,
+		Read:      cmp.Or(a.Read.Name, "unset"),
+		Delivery:  cmp.Or(a.Delivery, media.DeliveryAuto),
+		Decode:    a.Decode,
+	}
 }
 
 // String is the one line that says what is being tried, in the vocabulary a failed run
 // has to be read in: which link of how many, which rung, on what read terms, copying
 // what.
 func (a Attempt) String() string {
+	id := a.identify()
 	return fmt.Sprintf("candidate=%d url=%s rung_bitrate=%d rung_height=%d read=%s delivery=%s decode=%s",
-		a.Candidate, a.url(), a.Rendition.Bitrate, a.Rendition.Height,
-		cmp.Or(a.Read.Name, "unset"), cmp.Or(a.Delivery, core.DeliveryAuto), a.Decode)
+		id.Candidate, id.URL, id.Bitrate, id.Height, id.Read, id.Delivery, id.Decode)
 }
 
-// key identifies what an attempt DOES, so the ledger can tell a revised attempt from one
-// this cast has already run. Try is deliberately no part of it: two attempts that read
-// the same link the same way are the same attempt however many tries apart they are.
+// key is that identity as one comparable string, so the ledger can tell a revised attempt
+// from one this cast has already run. Try is deliberately no part of it: two attempts that
+// read the same link the same way are the same attempt however many tries apart they are.
 //
-// Every field a strategy can change is in here, and that is a requirement rather than a
-// convenience: a strategy whose whole effect is invisible to this key produces an attempt
-// the ledger refuses as a repeat, so its recovery is never run at all.
+// It renders the whole struct rather than a list of its fields chosen here, which is the
+// point: a field added to the identity is in the ledger's answer the moment it exists, with
+// nothing for anybody to remember.
 func (a Attempt) key() string {
-	return fmt.Sprintf("candidate=%d url=%s rung=%d read=%s delivery=%s decode=%v/%v",
-		a.Candidate, a.url(), a.Rendition.Bitrate, a.Read.Name, a.Delivery, a.Decode.Video, a.Decode.Audio)
-}
-
-// url spells the link rather than dereferencing it. Both callers above run over whatever
-// a strategy handed back, and a strategy that returns an attempt with no source is a
-// table bug to be refused like any other repeat, not a panic in the middle of a cast.
-func (a Attempt) url() string {
-	if a.Source == nil || a.Source.URL == nil {
-		return "none"
-	}
-	return a.Source.URL.String()
+	return fmt.Sprintf("%+v", a.identify())
 }
