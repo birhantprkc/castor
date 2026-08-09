@@ -28,27 +28,37 @@ type Producer interface {
 	Evidence() []string
 }
 
-// Consumer is the renderer's side of a delivery as a health rule reads it: how many
-// times it has come for bytes, and when it last did. Two numbers, because that is the
-// whole of the question "is anybody actually watching this".
+// Consumer is the renderer's side of a delivery as a health rule reads it: how much of the
+// program it has been handed, and when a byte of it last moved. Two numbers, because that is
+// the whole of the question "is anybody actually watching this".
 //
-// It is deliberately requests-and-recency rather than clients-and-bytes. A byte counter
-// cannot be had from the segmented sink without wrapping every ResponseWriter
-// (http.FileServer writes directly), and a live connection count is nearly always zero
-// there because HLS segment GETs are transient, so a rule keyed on either would be
-// honest for one sink and false for the other. Both sinks already track these two.
+// BYTES TAKEN and not requests made, and that is the difference between naming the failure
+// below and reading as if it did. A sink counts a request the moment one arrives, before a
+// byte of the response is written, and a renderer comes for a stream by probing it first: a
+// HEAD, then a short GET, then the real GET (see the replay package). So a count answers "the
+// renderer fetched" for one that asked and took nothing, which is the observed run to the
+// letter: a URL accepted, a request in the log, and bytes_sent=0. Bytes moved are what
+// separate asking from taking, and nothing else a sink tracks does.
 //
 // It exists because a renderer that accepted Play and never fetched the URL was
 // reported as SUCCESS: the replay sink's idle grace starts running the moment it is
 // created and its finished condition needs no client at all, so castor encoded an
-// entire title and called it delivered. The segmented sink has the identical hole. The
-// observed run's renderer was handed a URL and read bytes_sent=0 from it.
+// entire title and called it delivered.
 //
-// last is the zero time until the first request, which a rule must not read as "an
+// One sink supplies it, and that is the whole of what is supervised in flight: the delivery
+// that keeps what it produces. The segmented one is reached only by a composition that hands
+// over no supervisor, and it could not be given one honestly anyway, since it deletes behind
+// its own window and has no buffer figure to be judged beside its silence. It answers the same
+// question once its delivery has run its course instead (see core's completeness statement),
+// which is the only place a mechanism that deletes its program can answer it at all.
+//
+// last is the zero time until a byte has really moved, which a rule must not read as "an
 // eternity ago": a watch that has only just opened has established nothing about a
-// renderer yet, so the elapsed time is measured from the watch instead.
+// renderer yet, so the elapsed time is measured from the watch instead. A connection merely
+// ENDING may not touch it either, or a renderer that probes on a cadence and takes nothing
+// keeps restarting the clock it is about to be judged on.
 type Consumer interface {
-	Fetched() (requests int, last time.Time)
+	Handed() (bytes int64, last time.Time)
 }
 
 // Lead is how far a transcription has committed: two numbers, so the readiness rule is

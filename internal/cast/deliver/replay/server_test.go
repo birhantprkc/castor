@@ -42,37 +42,75 @@ func TestEveryClientReplaysFromByteZero(t *testing.T) {
 	}
 }
 
-// TestFetchedCountsOnlyRealFetches is what makes "the renderer accepted Play and never came
-// for the bytes" sayable. Every other fact this server tracks is satisfied by a cast nobody
-// ever fetched (its idle grace starts running the moment it is created and its finished
-// condition needs no client at all), which is how castor encoded an entire title and
-// reported it as delivered.
-func TestFetchedCountsOnlyRealFetches(t *testing.T) {
+// TestHandedCountsTheProgramTakenAndNotTheAsking is what makes "the renderer accepted Play and
+// never came for the bytes" sayable. Every other fact this server tracks is satisfied by a cast
+// nobody ever fetched (its idle grace starts running the moment it is created and its finished
+// condition needs no client at all), which is how castor encoded an entire title and reported it
+// as delivered.
+//
+// The figure is bytes and not requests, and that is the whole of what it is worth. A request is
+// answered before a byte of it is written, and this server's clients come as a HEAD, then a
+// short GET, then the real GET, so a count says "the renderer fetched" about a renderer that
+// asked and got nothing.
+func TestHandedCountsTheProgramTakenAndNotTheAsking(t *testing.T) {
 	body := bytes.Repeat([]byte("x"), 8192)
 	srv := serve(t, bytes.NewReader(body))
 
-	if requests, last := srv.Fetched(); requests != 0 || !last.IsZero() {
-		t.Fatalf("a stream nobody has fetched reports %d requests at %v", requests, last)
+	if handed, last := srv.Handed(); handed != 0 || !last.IsZero() {
+		t.Fatalf("a stream nobody has taken reports %d bytes handed over at %v", handed, last)
 	}
 
-	// A HEAD is not a fetch. A renderer that probes the URL and never gets the stream is
-	// the exact failure this reports, so counting its probe would answer that it was
+	// A HEAD takes no byte of the program. A renderer that probes the URL and never gets the
+	// stream is the exact failure this reports, so crediting its probe would answer that it was
 	// watching.
 	if code := head(t, srv); code != http.StatusOK {
 		t.Fatalf("HEAD status = %d, want 200", code)
 	}
-	if requests, _ := srv.Fetched(); requests != 0 {
-		t.Errorf("a HEAD probe was counted as %d fetches", requests)
+	if handed, last := srv.Handed(); handed != 0 || !last.IsZero() {
+		t.Errorf("a HEAD probe was credited with %d bytes at %v", handed, last)
 	}
 
 	before := time.Now()
 	fetch(t, srv, len(body))
-	requests, last := srv.Fetched()
-	if requests != 1 {
-		t.Errorf("requests = %d after one GET, want 1", requests)
+	handed, last := srv.Handed()
+	if handed != int64(len(body)) {
+		t.Errorf("handed = %d after a client read the whole stream, want the %d bytes it took: a count of requests would report 1 here", handed, len(body))
 	}
 	if last.Before(before) {
 		t.Errorf("last fetch = %v, which predates the GET at %v: the recency a quiet renderer is judged on never advanced", last, before)
+	}
+}
+
+// TestARendererThatAsksAndTakesNothingIsNotFetching is the shape the verdict about a renderer
+// could not see while this server counted requests, and it is the shape the field evidence has:
+// a URL accepted, a request in the log, bytes_sent=0.
+//
+// Both halves of the answer are asserted, because either one alone hides it. A count credits the
+// asking, and the recency clock restarted at the end of every connection whether or not a byte
+// had moved, so a renderer probing on any cadence stayed permanently inside the window the
+// verdict waits out. Nothing then names it: castor produces the whole title for a renderer that
+// took none of it and exits 0.
+func TestARendererThatAsksAndTakesNothingIsNotFetching(t *testing.T) {
+	// A producer that yields nothing, so a client that comes for the stream is answered and
+	// handed no byte of it. Wait is the barrier rather than a sleep: it returns only once this
+	// client has been fully accounted for (the producer is done, the client reached the end of
+	// what there was, and the connection count is back to zero), so the assertion below reads a
+	// settled server.
+	srv := serve(t, bytes.NewReader(nil))
+	fetch(t, srv, 0)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	if err := srv.Wait(ctx); err != nil {
+		t.Fatalf("Wait after the one client came and went = %v, want nil", err)
+	}
+
+	handed, last := srv.Handed()
+	if handed != 0 {
+		t.Errorf("a renderer that asked and was handed nothing is credited with %d bytes, which is the request being counted rather than the program", handed)
+	}
+	if !last.IsZero() {
+		t.Errorf("a request that moved no byte set the recency clock to %v: a renderer probing on a cadence is then never quiet for long enough to be named, however little of the program it ever took", last)
 	}
 }
 
@@ -114,64 +152,62 @@ func TestAClientThatStopsReadingIsSevered(t *testing.T) {
 // Severing here is expensive (a reconnect that does not ask to continue replays from byte 0, so
 // the film starts over) and it is the ONLY answer a quiet renderer gets: no verdict convicts
 // one, because a pause, a viewer who walked away and a crashed renderer are the same absence of
-// requests from outside. So it must outlast the longest silence any judgement castor makes
+// anything being taken. So it must outlast the longest silence any judgement castor makes
 // tolerates, which is watch.StallWindow, or a viewer who stands up loses their position sooner
 // than castor tolerates silence from anybody else.
 func TestTheWriteDeadlineOutlastsEverySilenceCastorTolerates(t *testing.T) {
-	if defaultWriteDeadline <= watch.StallWindow {
-		t.Errorf("defaultWriteDeadline = %s, at or inside the %s castor tolerates silence for elsewhere: a pause shorter than castor's own patience costs the viewer the cast",
-			defaultWriteDeadline, watch.StallWindow)
-	}
-	// And the lingering a caller must allow for covers the severance plus the grace that
-	// follows it, because both are wall clock the cast spends handing over nothing.
-	srv := serve(t, bytes.NewReader(nil))
-	if got := srv.Lingering(); got != defaultWriteDeadline+idleGrace {
-		t.Errorf("Lingering = %s, want %s: a delivery judged over less than it deliberately outlives its last byte by convicts a renderer that stopped one chunk short of the end",
-			got, defaultWriteDeadline+idleGrace)
+	if DefaultWriteDeadline <= watch.StallWindow {
+		t.Errorf("DefaultWriteDeadline = %s, at or inside the %s castor tolerates silence for elsewhere: a pause shorter than castor's own patience costs the viewer the cast",
+			DefaultWriteDeadline, watch.StallWindow)
 	}
 }
 
-// TestSentIsTheMostAnyOneClientWasHanded is the figure a cast's completeness is judged on
-// (core.Undelivered), and the way it is counted is what makes that judgement honest.
+// TestHandedIsTheMostAnyOneClientWasGiven is the figure a cast is judged on, while it runs
+// (watch.Consumer) and once it is over (core.Undelivered), and the way it is counted is what
+// makes that judgement honest.
 //
 // The MOST, and not the sum: every connection replays from byte 0, so a renderer's probe GET
 // and its real GET overlap byte for byte, and adding them would report a renderer that took
 // the head twice as having taken the film. Any ONE connection is what actually got through, so
 // the longest of them is what the renderer received.
-func TestSentIsTheMostAnyOneClientWasHanded(t *testing.T) {
+func TestHandedIsTheMostAnyOneClientWasGiven(t *testing.T) {
 	// Far more than any socket buffer holds, so a client that stops reading really does leave
 	// the server unable to hand over the rest.
 	const size = 8 << 20
 	srv := serveWith(t, bytes.NewReader(bytes.Repeat([]byte("w"), size)), 300*time.Millisecond)
 
-	if got := srv.Sent(); got != 0 {
+	if got := handedTo(srv); got != 0 {
 		t.Fatalf("a stream nobody has fetched reports %d bytes handed over", got)
 	}
 
 	stall(t, srv)
-	partial := srv.Sent()
+	partial := handedTo(srv)
 	if partial <= 0 || partial >= size {
 		t.Fatalf("a client that read one byte and stopped was handed %d of %d bytes, want a fraction of the stream", partial, size)
 	}
 
 	fetch(t, srv, size)
-	if got := srv.Sent(); got != size {
-		t.Errorf("after a client read the whole stream, Sent = %d, want all %d bytes", got, size)
+	if got := handedTo(srv); got != size {
+		t.Errorf("after a client read the whole stream, the figure handed over = %d, want all %d bytes", got, size)
 	}
 
 	// A second client that gives up takes nothing away from what the first one received, and
 	// adds nothing to it either.
 	stall(t, srv)
-	if got := srv.Sent(); got != size {
-		t.Errorf("Sent = %d after a later client gave up, want the %d bytes one client really took: the sum would credit a renderer with a head it was handed twice", got, size)
+	if got := handedTo(srv); got != size {
+		t.Errorf("the figure handed over = %d after a later client gave up, want the %d bytes one client really took: the sum would credit a renderer with a head it was handed twice", got, size)
 	}
 }
 
-// TestASeveredClientResumesWhereItStopped is what a pause costs, as an assertion. A viewer who
-// pauses stops draining the socket, the blocked write is severed at the write deadline, and
-// every connection replays from byte 0: without this the renderer's next GET restarts the
-// program from the beginning, at whatever point the viewer had reached, with no error anywhere.
-// The spool still holds every byte that renderer had, so the offset it asks for is servable.
+// TestASeveredClientResumesWhereItStopped is what a pause costs where the delivery takes
+// ranges, as an assertion. A viewer who pauses stops draining the socket, the blocked write is
+// severed at the write deadline, and every connection replays from byte 0: without this the
+// renderer's next GET restarts the program from the beginning, at whatever point the viewer had
+// reached, with no error anywhere. The spool still holds every byte that renderer had, so the
+// offset it asks for is servable.
+//
+// It is half the answer, and the delivery decides which half applies: see
+// TestOnADeliveryThatTakesNoRangesAPausePastTheDeadlineCostsThePosition for the other one.
 func TestASeveredClientResumesWhereItStopped(t *testing.T) {
 	want := payload(8 << 20)
 	srv := serveWith(t, bytes.NewReader(want), 300*time.Millisecond)
@@ -197,12 +233,55 @@ func TestASeveredClientResumesWhereItStopped(t *testing.T) {
 	}
 }
 
-// TestSentCreditsAResumedClientWithThePrefixItAlreadyHad guards the arithmetic a cast is judged
+// TestOnADeliveryThatTakesNoRangesAPausePastTheDeadlineCostsThePosition is the other half of
+// what a pause costs, and it is the half that decides most casts: the resume above is live only
+// where the delivery's own responses take ranges, and the family castor serves a renderer that
+// cannot fetch for itself declares Accept-Ranges: none.
+//
+// Here the two mechanisms meet, which is why this is asserted over a real severance rather than
+// over a bare range request. The write deadline destroys the viewer's position (nothing else can
+// bound a human pause), the reconnect that asks to continue is refused because castor may not
+// contradict its own promise to the firmware, and the film starts over from byte 0. What must not
+// happen is that happening quietly: the severance states that no resume was available and the
+// refusal names the declaration, because these two lines are the whole account of a film that
+// restarted itself.
+func TestOnADeliveryThatTakesNoRangesAPausePastTheDeadlineCostsThePosition(t *testing.T) {
+	log := logged(t)
+	want := payload(8 << 20)
+	srv := serveDeclining(t, want)
+
+	// The pause, ended by the write deadline exactly as it is on any other delivery.
+	stall(t, srv)
+
+	rec := log.await(t, slog.LevelWarn, "stopped draining")
+	if got := attrs(rec)["resumable"]; got != "false" {
+		t.Errorf("the severance reports resumable=%q on a delivery that answers no range: the log offers the reconnect a fix it does not have", got)
+	}
+
+	from := int64(len(want) / 2)
+	resp := get(t, srv, fmt.Sprintf("bytes=%d-", from))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("a client asking to continue at byte %d got %d, want the 200 its own declaration forces", from, resp.StatusCode)
+	}
+	got := make([]byte, len(want))
+	if _, err := io.ReadFull(resp.Body, got); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("the reconnect was served from somewhere other than byte 0, so a delivery that refuses ranges answered one anyway")
+	}
+	refusal := log.await(t, slog.LevelWarn, "replayed from the beginning")
+	if reason := attrs(refusal)["reason"]; !strings.Contains(reason, "Accept-Ranges: none") {
+		t.Errorf("the position was lost and the log reads %q, which does not name the declaration that cost it", reason)
+	}
+}
+
+// TestHandedCreditsAResumedClientWithThePrefixItAlreadyHad guards the arithmetic a cast is judged
 // on. Asking for byte N is the client stating it holds 0 to N-1, so a renderer that resumed at
 // the half-way mark and watched to the end took the whole film. Counting only the resumed
 // connection's own bytes reports half of it, and the completeness statement then convicts a
 // renderer that did nothing wrong (see core.Undelivered).
-func TestSentCreditsAResumedClientWithThePrefixItAlreadyHad(t *testing.T) {
+func TestHandedCreditsAResumedClientWithThePrefixItAlreadyHad(t *testing.T) {
 	want := payload(1 << 20)
 	srv := serveWith(t, bytes.NewReader(want), 300*time.Millisecond)
 
@@ -211,8 +290,8 @@ func TestSentCreditsAResumedClientWithThePrefixItAlreadyHad(t *testing.T) {
 	if _, err := io.ReadAll(resp.Body); err != nil {
 		t.Fatal(err)
 	}
-	if got := srv.Sent(); got != int64(len(want)) {
-		t.Errorf("Sent = %d after a client resumed at %d and read to the end, want the whole %d bytes it holds", got, from, len(want))
+	if got := handedTo(srv); got != int64(len(want)) {
+		t.Errorf("the figure handed over = %d after a client resumed at %d and read to the end, want the whole %d bytes it holds", got, from, len(want))
 	}
 }
 
@@ -595,6 +674,13 @@ func attrs(rec slog.Record) map[string]string {
 		return true
 	})
 	return out
+}
+
+// handedTo is how much of the program went out, for the assertions that are about the count and
+// not about the clock beside it.
+func handedTo(srv *Server) int64 {
+	handed, _ := srv.Handed()
+	return handed
 }
 
 func head(t *testing.T, srv *Server) int {

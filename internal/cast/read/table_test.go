@@ -89,12 +89,17 @@ func TestTheShapeChoosesThePolicy(t *testing.T) {
 	}
 }
 
-// TestTheMidReadDeadlineIsAppliedEverywhere pins the property that makes this table a
-// pure restatement of how castor reads today: every shape gets the configured
-// deadline. Withholding it on the fragile row is a change to make once something
-// observes the stall it guards, and this test is what makes that change deliberate
-// rather than incidental.
-func TestTheMidReadDeadlineIsAppliedEverywhere(t *testing.T) {
+// TestOnlyAFragileSourceIsReadWithNoMidReadDeadline is the whole of what arming the
+// fragile row changed, stated over every shape a source can have: the configured duration
+// reaches every read castor makes except the one where firing it corrupts the stream.
+//
+// The fragile shape is EXACTLY the one where an abandoned read is unrecoverable (segmented,
+// fMP4, and not a live edge, which is read on terms of its own), so the property is written
+// as an exception of one rather than as a lookup of the row name: a row that started
+// withholding the deadline from MPEG-TS segments, or from one long GET, would be trading a
+// noisy failure for a silent hang on shapes where the deadline costs a retry and nothing
+// more.
+func TestOnlyAFragileSourceIsReadWithNoMidReadDeadline(t *testing.T) {
 	for _, segmented := range []bool{false, true} {
 		for _, live := range []bool{false, true} {
 			for _, framing := range framings {
@@ -103,27 +108,80 @@ func TestTheMidReadDeadlineIsAppliedEverywhere(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if policy.Deadline != configuredDeadline {
-					t.Errorf("For(%s) reads with a %s deadline, want the configured %s", shape, policy.Deadline, configuredDeadline)
+				fragile := segmented && framing == media.FramingOutOfBand && !live
+				want := configuredDeadline
+				if fragile {
+					want = 0
+				}
+				if policy.Deadline != want {
+					t.Errorf("For(%s) reads with a %s deadline (row %q), want %s", shape, policy.Deadline, policy.Name, want)
 				}
 			}
 		}
 	}
 }
 
-// TestEveryPolicyCanWaitOutARateLimiter pins the pair that has to travel together. A
+// TestASegmentedReadRefetchesASegmentWhoseOpenFailed pins the term that covers the failure
+// the withheld deadline does NOT: a segment castor never got a byte of. Left at ffmpeg's
+// own zero, the first failed open prints "Segment N of playlist 0 failed too many times,
+// skipping" and the fragment is simply gone, which on an fMP4 program is a hole no
+// downstream copy can fill.
+//
+// Every row that fetches segments carries it, and the row that does not fetch segments
+// carries none: a budget rendered for a source that is not a playlist is an option ffmpeg's
+// plain-file demuxers do not have, and it aborts the read rather than being ignored.
+func TestASegmentedReadRefetchesASegmentWhoseOpenFailed(t *testing.T) {
+	for _, shape := range []Shape{
+		{Segmented: true, Framing: media.FramingOutOfBand},
+		{Segmented: true, Framing: media.FramingInBand},
+		{Segmented: true, Framing: media.FramingUnknown},
+		{Segmented: true, Live: true},
+	} {
+		policy, err := For(shape, configuredDeadline)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if policy.SegmentRetries != segmentOpenRetries {
+			t.Errorf("For(%s) re-fetches a failed segment open %d times (row %q), want the derived %d",
+				shape, policy.SegmentRetries, policy.Name, segmentOpenRetries)
+		}
+	}
+
+	whole, err := For(Shape{}, configuredDeadline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if whole.SegmentRetries != 0 {
+		t.Errorf("one long GET carries a segment retry budget of %d, though it fetches no segments and the flag is one no plain-file demuxer accepts", whole.SegmentRetries)
+	}
+}
+
+// TestEveryPolicyCanWaitOutATransientOrigin pins the pair that has to travel together. A
 // backoff ceiling with no status set to reconnect on lets an HLS demuxer burn through
 // segment numbers that all answer 429, and a status set with no ceiling retries
 // immediately into the same rate limiter. Neither half is useful alone, so no row may
 // carry one without the other.
-func TestEveryPolicyCanWaitOutARateLimiter(t *testing.T) {
+//
+// The set is the transient class and not one code, because a CDN answering a mid-stream
+// segment 503 has said exactly what one answering 429 said. What it may never carry is a
+// refusal: 401, 403, 404 and 410 are answers about the request, so retrying one for a full
+// ceiling spends a viewer's time reaching the conclusion the first answer already gave, and
+// a spent signed link is the commonest of them.
+func TestEveryPolicyCanWaitOutATransientOrigin(t *testing.T) {
 	for _, r := range policies {
 		policy := r.read(configuredDeadline)
 		if policy.Backoff != BackoffMax {
 			t.Errorf("row %q backs off for %s, want the shared ceiling of %s", r.name, policy.Backoff, BackoffMax)
 		}
-		if !slices.Contains(policy.RetryStatuses, 429) {
-			t.Errorf("row %q retries on %v, which does not include the rate limiter's own answer", r.name, policy.RetryStatuses)
+		for _, status := range []int{429, 500, 502, 503, 504} {
+			if !slices.Contains(policy.RetryStatuses, status) {
+				t.Errorf("row %q retries on %v, which does not include the transient %d", r.name, policy.RetryStatuses, status)
+			}
+		}
+		for _, refusal := range []int{401, 403, 404, 410} {
+			if slices.Contains(policy.RetryStatuses, refusal) {
+				t.Errorf("row %q retries a %d, an answer about the request that no retry changes", r.name, refusal)
+			}
 		}
 	}
 }
@@ -227,9 +285,16 @@ func TestACautiousReadGivesUpOnlyWhatCouldBeThrottled(t *testing.T) {
 				t.Errorf("cautious pace = %+v, want the pace of a source that cannot be outrun (%+v): there is one such pace in the program",
 					got.Pace, paceLive)
 			}
-			if got.Deadline != was.Deadline || got.Backoff != was.Backoff || !slices.Equal(got.RetryStatuses, was.RetryStatuses) {
-				t.Errorf("relaxing changed the terms the source's shape called for: %+v, want the deadline %s, backoff %s and statuses %v it had",
-					got, was.Deadline, was.Backoff, was.RetryStatuses)
+			if got.Deadline != was.Deadline || got.Backoff != was.Backoff ||
+				!slices.Equal(got.RetryStatuses, was.RetryStatuses) || got.SegmentRetries != was.SegmentRetries {
+				t.Errorf("relaxing changed the terms the source's shape called for: %+v, want the deadline %s, backoff %s, statuses %v and %d segment retries it had",
+					got, was.Deadline, was.Backoff, was.RetryStatuses, was.SegmentRetries)
+			}
+			// Stated as a value rather than only as an equality, because on the fragile shape
+			// both sides are zero and an equality alone passes for a relaxation that took a
+			// withheld deadline and handed the read one.
+			if shape.Segmented && shape.Framing == media.FramingOutOfBand && got.Deadline != 0 {
+				t.Errorf("a cautious read of a fragile source carries a %s mid-read deadline; a stall is no reason to start abandoning fragments partway through", got.Deadline)
 			}
 			if got.Name == was.Name || got.Name == "" || got.Why == "" {
 				t.Errorf("the relaxed policy reports itself as %q, which the ledger cannot tell from the read that already failed", got.Name)

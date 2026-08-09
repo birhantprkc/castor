@@ -31,32 +31,66 @@ type rule struct {
 // The rows are ordered from the most specific fact to the least, and the last row is
 // a predicate rather than a default, so a shape that matches nothing is an error
 // naming the shape instead of a silent set of flags nobody chose. Adding a rule is one
-// row, or one field on an existing row: a CDN that answers a mid-stream segment with
-// 503 rather than 429 is a wider RetryStatuses on the segmented rows, and a source
+// row, or one field on an existing row: a CDN that answers a mid-stream segment with a
+// status nothing retries is a wider RetryStatuses on the segmented rows, and a source
 // that needs a different pace is a Pace. No flag list is edited to do either.
 var policies = []rule{{
 	name: "live-edge",
 	why:  "a live edge arrives at 1x and cannot be outrun, and a burst against it only asks a CDN for segments that do not exist yet",
 	when: func(s Shape) bool { return s.Live },
 	read: func(deadline time.Duration) Policy {
-		return Policy{Deadline: deadline, Backoff: BackoffMax, RetryStatuses: rateLimited, Pace: paceLive}
+		return Policy{
+			Deadline:       deadline,
+			Backoff:        BackoffMax,
+			RetryStatuses:  transient,
+			SegmentRetries: segmentOpenRetries,
+			Pace:           paceLive,
+		}
 	},
 }, {
-	// The one shape where the mid-read deadline is the hazard rather than the
-	// protection. Abandoning an fMP4 fragment partway through truncates it, a truncated
-	// AVCC stream desyncs the h264_mp4toannexb filter that a copy into MPEG-TS cannot
-	// do without, and the cast then dies deep into a title with a bitstream error and
-	// no way back. The deadline it carries is still the configured one, because
-	// withholding it hands the stall it guards to a judgement that can name it and
-	// castor does not yet make one.
+	// THE ONE SHAPE WHERE THE MID-READ DEADLINE IS THE HAZARD AND NOT THE PROTECTION, so
+	// it is the one row that withholds it.
 	//
-	// A LIVE fMP4 edge does not reach here: the row above answers it, which is right
-	// while both rows read alike and is the first thing to revisit when they stop.
+	// A -rw_timeout that fires partway through an fMP4 fragment makes ffmpeg's HLS demuxer
+	// abandon that fragment and jump to the next segment. The AVCC stream it hands on is
+	// then truncated mid-NAL, which desynchronises the h264_mp4toannexb filter a copy into
+	// MPEG-TS cannot do without: it reads the next four bytes as a length, prints "Invalid
+	// NAL unit size (-1140850681 > 97253)" and the reader dies at exit 183. That killed a
+	// cast at minute forty, with a viewer watching and nothing to be done about it (a
+	// renderer already holds the URL, so the attempt is not revisable, and the fragment is
+	// gone either way).
+	//
+	// SegmentRetries does not cover it and cannot be raised until it does. That budget is
+	// spent on a segment whose OPEN failed, which is a different event with a different
+	// symptom: the failed open prints "Segment N of playlist 0 failed too many times,
+	// skipping" while the mid-read timeout is a silent jump with no line at all.
+	//
+	// WHAT BOUNDS THE SILENCE INSTEAD, since a read with no deadline can wait on a tarpitted
+	// socket forever: castor's own stall judgement over the bytes this read has landed
+	// (watch's "stalled" row, at two reconnect ceilings plus a margin). It reaches this read
+	// before playback through the playback gate and in flight through the playing cast, so
+	// the trade is the configured deadline's patience (thirty seconds as shipped) for two and
+	// a half minutes of it, in exchange for a fragment nothing can resynchronise never being
+	// manufactured. The judgement is also the only one of the two that can NAME what it gave
+	// up on, where -rw_timeout's answer to the same silence was a corrupt bitstream and a
+	// filter error blaming the codec.
+	//
+	// A LIVE fMP4 edge does not reach here: the row above answers it and keeps the deadline,
+	// so it keeps this exposure. That boundary is stated rather than argued, because the
+	// trade is not the same one: a live edge is read at exactly 1x with no burst, so the read
+	// holds no lead to spend waiting, and the fragment it is stalled on rolls out of the live
+	// window while it waits. Both answers end that cast, and nothing observed says which
+	// ends it better.
 	name: "segment-fragile",
-	why:  "the segments are fMP4 (the playlist declares a Media Initialization Section), so a read abandoned mid-fragment truncates a fragment nothing downstream can resynchronise",
+	why:  "the segments are fMP4 (the playlist declares a Media Initialization Section), so a read abandoned mid-fragment truncates a fragment nothing downstream can resynchronise, and no mid-read deadline is applied at all",
 	when: func(s Shape) bool { return s.Segmented && s.Framing == media.FramingOutOfBand },
-	read: func(deadline time.Duration) Policy {
-		return Policy{Deadline: deadline, Backoff: BackoffMax, RetryStatuses: rateLimited, Pace: paceVOD}
+	read: func(time.Duration) Policy {
+		return Policy{
+			Backoff:        BackoffMax,
+			RetryStatuses:  transient,
+			SegmentRetries: segmentOpenRetries,
+			Pace:           paceVOD,
+		}
 	},
 }, {
 	// MPEG-TS segments, or segments whose framing no document stated. A read abandoned
@@ -66,17 +100,27 @@ var policies = []rule{{
 	why:  "the segments carry their configuration in band, so an abandoned read costs a retry rather than a stream nothing can resynchronise",
 	when: func(s Shape) bool { return s.Segmented },
 	read: func(deadline time.Duration) Policy {
-		return Policy{Deadline: deadline, Backoff: BackoffMax, RetryStatuses: rateLimited, Pace: paceVOD}
+		return Policy{
+			Deadline:       deadline,
+			Backoff:        BackoffMax,
+			RetryStatuses:  transient,
+			SegmentRetries: segmentOpenRetries,
+			Pace:           paceVOD,
+		}
 	},
 }, {
 	// One long GET. Nothing throttles it, and the deadline is the only way a connection
 	// that was accepted and then went quiet is ever noticed: this is the duration the
-	// configuration knob was written for.
+	// configuration knob was written for, and this is the row it survives untouched on.
+	//
+	// No segment retry budget, because there are no segments to re-fetch: this shape is
+	// reached by a source no playlist described, so a dropped read is answered by the
+	// reconnect terms above and by nothing else.
 	name: "whole-file",
 	why:  "one long GET, where a stalled read is the only symptom a tarpit has",
 	when: func(s Shape) bool { return !s.Segmented },
 	read: func(deadline time.Duration) Policy {
-		return Policy{Deadline: deadline, Backoff: BackoffMax, RetryStatuses: rateLimited, Pace: paceVOD}
+		return Policy{Deadline: deadline, Backoff: BackoffMax, RetryStatuses: transient, Pace: paceVOD}
 	},
 }}
 

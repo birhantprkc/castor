@@ -29,21 +29,30 @@ func SubtitleForServed(cfg Config) SubtitleMode {
 	return SubtitleOff
 }
 
-// VideoPolicy is how much the video copy decision is allowed to refuse. The two
-// served shapes differ here and nowhere else: the read-once spool re-encodes for
-// a height ceiling, an envelope the renderer cannot decode, or a burn-in, while
-// the network remux copies whatever the source is because it changes the wrapper
-// and not the picture. Carriage applies to both: it is a fact about the muxer,
-// not a capability gate, and its only effect is to route a doomed copy to the
-// ladder.
+// VideoPolicy answers exactly one question: how far does this leg trust the envelope
+// the renderer advertised. Being permissive there is right, because refusing a copy over
+// a profile a device probably decodes buys a whole title of needless transcode, and the
+// two served shapes differ in how much that gamble costs them: the read-once spool is
+// produced for one renderer that has already answered, while a remux changes the wrapper
+// and not the picture, so a bitstream it copies is the bitstream the source published.
+//
+// It answers NOTHING ELSE, and the ceiling is the boundary that proves it. A user
+// stating what they want cast is not an opinion about a device, so no policy value may
+// short-circuit it: it used to, and resolver.max_height then meant one thing on a
+// buffered cast and nothing at all on a remux, decided by which delivery path a device
+// happened to land on and reported nowhere. Carriage is outside it too, for the mirror
+// reason: it is a fact about the muxer rather than a capability gate, and its only effect
+// is to route a doomed copy to the ladder.
 type VideoPolicy int
 
 const (
-	// CopyWhatFits copies only a bitstream that needs nothing done to it: within
-	// the height ceiling, in an envelope the renderer decodes, no cues to draw.
+	// CopyWhatFits copies only a bitstream in an envelope the renderer advertised, and
+	// with no cues to draw over it.
 	CopyWhatFits VideoPolicy = iota + 1
-	// CopyWhatever copies the source bitstream whatever it is, because this leg
-	// changes the container and not the picture.
+	// CopyWhatever copies a bitstream the renderer never advertised, because this leg
+	// changes the container and not the picture: the source published this envelope for
+	// players in general, and a device that lists h264 and nothing else routinely decodes
+	// the hevc a re-encode would have cost the whole title's quality to avoid.
 	CopyWhatever
 )
 
@@ -57,9 +66,9 @@ type VideoInputs struct {
 	Probe media.ProbeInfo
 	// Into is the container this encode writes.
 	Into media.FormatInfo
-	// Policy is how much this leg's copy is allowed to refuse. Only CopyWhatever
-	// lifts the gates, so a leg that forgot to say gets the conservative answer
-	// rather than a copy nobody asked for.
+	// Policy is how far this leg trusts the envelope the renderer advertised. Only
+	// CopyWhatever lifts that gate, so a leg that forgot to say gets the conservative
+	// answer rather than a copy nobody asked for. It lifts nothing else.
 	Policy VideoPolicy
 	// Decode is the axes a previous attempt of this cast proved must not be copied,
 	// because the reader that was copying them exited on the bitstream (exit 183,
@@ -68,8 +77,26 @@ type VideoInputs struct {
 	// evidence against the bitstream, and this is that evidence. Zero is the ordinary
 	// case, a first attempt with nothing against it.
 	Decode carriage.Axes
-	// MaxHeight is the cast's height ceiling, 0 for none. It bounds a copy under
-	// CopyWhatFits and scales a re-encode on either policy.
+	// MaxHeight is the cast's height ceiling, and it is the user's instruction rather
+	// than anything measured or negotiated. It bounds the copy and scales the re-encode on
+	// EVERY leg that produces bytes, whatever that leg's policy: a ceiling one delivery
+	// path honoured and another ignored is a ceiling nobody can read off their own
+	// configuration, and the path is chosen by what a renderer answered during discovery
+	// so there was no way to tell which one a cast got.
+	//
+	// PASS-THROUGH IS EXEMPT, and that is a boundary rather than an omission. Castor
+	// touches no media on a pass-through, so it cannot downscale one; the only alternative
+	// is disqualifying the shape whenever a source exceeds the ceiling, which answers a 4K
+	// source on a self-fetching renderer with a 4K read plus a software downscale, i.e. it
+	// turns the cheapest path into the most expensive one for a device that would have
+	// played the original perfectly. What this ceiling governs is the bytes castor MAKES
+	// and the bandwidth castor SPENDS, and a pass-through makes none and spends none.
+	//
+	// It is a term here and not a field of media.Renderer, and it must stay that way: a
+	// height a device advertised would be a capability, where zero legitimately means "the
+	// device told us nothing" and the value is a guess about hardware (see
+	// media.VideoSupport, where resolution is deliberately absent). This is a preference
+	// somebody typed.
 	MaxHeight int
 	// GOPSeconds caps a re-encoded GOP so a renderer joining mid-stream resyncs
 	// within it, 0 for the encoder's own default.
@@ -87,22 +114,26 @@ type VideoInputs struct {
 // DecideVideo is the whole copy-vs-encode answer for the video axis, for both
 // served shapes:
 //
-//   - copy: nothing forces an encode. Under CopyWhatFits that means no cues to
-//     burn, the source under the height ceiling and an envelope the renderer
-//     decodes; under CopyWhatever it means only that the container can carry the
-//     bitstream. That last clause is not a capability gate: it asks whether
-//     ffmpeg's muxer has a stream type for the codec, and its entire effect is to
-//     route into the re-encode below a copy the muxer would otherwise have
-//     destroyed. -f mpegts writes VP8, VP9, AV1, MJPEG and msmpeg4v3 as private
-//     data at exit 0 with hundreds of KB written and no video stream at all in the
-//     output (av1 is worse: it reads back misidentified as mpeg4 with 7 of 150
-//     packets readable, so the renderer is handed a video stream, just a corrupt
-//     one). Re-encoding into the identical destination flag set gave exit 0 and
-//     150/150 decoded frames for every impossible cell;
+//   - copy: nothing forces an encode. Three clauses have to hold, and only one of
+//     them is the policy's to lift. The cast's height ceiling holds on every
+//     policy, because it is what the user asked for rather than a judgement about
+//     the renderer. The output container's carriage holds on every policy too, and
+//     it is not a capability gate either: it asks whether ffmpeg's muxer has a
+//     stream type for the codec, and its entire effect is to route into the
+//     re-encode below a copy the muxer would otherwise have destroyed. -f mpegts
+//     writes VP8, VP9, AV1, MJPEG and msmpeg4v3 as private data at exit 0 with
+//     hundreds of KB written and no video stream at all in the output (av1 is
+//     worse: it reads back misidentified as mpeg4 with 7 of 150 packets readable,
+//     so the renderer is handed a video stream, just a corrupt one). Re-encoding
+//     into the identical destination flag set gave exit 0 and 150/150 decoded
+//     frames for every impossible cell. The third clause, the envelope the renderer
+//     advertised, is the one CopyWhatever trusts past;
 //   - re-encode: otherwise, to the most efficient codec the renderer advertises
 //     and this host can hardware-encode (HEVC at half the bitrate, else H.264),
-//     bounded by that codec's VBV-capped target and carrying this leg's ceiling,
-//     GOP bound and burn-in.
+//     bounded by that codec's VBV-capped target, scaled to the cast's ceiling, and
+//     carrying the GOP bound and burn-in this leg asked for. The ceiling is the
+//     cast's and reaches both branches; the GOP bound is the encode's own, and a
+//     copy has nowhere to carry one.
 //
 // It returns the track rather than writing into an encode, which is what collapses
 // the old ResolveVideo/ReencodeVideo pair into one function: a caller holding a
@@ -113,8 +144,14 @@ type VideoInputs struct {
 // ends rather than running detached.
 func DecideVideo(ctx context.Context, in VideoInputs) ffmpeg.VideoTrack {
 	blocked := carriage.Known(in.Probe, in.Into).Video
-	fits := in.Policy == CopyWhatever ||
-		(withinMaxHeight(in.Probe, in.MaxHeight) && in.Caps.CanCopyVideo(in.Probe))
+	// The ceiling is conjoined with the policy's question, never a disjunct of it. As a
+	// disjunct CopyWhatever answers true before the ceiling is read at all, and the failure
+	// that produces is silent: the same resolver.max_height bounds a buffered cast and does
+	// nothing whatever to a remux of the same source, so a 1080p-capped user pointed at a
+	// 4K variant is served 4K at full source bitrate, decided by which composition their
+	// renderer's own declarations routed them to and reported in no log line.
+	tall := !withinMaxHeight(in.Probe, in.MaxHeight)
+	fits := (in.Policy == CopyWhatever || in.Caps.CanCopyVideo(in.Probe)) && !tall
 	if in.BurnIn == "" && !blocked && !in.Decode.Video && fits {
 		return ffmpeg.CopyVideo()
 	}
@@ -140,6 +177,22 @@ func DecideVideo(ctx context.Context, in VideoInputs) ffmpeg.VideoTrack {
 	enc := selectVideoEncoder(in.Caps, func(c media.Codec) (ffmpeg.Encoder, bool) {
 		return ffmpeg.SelectEncoder(ctx, in.FFmpegPath, c)
 	})
+	if tall {
+		// The one cost the ceiling imposes, stated where a user can attribute it, and it is
+		// stated after the encoder is resolved because the encoder is half the answer: a decode,
+		// scale and re-encode of a 2160p source has to hold realtime for the whole title, which a
+		// hardware encoder does comfortably and a software one on a busy host does not (the
+		// deliverability rule's calibration runs measured 0.0627x to 0.39x against reads allowed
+		// twice realtime). hardware=false beside source_height=2160 is the line that says a stalling
+		// cast is castor's own encode and not the link, which nothing downstream can say for it:
+		// no deliverability verdict is reached on an encode castor chose to run (see
+		// pipeline's pull.judgedPace, and the remux leg, which supplies no pace at all).
+		slog.InfoContext(ctx, "the cast's height ceiling forces a transcode of this video track",
+			"source_height", in.Probe.VideoHeight,
+			"max_height", in.MaxHeight,
+			"encoder", enc.Name,
+			"hardware", enc.Hardware)
+	}
 	t := videoTargets[enc.Codec]
 	return ffmpeg.EncodeVideo(ffmpeg.VideoEncode{
 		Encoder:             enc,
@@ -179,17 +232,32 @@ func selectVideoEncoder(caps media.Renderer, selectEncoder func(media.Codec) (ff
 	return enc
 }
 
-// withinMaxHeight reports whether a probed source fits under the configured cast
-// height ceiling. An unknown height (0) passes: the source is trusted rather than
-// force-transcoded on missing metadata. maxHeight 0 also passes, meaning "no
-// ceiling", matching every other zero convention in the capability model
-// (VideoSupport.Profiles nil is any profile, AudioSupport.MaxChannels 0 is no
-// ceiling). Read the other way round it meant "reject every source whose height
-// is known", which only config validation was keeping out of production. A source
-// above a real cap is not copy-eligible, so it falls through to a transcode that
-// scales it down.
+// withinMaxHeight reports whether a probed source fits under the cast's height ceiling.
+// A source above it is not copy-eligible on any leg, so it falls through to a re-encode
+// that scales it down.
+//
+// It takes the ceiling as a number with no sentinel, and there is nothing to say about a
+// zero one: max_height is `validate:"required,min=1"`, so a cast that reaches here has an
+// explicit ceiling somebody typed. Reading zero as "no ceiling" would be borrowing the
+// capability model's convention, where zero means "the device told us nothing" and
+// leniency is the only honest answer (VideoSupport.Profiles nil is any profile,
+// AudioSupport.MaxChannels 0 is no ceiling). A required config value has no such state,
+// and giving it one is the same mistake as letting a policy short-circuit the ceiling: it
+// invents a way for the instruction to be absent. To lift the ceiling, set max_height
+// above anything you own.
+//
+// An unmeasured height (0) DOES pass, and that is a measurement rather than a sentinel. A
+// probe that failed or a container that states no height is an ordinary thing for a
+// hostile upstream to be, nothing about it says the source is tall, and reading it the
+// other way round means every unmeasured cast pays for a decode, a scale and a re-encode
+// to bound a height that may well already fit. It is the same leniency an unproven
+// media.Reach carries: nothing established may convict.
+//
+// That disjunct is arithmetic the comparison beside it already does (0 is under every
+// ceiling a required min=1 admits), and it is written out because the reading is the
+// decision. An unmeasured source falls on the copy side here and nowhere else says so.
 func withinMaxHeight(src media.ProbeInfo, maxHeight int) bool {
-	return maxHeight == 0 || src.VideoHeight == 0 || src.VideoHeight <= maxHeight
+	return src.VideoHeight == 0 || src.VideoHeight <= maxHeight
 }
 
 // videoTarget is a VBV-capped bitrate: the average, the peak cap, and the buffer

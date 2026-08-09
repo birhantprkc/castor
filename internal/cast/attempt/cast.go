@@ -43,9 +43,13 @@ func Cast(ctx context.Context, in Intent, run Runner, prog Program) error {
 	slog.InfoContext(ctx, "source read policy",
 		"policy", in.Read.Name,
 		"why", in.Read.Why,
+		// A zero deadline is a term of this policy and not a missing value: one shape of
+		// source is read with none at all, and this line is where that is visible before
+		// anybody wonders why a stalled read took two and a half minutes to be named.
 		"read_deadline", in.Read.Deadline,
 		"backoff_max", in.Read.Backoff,
 		"retry_statuses", in.Read.RetryStatuses,
+		"segment_retries", in.Read.SegmentRetries,
 		"readrate", in.Read.Pace.Realtime,
 		"burst", in.Read.Pace.Burst,
 	)

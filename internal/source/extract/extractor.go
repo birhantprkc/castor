@@ -7,7 +7,6 @@
 package extract
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -62,6 +61,23 @@ func (e *Extractor) extract(ctx context.Context, targetURL string) ([]*media.Str
 		return nil, fmt.Errorf("waiting for streams on %s: %w", targetURL, err)
 	}
 
+	streams := streamsFrom(ctx, entries)
+	if len(streams) == 0 {
+		return nil, fmt.Errorf("no usable streams found (%d entries captured, none with recognized content type)", len(entries))
+	}
+
+	return streams, nil
+}
+
+// streamsFrom turns what one session captured into the streams the ranker walks,
+// dropping an entry whose container neither its extension nor its confirmed MIME could
+// name, since nothing can be read from a source castor has no reader for.
+//
+// It stands apart from the session that produced them because the carrying is the part
+// that has to be right: every fact here was established inside a browser that is about
+// to be torn down, and the ladder in particular was read from a response body nothing
+// downstream can ask for again.
+func streamsFrom(ctx context.Context, entries []capturedStream) []*media.Stream {
 	var streams []*media.Stream
 	for _, entry := range entries {
 		u, err := url.Parse(entry.RawURL)
@@ -69,21 +85,19 @@ func (e *Extractor) extract(ctx context.Context, targetURL string) ([]*media.Str
 			slog.DebugContext(ctx, "skipping entry, invalid URL", "raw_url", entry.RawURL, "error", err)
 			continue
 		}
-		// Prefer the extension, fall back to the captured MIME type; both are
-		// pure lookups, so cmp.Or's eager evaluation costs nothing.
-		ct := cmp.Or(media.DetectFromExtension(u), media.DetectFromMIME(entry.MimeType))
+		ct := contentTypeOf(u, entry.MimeType)
 		if ct == "" {
 			slog.DebugContext(ctx, "skipping entry, unknown content type", "url", u.String())
 			continue
 		}
-		streams = append(streams, &media.Stream{URL: u, Headers: media.NormalizeStreamHeaders(entry.Headers), ContentType: ct})
+		streams = append(streams, &media.Stream{
+			URL:         u,
+			Headers:     media.NormalizeStreamHeaders(entry.Headers),
+			ContentType: ct,
+			Ladder:      entry.Ladder,
+		})
 	}
-
-	if len(streams) == 0 {
-		return nil, fmt.Errorf("no usable streams found (%d entries captured, none with recognized content type)", len(entries))
-	}
-
-	return streams, nil
+	return streams
 }
 
 // ExtractAll runs one extraction per URL concurrently (bounded by the extractor's

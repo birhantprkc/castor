@@ -33,6 +33,30 @@ func testStream(t *testing.T, raw string) *media.Stream {
 	return &media.Stream{URL: u, ContentType: media.HLS}
 }
 
+// What the browser established has to reach the stream, because nothing downstream can
+// establish it again: the ladder was read from a response body only Chrome held, and the
+// session is gone by the time the ranker runs. A capture whose renditions are unknown
+// carries unknown, which the ranker reads leniently rather than as "one rendition".
+func TestCapturedFactsReachTheStream(t *testing.T) {
+	streams := streamsFrom(context.Background(), []capturedStream{
+		{RawURL: "https://cdn.example/hls/index.m3u8", Ladder: media.LadderMultivariant},
+		{RawURL: "https://cdn.example/hls/chunklist.m3u8", Ladder: media.LadderSole},
+		{RawURL: "https://cdn.example/hls/unread.m3u8"},
+		// Neither the extension nor a confirmed MIME names a container here, so there is
+		// no reader to point at it.
+		{RawURL: "https://cdn.example/player/embed"},
+	})
+
+	if len(streams) != 3 {
+		t.Fatalf("got %d streams, want 3: %v", len(streams), streams)
+	}
+	for i, want := range []media.Ladder{media.LadderMultivariant, media.LadderSole, media.LadderUnknown} {
+		if streams[i].Ladder != want {
+			t.Errorf("%s carries renditions=%v, want %v", streams[i].URL, streams[i].Ladder, want)
+		}
+	}
+}
+
 // Every embed failing used to be an empty success, which surfaced as the ranker's "no
 // streams to rank" two calls later and named nothing the user could act on. The causes
 // differ per embed and each one implies a different next move, so all of them travel.

@@ -3,8 +3,15 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/printer"
+	"go/token"
 	"io"
+	"io/fs"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -159,7 +166,7 @@ func TestSuperviseLeavesAPausedViewerTheCastTheyArePausing(t *testing.T) {
 	// No pace, so the deliverability arm asks nothing here: this test is about the renderer's
 	// silence and what is made of it.
 	const noPace = 0
-	stopped := stoppedRenderer{requests: 3, last: time.Now().Add(-watch.StallWindow - time.Second)}
+	stopped := stoppedRenderer{handed: 8 << 20, last: time.Now().Add(-watch.StallWindow - time.Second)}
 
 	for _, tt := range []struct {
 		name     string
@@ -240,7 +247,7 @@ func TestBothWindowsJudgeTheSameReadAgainstTheSamePace(t *testing.T) {
 
 			// And a renderer that has never come for the bytes is the fastest verdict the
 			// in-flight window reaches. The silence is stated by the sink rather than waited out.
-			never := stoppedRenderer{requests: 0, last: time.Now().Add(-watch.StallWindow - time.Second)}
+			never := stoppedRenderer{handed: 0, last: time.Now().Add(-watch.StallWindow - time.Second)}
 			inFlight := paceBehindTheVerdict(t, func(ctx context.Context) error {
 				return supervise(ctx, sp, pl, core.Delivery{Consumer: never})
 			})
@@ -270,11 +277,120 @@ func TestNoWindowCanStateItsOwnPaceForARead(t *testing.T) {
 			Subject:  "a window with an opinion about the read",
 			Window:   watch.Playing,
 			Headroom: 8,
-			Consumer: stoppedRenderer{requests: 0, last: time.Now().Add(-watch.StallWindow - time.Second)},
+			Consumer: stoppedRenderer{handed: 0, last: time.Now().Add(-watch.StallWindow - time.Second)},
 		})
 	})
 	if pace != pl.judgedPace() {
 		t.Errorf("the read was judged against %gx rather than the %gx it answers for itself, so a window can still state a pace of its own", pace, pl.judgedPace())
+	}
+}
+
+// TestNothingButAReadsOwnAnswerEverSuppliesAPace is the precondition for holding a cast to a
+// height ceiling at all, pinned structurally because the tests above can only pin the sites
+// that exist today.
+//
+// The ceiling binds every leg that PRODUCES bytes, so it buys re-encodes on legs that used to
+// copy: a 2160p source under a 1080 cap now decodes, scales and encodes, which needs hardware
+// to hold realtime and sits far under 1.0x on a software-only host. A watch handed a pace over
+// work of that shape convicts the ORIGIN for it, and conviction is not a local mistake: before
+// playback it walks and burns every remaining candidate, re-touching single-use signed URLs for
+// a deficit none of them caused, and in flight it ends a cast someone is watching with a
+// message sending them after their network.
+//
+// So the pace has exactly one supplier in the whole cast path, and it is the read answering
+// about itself (pull.judgedPace, which withholds it from a read castor throttles or produces).
+// The legs the ceiling newly binds supply none at all: a remux's encode is watched only while
+// its artifact is opening, where no rule reads a pace, and a delivery that filled one in would
+// be measuring castor's own encoder against an allowance granted to a network.
+//
+// It is read off the source rather than driven, because what has to be impossible is a SITE:
+// a supplier added tomorrow is a cast abandoned for work castor chose to do, and no test over
+// the wiring that exists can fail for one that does not exist yet.
+func TestNothingButAReadsOwnAnswerEverSuppliesAPace(t *testing.T) {
+	const answer = "pl.judgedPace()"
+
+	suppliers := map[string]string{}
+	root, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		switch {
+		case err != nil:
+			return err
+		case d.IsDir():
+			// The watch package itself is where the port and the facts it fills are declared, so
+			// its own reads of the term are the mechanism rather than a supplier of it.
+			if d.Name() == "watch" {
+				return fs.SkipDir
+			}
+			return nil
+		case !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go"):
+			return nil
+		}
+
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			return err
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			for expr, value := range paceSuppliedBy(n) {
+				var text strings.Builder
+				if err := printer.Fprint(&text, fset, value); err != nil {
+					t.Fatal(err)
+				}
+				suppliers[fmt.Sprintf("%s: %s", fset.Position(expr.Pos()).String(), text.String())] = text.String()
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(suppliers) == 0 {
+		t.Fatalf("nothing in the cast path supplies a pace, so no deliverability verdict can be reached at all and this test is measuring the wrong thing")
+	}
+	for where, value := range suppliers {
+		if value != answer {
+			t.Errorf("%s supplies the pace a cast is judged against as %s rather than %s: only the read can answer for itself, and a site that answers for it judges castor's own encode as a starving link",
+				where, value, answer)
+		}
+	}
+}
+
+// paceSuppliedBy yields every expression one node supplies a watch pace through, with the site
+// it is written at: a Headroom key on a Monitor literal, or an assignment to one's field.
+func paceSuppliedBy(n ast.Node) func(func(ast.Node, ast.Expr) bool) {
+	return func(yield func(ast.Node, ast.Expr) bool) {
+		switch node := n.(type) {
+		case *ast.CompositeLit:
+			sel, ok := node.Type.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "Monitor" {
+				return
+			}
+			for _, elt := range node.Elts {
+				kv, ok := elt.(*ast.KeyValueExpr)
+				if !ok {
+					continue
+				}
+				if key, ok := kv.Key.(*ast.Ident); ok && key.Name == "Headroom" && !yield(kv, kv.Value) {
+					return
+				}
+			}
+		case *ast.AssignStmt:
+			for i, lhs := range node.Lhs {
+				sel, ok := lhs.(*ast.SelectorExpr)
+				if !ok || sel.Sel.Name != "Headroom" || i >= len(node.Rhs) {
+					continue
+				}
+				if !yield(sel, node.Rhs[i]) {
+					return
+				}
+			}
+		}
 	}
 }
 
@@ -292,16 +408,16 @@ func paceBehindTheVerdict(t *testing.T, watching func(context.Context) error) fl
 	return fault.Health.Headroom
 }
 
-// stoppedRenderer is what a sink can report about a renderer that is not fetching now: how
-// many times it ever did, and when it last did. A positive count that went quiet is what both
-// a viewer who paused and a renderer that went away look like from out here; zero requests is
-// a renderer that accepted the URL and never came for the bytes at all.
+// stoppedRenderer is what a sink can report about a renderer that is not fetching now: how much
+// of the program it was ever handed, and when a byte of it last moved. A figure that went quiet
+// is what both a viewer who paused and a renderer that went away look like from out here; zero
+// is a renderer that was handed no byte of what castor made for it, whether it asked or not.
 type stoppedRenderer struct {
-	requests int
-	last     time.Time
+	handed int64
+	last   time.Time
 }
 
-func (s stoppedRenderer) Fetched() (int, time.Time) { return s.requests, s.last }
+func (s stoppedRenderer) Handed() (int64, time.Time) { return s.handed, s.last }
 
 // feedTheObservedRun replays the reader's own account of itself, one block at a time,
 // exactly as the observed run reported it. Blocks are spaced past the gate's polling

@@ -21,12 +21,12 @@
 // window, is an error naming the shape rather than a silent fall-through.
 //
 // One thing is deliberately NOT judged here, and it is worth naming so it is not added
-// back as a missing rule: a renderer that fetched and then went quiet. A viewer who paused,
-// a viewer who walked away and a renderer that crashed are one fact from outside (no
-// requests), and nothing this package can read separates them, because what castor still
+// back as a missing rule: a renderer that took some of the program and then went quiet. A viewer
+// who paused, a viewer who walked away and a renderer that crashed are one fact from outside
+// (nothing more being taken), and nothing this package can read separates them, because what castor still
 // holds for the renderer is filled by the encoder and keeps growing through the silence. A
 // verdict over that evidence states something castor cannot know. The delivery's write
-// deadline is what answers a quiet renderer (see replay's defaultWriteDeadline), and whether
+// deadline is what answers a quiet renderer (see replay's DefaultWriteDeadline), and whether
 // it ever took what was made for it is arithmetic done once the cast has ended (see
 // core.Undelivered), where the numbers exist.
 //

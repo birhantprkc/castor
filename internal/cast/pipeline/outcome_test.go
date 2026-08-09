@@ -184,7 +184,7 @@ func TestTheExecutorBlamesARendererThatWouldNotPlay(t *testing.T) {
 // cast's error and nowhere else; read off it here, a classification can be keyed on it
 // structurally instead of on what the message happens to say.
 func TestADeliveryNobodyTookTheStreamFromReachesTheEvidence(t *testing.T) {
-	short := &core.Undelivered{Handed: 2 * time.Minute, Produced: 2 * time.Hour, Playing: time.Hour}
+	short := &core.Undelivered{Handed: 2 * time.Minute, Produced: 2 * time.Hour}
 	l := landing{reached: attempt.PhasePlaying, err: fmt.Errorf("delivering the stream: %w", short)}
 
 	out := l.outcome(t.Context())

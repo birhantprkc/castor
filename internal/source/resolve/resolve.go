@@ -121,7 +121,9 @@ func (r *Resolver) RankStreams(ctx context.Context, streams []*media.Stream) ([]
 	best := order[0]
 	slog.InfoContext(ctx, "best stream selected", "url", best.stream.URL.String(),
 		"bitrate", best.stream.Bandwidth, "height", best.height, "last_resort", best.lastResort,
-		"alternatives", len(order)-1)
+		// The renditions the captured document advertised, which is the first thing worth
+		// knowing when a cast later reports it has nothing lighter to fall back to.
+		"renditions", best.stream.Ladder, "alternatives", len(order)-1)
 
 	out := make([]*media.Stream, len(order))
 	for i, c := range order {

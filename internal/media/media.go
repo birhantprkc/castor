@@ -62,6 +62,14 @@ type Stream struct {
 	// measurer whether the source opens unaided).
 	NeedsLeniency bool
 
+	// Ladder is what the captured document said about renditions, when castor could
+	// read it. It travels with the stream because the ranker has no other way to tell a
+	// master from one of its rungs: a probe of a master reports whichever variant
+	// ffprobe chose, and a variant playlist's probed height is a real ceiling while a
+	// master's is not. LadderUnknown is the lenient answer and must never be read as
+	// "not a master".
+	Ladder Ladder
+
 	Headers     http.Header
 	Bandwidth   int64
 	ContentType string

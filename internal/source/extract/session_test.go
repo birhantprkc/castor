@@ -24,7 +24,7 @@ func countingActions(n int, ran *[]int) []action {
 // 18505 kb/s, and no ladder to degrade to when the link delivered 0.39x realtime.
 func TestActionPipelineRunsPastAChunklist(t *testing.T) {
 	c := testCollector(t)
-	c.addByPattern("https://cdn.example/hls/index-s2160p-v1-a1.m3u8", "")
+	captureWithBody(t, c, "https://cdn.example/hls/index-s2160p-v1-a1.m3u8", "req-1", mediaDocument)
 
 	var ran []int
 	actions := countingActions(4, &ran)
@@ -48,7 +48,7 @@ func TestActionPipelineStopsOnAMaster(t *testing.T) {
 	// second: the stop is checked ahead of every action, not only at the top.
 	actions := []action{
 		{"leak the master", func() error {
-			c.addByPattern("https://cdn.example/hls/master.m3u8", "")
+			captureWithBody(t, c, "https://cdn.example/hls/index.m3u8", "req-1", masterDocument)
 			return nil
 		}},
 		{"must not run", func() error {
@@ -100,7 +100,7 @@ func TestPipelineObservesOnlyTheActionsThatRan(t *testing.T) {
 	var observed []int
 	actions := []action{
 		{"leak the master", func() error {
-			c.addByPattern("https://cdn.example/hls/master.m3u8", "")
+			captureWithBody(t, c, "https://cdn.example/hls/index.m3u8", "req-1", masterDocument)
 			return nil
 		}},
 		{"must not run", func() error { return nil }},

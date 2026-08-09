@@ -133,7 +133,8 @@ func streams(t *testing.T, raws ...string) []*media.Stream {
 }
 
 // contentStreams builds candidates of a given container, which matters to ranking
-// for one reason: the height cap binds a direct file and exempts an HLS master (see
+// for one reason: the height cap binds a direct file outright, while a playlist is
+// exempt until its own tags say it advertises a single rendition (see
 // candidate.exceedsCap).
 func contentStreams(t *testing.T, contentType string, raws ...string) []*media.Stream {
 	t.Helper()
@@ -254,6 +255,87 @@ func TestRankStreamsDropsDecoysHard(t *testing.T) {
 	}
 	if len(order) != 1 {
 		t.Errorf("ordering has %d entries, want only the feature: a dropped decoy must not survive as a fallback the cast can walk to", len(order))
+	}
+}
+
+// The ladder has to survive ranking, and it is the one fact ranking cannot recover: it
+// was read out of the browser's own cache while extracting, and that session is gone.
+// Ranking measures onto a COPY of every candidate, so that a rejected one leaves no
+// marks on extraction's value, and a copy is exactly where a carried fact goes missing.
+//
+// The pick itself is the reason to care. Both candidates here are the shapes the field
+// serves: a master ffprobe can report no top-level bit_rate for, arriving floored to 1
+// with the height of whichever variant it opened, against a plain recording it measures
+// cleanly. The master wins because it carries rungs a starving cast can drop to.
+func TestRankingCarriesTheLadderItWasGiven(t *testing.T) {
+	measurer := &fakeMeasurer{answers: map[string]answer{
+		"http://a.example/index.m3u8":     measured(playable(1, 0)),
+		"http://a.example/recording.m3u8": measured(playable(6_000_000, 1080)),
+	}}
+	candidates := streams(t, "http://a.example/index.m3u8", "http://a.example/recording.m3u8")
+	candidates[0].Ladder = media.LadderMultivariant
+	candidates[1].Ladder = media.LadderSole
+
+	order, err := newTestResolver(measurer, &fakePlaylists{}).RankStreams(t.Context(), candidates)
+	if err != nil {
+		t.Fatalf("RankStreams: %v", err)
+	}
+	if got := order[0].URL.String(); got != "http://a.example/index.m3u8" {
+		t.Errorf("best = %s, want the document that advertised renditions", got)
+	}
+	if order[0].Ladder != media.LadderMultivariant {
+		t.Errorf("the ranked stream carries renditions=%v, so nothing a recovery reads can find the ladder that was in hand", order[0].Ladder)
+	}
+	if order[1].Ladder != media.LadderSole {
+		t.Errorf("the alternative carries renditions=%v, want the fact its own document established", order[1].Ladder)
+	}
+}
+
+// TestRankStreamsHonoursTheCeilingOnlyOnAProvenSingleRendition drives the selection
+// half of the height ceiling through the real ranker. Both candidates are .m3u8 and both
+// were measured cleanly, so the only thing that can separate them is what their own
+// documents said about renditions.
+//
+// A directly captured 2160p variant playlist is the shape that cost a 1080-capped user
+// 4K: it advertises no renditions, so 2160 is exactly what a cast against it reads and
+// there is no rung to narrow to. Preferring the 1080p link instead costs nothing, where
+// honouring the same ceiling once the 4K read is under way costs a decode, a scale and a
+// realtime re-encode. A candidate whose body nobody could read keeps the exemption, so
+// nothing established stays incapable of convicting a candidate.
+func TestRankStreamsHonoursTheCeilingOnlyOnAProvenSingleRendition(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		ladder media.Ladder
+		want   string
+	}{
+		{
+			name:   "a document advertising one rendition makes its height a ceiling",
+			ladder: media.LadderSole,
+			want:   "http://a.example/1080.m3u8",
+		},
+		{
+			name:   "renditions nobody could read leave the exemption in place",
+			ladder: media.LadderUnknown,
+			want:   "http://a.example/2160.m3u8",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			measurer := &fakeMeasurer{answers: map[string]answer{
+				"http://a.example/2160.m3u8": measured(playable(20_000_000, 2160)),
+				"http://a.example/1080.m3u8": measured(playable(6_000_000, 1080)),
+			}}
+			candidates := streams(t, "http://a.example/2160.m3u8", "http://a.example/1080.m3u8")
+			candidates[0].Ladder = tc.ladder
+			candidates[1].Ladder = media.LadderSole
+
+			order, err := newTestResolver(measurer, &fakePlaylists{}).RankStreams(t.Context(), candidates)
+			if err != nil {
+				t.Fatalf("RankStreams: %v", err)
+			}
+			if got := order[0].URL.String(); got != tc.want {
+				t.Errorf("best = %s, want %s", got, tc.want)
+			}
+		})
 	}
 }
 

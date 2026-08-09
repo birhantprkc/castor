@@ -218,19 +218,22 @@ func TestVerdicts(t *testing.T) {
 	}, {
 		name:   "a playing cast with nothing against it is healthy",
 		window: Playing,
-		health: Health{Landed: 1 << 20, Requests: 1, Speed: 2, Headroom: 2, Samples: 100},
+		health: Health{Landed: 1 << 20, Handed: 1 << 20, Speed: 2, Headroom: 2, Samples: 100},
 		want:   Healthy,
 	}, {
-		// The renderer accepted Play and never came for the bytes. Every other fact about
-		// this cast looks like a delivered one, which is why it was reported as success.
-		name:   "a renderer that never fetched is unfetched",
+		// The renderer accepted Play and was handed no byte of what was made for it. Every other
+		// fact about this cast looks like a delivered one, which is why it was reported as
+		// success. A renderer that ASKED and took nothing is this same reading, which is the
+		// whole of why the row measures what got through instead of counting requests: it used
+		// to be a different reading, and the different one was answered Healthy.
+		name:   "a renderer handed no byte of the program is unfetched",
 		window: Playing,
-		health: Health{Landed: 8 << 20, Requests: 0, SinceFetch: fetchWindow + time.Second},
+		health: Health{Landed: 8 << 20, Handed: 0, SinceFetch: fetchWindow + time.Second},
 		want:   Unfetched,
 	}, {
 		name:   "a renderer given less than the fetch window is not yet unfetched",
 		window: Playing,
-		health: Health{Landed: 8 << 20, Requests: 0, SinceFetch: fetchWindow - time.Second},
+		health: Health{Landed: 8 << 20, Handed: 0, SinceFetch: fetchWindow - time.Second},
 		want:   Healthy,
 	}, {
 		// A renderer that fetched and then went quiet is NOT judged here, however long the
@@ -241,7 +244,7 @@ func TestVerdicts(t *testing.T) {
 		// cast has ended (see core.Undelivered).
 		name:   "a renderer that fetched and stopped is not a verdict",
 		window: Playing,
-		health: Health{Landed: 8 << 20, Requests: 3, SinceFetch: StallWindow + time.Second},
+		health: Health{Landed: 8 << 20, Handed: 4 << 20, SinceFetch: StallWindow + time.Second},
 		want:   Healthy,
 	}, {
 		// The same silence with media still in hand, which is a paused viewer to the byte. Twenty
@@ -249,7 +252,7 @@ func TestVerdicts(t *testing.T) {
 		// the film away at two and a half minutes of somebody standing up.
 		name:   "a renderer that stopped fetching with media still in hand is not a verdict",
 		window: Playing,
-		health: Health{Landed: 8 << 20, Requests: 3, SinceFetch: StallWindow + time.Second, Delivered: 20 * time.Minute, SincePlay: 4 * time.Minute},
+		health: Health{Landed: 8 << 20, Handed: 4 << 20, SinceFetch: StallWindow + time.Second, Delivered: 20 * time.Minute, SincePlay: 4 * time.Minute},
 		want:   Healthy,
 	}, {
 		// And the same silence with the buffer apparently played out, which is the reading a
@@ -259,7 +262,7 @@ func TestVerdicts(t *testing.T) {
 		// back down.
 		name:   "a renderer that stopped fetching having played everything out is not a verdict either",
 		window: Playing,
-		health: Health{Landed: 8 << 20, Requests: 3, SinceFetch: StallWindow + time.Second, Delivered: 4 * time.Minute, SincePlay: 5 * time.Minute},
+		health: Health{Landed: 8 << 20, Handed: 4 << 20, SinceFetch: StallWindow + time.Second, Delivered: 4 * time.Minute, SincePlay: 5 * time.Minute},
 		want:   Healthy,
 	}, {
 		// A renderer that never came for the bytes at all is convicted however much is waiting
@@ -267,7 +270,7 @@ func TestVerdicts(t *testing.T) {
 		// to protect, the whole title is in hand, and nobody has ever fetched a byte of it.
 		name:   "a renderer that never fetched is unfetched however much is buffered",
 		window: Playing,
-		health: Health{Landed: 8 << 20, Requests: 0, SinceFetch: fetchWindow + time.Second, Delivered: 30 * time.Minute},
+		health: Health{Landed: 8 << 20, Handed: 0, SinceFetch: fetchWindow + time.Second, Delivered: 30 * time.Minute},
 		want:   Unfetched,
 	}, {
 		// The producer's silence, over a renderer that still has media. The read is allowed
@@ -277,7 +280,7 @@ func TestVerdicts(t *testing.T) {
 		// who was watching them and then blamed an expired playlist for it.
 		name:   "a producer that stopped while the renderer still has media is not stalled",
 		window: Playing,
-		health: Health{Landed: 8 << 20, Requests: 3, SinceGrowth: StallWindow + time.Second, Delivered: 45 * time.Minute, SincePlay: 15 * time.Minute},
+		health: Health{Landed: 8 << 20, Handed: 4 << 20, SinceGrowth: StallWindow + time.Second, Delivered: 45 * time.Minute, SincePlay: 15 * time.Minute},
 		want:   Healthy,
 	}, {
 		// Once that lead is played out the cast really is over, and it is named with the same
@@ -285,7 +288,7 @@ func TestVerdicts(t *testing.T) {
 		// whose segments have expired.
 		name:   "a producer that stopped once the renderer has played it all out is stalled",
 		window: Playing,
-		health: Health{Landed: 8 << 20, Requests: 3, SinceGrowth: StallWindow + time.Second, Delivered: 15 * time.Minute, SincePlay: 16 * time.Minute},
+		health: Health{Landed: 8 << 20, Handed: 4 << 20, SinceGrowth: StallWindow + time.Second, Delivered: 15 * time.Minute, SincePlay: 16 * time.Minute},
 		want:   Stalled,
 	}, {
 		// Once the producer is done the renderer is draining a finished buffer, and the
@@ -293,7 +296,7 @@ func TestVerdicts(t *testing.T) {
 		// completed cast.
 		name:   "a quiet renderer over a finished producer is not a verdict",
 		window: Playing,
-		health: Health{Landed: 8 << 20, Requests: 3, SinceFetch: StallWindow + time.Second, Ended: true},
+		health: Health{Landed: 8 << 20, Handed: 4 << 20, SinceFetch: StallWindow + time.Second, Ended: true},
 		want:   Healthy,
 	}, {
 		// In flight the deficit must outlast two reconnect ceilings, for the same reason
@@ -301,12 +304,12 @@ func TestVerdicts(t *testing.T) {
 		// lands its retry.
 		name:   "a fresh in-flight deficit is not yet acted on",
 		window: Playing,
-		health: Health{Landed: 8 << 20, Requests: 1, Speed: 0.3, Headroom: 2, Samples: 100, SinceDeficit: time.Second},
+		health: Health{Landed: 8 << 20, Handed: 1 << 20, Speed: 0.3, Headroom: 2, Samples: 100, SinceDeficit: time.Second},
 		want:   Healthy,
 	}, {
 		name:   "an in-flight deficit past two reconnect ceilings is undeliverable",
 		window: Playing,
-		health: Health{Landed: 8 << 20, Requests: 1, Speed: 0.3, Headroom: 2, Samples: 100, SinceDeficit: StallWindow + time.Second},
+		health: Health{Landed: 8 << 20, Handed: 1 << 20, Speed: 0.3, Headroom: 2, Samples: 100, SinceDeficit: StallWindow + time.Second},
 		want:   Undeliverable,
 	}, {
 		// The withheld pace again, in the window where the verdict ends a cast someone is
@@ -318,7 +321,7 @@ func TestVerdicts(t *testing.T) {
 		// reads no pace and blames no link.
 		name:   "a read whose pace was withheld is never undeliverable in flight either",
 		window: Playing,
-		health: Health{Landed: 8 << 20, Requests: 1, Speed: 0.0627, Headroom: 0, Samples: 100, SinceDeficit: 10 * StallWindow},
+		health: Health{Landed: 8 << 20, Handed: 1 << 20, Speed: 0.0627, Headroom: 0, Samples: 100, SinceDeficit: 10 * StallWindow},
 		want:   Healthy,
 	}}
 
@@ -389,6 +392,54 @@ func TestNoActionIsOfferedForAWindowNoRuleAnswers(t *testing.T) {
 		if !reachable[v] {
 			t.Errorf("the action table answers a %s verdict in the %s window, which no rule reaches", v.Kind, v.Window)
 		}
+	}
+}
+
+// TestNothingBoundsAFragileReadButThisRow is the obligation the read table took on when it
+// stopped handing an fMP4 source a mid-read deadline. Without -rw_timeout, ffmpeg will wait
+// on a socket that was accepted and then went quiet for as long as the peer keeps it open,
+// which is forever on the tarpit shape, so the ONLY thing that ends such a read is a verdict
+// reached here.
+//
+// It reads the policy out of the read table rather than asserting a duration, so the two
+// halves of that trade cannot drift apart: re-arming the deadline breaks the premise below,
+// and removing this row's window or making its buffer term bind before playback breaks the
+// verdict. The pre-playback case is the one that has to be checked, because the in-flight arm
+// deliberately waits for the renderer's buffer to be played out first and there is no such
+// buffer before a renderer holds anything.
+func TestNothingBoundsAFragileReadButThisRow(t *testing.T) {
+	fragile, err := read.For(read.Shape{Segmented: true, Framing: media.FramingOutOfBand}, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fragile.Deadline != 0 {
+		t.Fatalf("the %q read carries a %s mid-read deadline, so this test is measuring the wrong thing: ffmpeg bounds that read itself",
+			fragile.Name, fragile.Deadline)
+	}
+
+	// The read as this layer sees it after the silence: still running, nothing landed, and
+	// nobody yet pointed at anything (Delivered and SincePlay are zero in every window before
+	// Play, which is what leaves the buffer term vacuous here).
+	quiet := Health{SinceGrowth: StallWindow + time.Second}
+	rule, act, err := judge(BeforePlay, quiet)
+	if err != nil {
+		t.Fatalf("judge: %v", err)
+	}
+	if rule.Kind != Stalled {
+		t.Errorf("a %q read that landed nothing for %s is judged %s (rule %q), want %s: nothing else will ever end it",
+			fragile.Name, quiet.SinceGrowth, rule.Kind, rule.Name, Stalled)
+	}
+	if act != revise {
+		t.Error("that verdict does not ask for a revision; before playback the answer is to change the attempt, which is what makes reaching this verdict better than the deadline it replaced")
+	}
+
+	// And one poll earlier it is still waiting, so the bound is this window and not the first
+	// reading of an empty buffer.
+	if rule, _, err := judge(BeforePlay, Health{SinceGrowth: StallWindow - time.Second}); err != nil {
+		t.Fatal(err)
+	} else if rule.Kind == Stalled {
+		t.Errorf("a read that has been quiet for %s is already stalled (rule %q); the bound is meant to outlast the backoff ceiling the reader was handed",
+			StallWindow-time.Second, rule.Name)
 	}
 }
 
@@ -528,7 +579,7 @@ func TestTheBufferIsWhatTheRendererCannotYetHavePlayed(t *testing.T) {
 		// what it was: nothing has been delivered to anybody, so the second term of those rules
 		// is vacuous there and a dead playlist is still named on silence alone.
 		name:   "an unmeasured delivery holds nothing open",
-		health: Health{Landed: 8 << 20, Requests: 3},
+		health: Health{Landed: 8 << 20, Handed: 4 << 20},
 		want:   0,
 		inHand: false,
 	}} {

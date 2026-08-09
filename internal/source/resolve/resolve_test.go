@@ -737,6 +737,19 @@ func TestRankedPicksTheBestCandidate(t *testing.T) {
 	unmeasured := func(path string) candidate {
 		return candidate{stream: &media.Stream{URL: &url.URL{Path: path}, ContentType: media.MP4}, lastResort: true}
 	}
+	// withLadder marks a candidate whose captured document advertised renditions, and
+	// sole one whose document advertised none. Both are facts read from the body the
+	// browser already had. A candidate left alone is one nobody could read: it ties with
+	// sole on the ladder tier, and unlike sole it is still exempt from the height cap,
+	// because nothing about its renditions was established either way.
+	withLadder := func(c candidate) candidate {
+		c.stream.Ladder = media.LadderMultivariant
+		return c
+	}
+	sole := func(c candidate) candidate {
+		c.stream.Ladder = media.LadderSole
+		return c
+	}
 
 	tests := []struct {
 		name      string
@@ -751,10 +764,33 @@ func TestRankedPicksTheBestCandidate(t *testing.T) {
 			want:      "/1080",
 		},
 		{
-			name:      "HLS master is exempt from the cap and wins on bandwidth",
-			pool:      []candidate{hls("/master", 2160, 20_000_000), direct("/1080", 1080, 6_000_000)},
+			// The one exemption with a reason behind it: a master lists every variant, so
+			// the 2160 ffprobe read off whichever one it opened is not a limit on what a
+			// cast will read, and the cap binds when a rung is picked out of it.
+			name:      "a document advertising renditions is exempt from the cap",
+			pool:      []candidate{withLadder(hls("/master", 2160, 20_000_000)), direct("/1080", 1080, 6_000_000)},
 			maxHeight: 1080,
 			want:      "/master",
+		},
+		{
+			// Half of why a user capped at 1080 was handed 4K. This document's own tags say
+			// it holds one rendition, so 2160 is exactly what a cast would read and nothing
+			// downstream narrows it; being reached by a .m3u8 URL is not a reason to exempt
+			// it. The within-cap tier is compared first, so the ceiling decides here even
+			// against three times the bitrate.
+			name:      "a document proved to advertise one rendition is bound by the cap",
+			pool:      []candidate{sole(hls("/variant2160", 2160, 20_000_000)), direct("/1080", 1080, 6_000_000)},
+			maxHeight: 1080,
+			want:      "/1080",
+		},
+		{
+			// Unknown stays exempt, the way media.ReachUnproven stays admissible: a body
+			// Chrome would not hand over leaves it entirely possible that this is a master,
+			// and an absence of evidence may not convict a candidate.
+			name:      "a playlist whose renditions nobody could read keeps the exemption",
+			pool:      []candidate{hls("/unread2160", 2160, 20_000_000), direct("/1080", 1080, 6_000_000)},
+			maxHeight: 1080,
+			want:      "/unread2160",
 		},
 		{
 			name:      "all over cap falls back to the tallest",
@@ -804,6 +840,37 @@ func TestRankedPicksTheBestCandidate(t *testing.T) {
 			pool:      []candidate{unmeasured("/dead"), direct("/4k", 2160, 20_000_000)},
 			maxHeight: 1080,
 			want:      "/4k",
+		},
+		{
+			// The reason a ladder is worth preferring at all: a cast that starts starving
+			// can drop a rung, and a source that published one rendition leaves it nothing
+			// to drop to. Three runs ended exactly there. The master also shows why the
+			// tier sits above both measurement tiers: ffprobe reports no top-level bit_rate
+			// for one (so it arrives floored to 1) and the height of whichever variant it
+			// opened.
+			name:      "a confirmed ladder outranks a document with none",
+			pool:      []candidate{withLadder(hls("/master", 0, 1)), hls("/variant", 1080, 6_000_000)},
+			maxHeight: 1080,
+			want:      "/master",
+		},
+		{
+			// Unknown must not demote, the convention media.Reach's unproven zero value and
+			// the unmeasured height above already follow. A body Chrome would not hand over
+			// compares exactly like one that read as a single rendition, so the pair falls
+			// through to height and the taller picture wins.
+			name:      "renditions nobody could read are not ranked below renditions read as one",
+			pool:      []candidate{sole(hls("/read", 1080, 6_000_000)), hls("/unread", 1440, 1)},
+			maxHeight: 2160,
+			want:      "/unread",
+		},
+		{
+			// The ladder is a fact about the document, not about the link: a candidate whose
+			// probe died still carries whatever its body said. The last-resort tier stays
+			// first, because a ladder is worth nothing at a URL nobody could open.
+			name:      "an unmeasured candidate keeps its ladder and still loses to a measured one",
+			pool:      []candidate{withLadder(unmeasured("/dead")), direct("/1080", 1080, 6_000_000)},
+			maxHeight: 1080,
+			want:      "/1080",
 		},
 	}
 	for _, tt := range tests {

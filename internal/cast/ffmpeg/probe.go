@@ -76,7 +76,10 @@ func SourceProbe(ffprobePath string, src NetworkSource) SourceProber {
 // playlist whose segments all 403 by walking the whole playlist, skipping each segment
 // after it has "failed too many times", which for a feature title is thousands of round
 // trips producing no output and no exit (199 seconds on a real one, printing nothing at
-// all). It is owned by whoever also owns what a failed measurement means, so the two cannot
+// all). The read policy's segment retry budget multiplies those round trips, since each
+// skip now costs every re-fetch the reader was granted, which changes nothing about the
+// bound: this deadline is what ends that walk, and it ended it before the budget existed.
+// It is owned by whoever also owns what a failed measurement means, so the two cannot
 // disagree, and it bounds the whole program rather than each rendition, so a demuxed
 // program cannot take twice as long as the caller allowed.
 type SourceProber struct {
@@ -102,7 +105,7 @@ func (p SourceProber) Probe(ctx context.Context) (media.ProbeInfo, error) {
 
 	inputArgs := readArgs(src.Read)
 	inputArgs = append(inputArgs, media.HeaderArgs(src.Headers)...)
-	inputArgs = append(inputArgs, containerInputArgs(src.ContentType)...)
+	inputArgs = append(inputArgs, containerInputArgs(src.ContentType, src.Read)...)
 
 	info, err := probe(ctx, ffprobePath, src.URL.String(), inputArgs)
 	if err != nil || src.AudioURL == nil {

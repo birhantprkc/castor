@@ -95,9 +95,10 @@ var compositions = []composition{{
 	needs:   profileOnly,
 	when:    func(s core.Shape) bool { return !s.Renderer.SelfFetch },
 	connect: connectConcurrent,
-	// The buffer is read by an encode that must be able to refuse a copy: it applies the
-	// height ceiling, the renderer's decode envelope and a burn-in, any of which forces the
-	// picture to be produced rather than passed along.
+	// The buffer is read by an encode produced for one renderer that has already answered,
+	// so it holds that renderer to what it advertised: an envelope it did not name is
+	// re-encoded rather than gambled on. This is the only composition that can also be
+	// forced to produce the picture by a burn-in.
 	policy: core.CopyWhatFits,
 	run:    readOnce,
 }, {
@@ -120,10 +121,12 @@ var compositions = []composition{{
 	needs:   negotiated,
 	when:    func(core.Shape) bool { return true },
 	connect: connectFirst,
-	// A remux changes the wrapper and not the picture, so no height ceiling and no decode
-	// envelope applies to its copy. What still applies is carriage, which is not a gate on
-	// the source but a fact about the muxer, and its only effect is to route a doomed copy to
-	// the re-encode ladder.
+	// A remux changes the wrapper and not the picture, so the bitstream it copies is the one
+	// the source published for players in general, and holding it to what this renderer
+	// happened to advertise buys a whole title of re-encode against a device that probably
+	// decodes it anyway. What the policy does NOT lift is the cast's height ceiling (a user
+	// instruction, not a judgement about the renderer) or carriage (a fact about the muxer,
+	// whose only effect is to route a doomed copy to the re-encode ladder).
 	policy: core.CopyWhatever,
 	run:    remux,
 }}

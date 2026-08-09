@@ -103,8 +103,8 @@ var classCases = []classCase{{
 }, {
 	name: "a renderer that took some of the stream and stopped is the same class",
 	why:  "a cast that ran its course having handed the renderer a fraction of what it produced delivered the program to nobody, which is the same event as one that never fetched",
-	in: Evidence{Reached: PhasePlaying, Health: watch.Health{Requests: 1},
-		Undelivered: &core.Undelivered{Handed: 2 * time.Minute, Produced: 2 * time.Hour, Playing: time.Hour}},
+	in: Evidence{Reached: PhasePlaying, Health: watch.Health{Handed: 1 << 20},
+		Undelivered: &core.Undelivered{Handed: 2 * time.Minute, Produced: 2 * time.Hour}},
 	want: RendererRefused,
 }, {
 	name: "a delivery whose artifact never appeared produced nothing",

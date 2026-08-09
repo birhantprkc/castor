@@ -983,26 +983,31 @@ func mustEncodeArgs(t *testing.T, opts EncodeOptions) []string {
 	return args
 }
 
-// TestEveryReadPolicyRendersTheFlagsCastorHasAlwaysSent is the golden assertion
-// behind the read table: every row is rendered in full, token for token, against
-// the exact list castor opens an upstream with. The expected tokens are spelled out
-// rather than composed from the helpers under test, because a golden built out of
-// the code it is checking proves only that the code is self-consistent.
+// TestEveryReadPolicyRendersItsOwnTermsInFull is the golden assertion behind the read
+// table: every row is rendered in full, token for token, against the exact list castor
+// opens an upstream with. The expected tokens are spelled out rather than composed from
+// the helpers under test, because a golden built out of the code it is checking proves
+// only that the code is self-consistent.
 //
 // It is the one test that must fail when a row's terms change. Everything else here
 // asks whether a flag is present or what its value is, which a row that quietly
 // stopped sending -reconnect_streamed would still satisfy.
-func TestEveryReadPolicyRendersTheFlagsCastorHasAlwaysSent(t *testing.T) {
-	// The reconnect block every shipped row carries, at the configured thirty second
-	// deadline: a minute of backoff paired with 429-as-reconnect, applied to the input
-	// that follows it.
+//
+// The source is MPEG-TS on every row, so what is asserted here is the protocol side of a
+// read and only that. The segment retry budget is an option of one demuxer and renders
+// against a playlist alone (see TestOnlyAPlaylistIsToldToRefetchAFailedSegment).
+func TestEveryReadPolicyRendersItsOwnTermsInFull(t *testing.T) {
+	// The reconnect block every shipped row carries: a minute of backoff paired with the
+	// transient status class, applied to the input that follows it. The mid-read deadline is
+	// NOT part of it, because one row withholds that and shares all of this.
 	reconnect := []string{
-		"-rw_timeout", "30000000",
 		"-reconnect", "1",
 		"-reconnect_streamed", "1",
 		"-reconnect_delay_max", "60",
-		"-reconnect_on_http_error", "429",
+		"-reconnect_on_http_error", "429,500,502,503,504",
 	}
+	// The configured thirty seconds, in the microseconds -rw_timeout takes.
+	deadline := []string{"-rw_timeout", "30000000"}
 	url := "http://example.test/in.ts"
 
 	for _, tt := range []struct {
@@ -1012,19 +1017,28 @@ func TestEveryReadPolicyRendersTheFlagsCastorHasAlwaysSent(t *testing.T) {
 	}{{
 		name:   "a segmented VOD source runs ahead of playback after a wire-speed burst",
 		policy: vodRead,
-		want:   slices.Concat([]string{"-readrate", "2.0", "-readrate_initial_burst", "90"}, reconnect),
+		want:   slices.Concat([]string{"-readrate", "2.0", "-readrate_initial_burst", "90"}, deadline, reconnect),
 	}, {
-		name:   "fMP4 segments are read on the same terms as MPEG-TS ones",
+		// The whole of what arming the fragile row does to a command line: this list is the
+		// one above with the deadline gone. A -rw_timeout that fires partway through an fMP4
+		// fragment truncates it, and the truncated AVCC stream kills the reader at exit 183
+		// on "Invalid NAL unit size".
+		name:   "fMP4 segments are read with no mid-read deadline at all",
 		policy: fragileRead,
 		want:   slices.Concat([]string{"-readrate", "2.0", "-readrate_initial_burst", "90"}, reconnect),
 	}, {
+		// A live fMP4 edge is answered by this row rather than the fragile one, and it keeps
+		// the deadline: the read holds no lead to spend waiting, and the fragment it would
+		// wait for rolls out of the live window.
 		name:   "a live edge is read at wall-clock speed with no burst",
 		policy: liveRead,
-		want:   slices.Concat([]string{"-readrate", "1.0", "-readrate_initial_burst", "0"}, reconnect),
+		want:   slices.Concat([]string{"-readrate", "1.0", "-readrate_initial_burst", "0"}, deadline, reconnect),
 	}, {
+		// The row the configured duration was written for, unchanged: one long GET where a
+		// stalled read is the only symptom a tarpit has.
 		name:   "one long GET is paced like any other VOD read",
 		policy: longGETRead,
-		want:   slices.Concat([]string{"-readrate", "2.0", "-readrate_initial_burst", "90"}, reconnect),
+		want:   slices.Concat([]string{"-readrate", "2.0", "-readrate_initial_burst", "90"}, deadline, reconnect),
 	}} {
 		t.Run(tt.name, func(t *testing.T) {
 			src := NetworkSource{URL: mustURL(t, url), ContentType: media.MPEGTS, Read: tt.policy}
@@ -1051,16 +1065,17 @@ func TestTheReadTermsPrecedeTheInputTheyApplyTo(t *testing.T) {
 		Read:        vodRead,
 	}
 
-	// One input's worth of flags: pace, read terms, headers, container leniency, URL.
+	// One input's worth of flags: pace, read terms, headers, container leniency plus the
+	// segment retry budget that leniency's demuxer owns, URL.
 	perInput := slices.Concat([]string{
 		"-readrate", "2.0", "-readrate_initial_burst", "90",
 		"-rw_timeout", "30000000",
 		"-reconnect", "1",
 		"-reconnect_streamed", "1",
 		"-reconnect_delay_max", "60",
-		"-reconnect_on_http_error", "429",
+		"-reconnect_on_http_error", "429,500,502,503,504",
 		"-headers", "Referer: https://player.example/\r\n",
-	}, media.HLSInputArgs)
+	}, media.HLSInputArgs, []string{"-seg_max_retry", "3"})
 
 	args := src.inputArgs(vodRead.Pace)
 	want := slices.Concat(perInput, []string{"-i", video}, perInput, []string{"-i", audio})
@@ -1113,11 +1128,67 @@ func TestNetworkReadersShareInputPolicy(t *testing.T) {
 		"-rw_timeout", "-reconnect", "-reconnect_streamed",
 		"-reconnect_delay_max", "-reconnect_on_http_error",
 		"-headers", "-allowed_extensions", "-extension_picky",
-		"-readrate", "-readrate_initial_burst",
+		"-readrate", "-readrate_initial_burst", "-seg_max_retry",
 	} {
 		if got, want := argValue(remux, flag), argValue(pull, flag); got != want {
 			t.Errorf("%s: remux = %q, pull = %q; both read the same upstream and must agree", flag, got, want)
 		}
+	}
+}
+
+// TestOnlyAPlaylistIsToldToRefetchAFailedSegment pins where the segment retry budget may be
+// rendered, and the answer is decided by the demuxer that owns the option rather than by the
+// policy that carries it.
+//
+// Getting it wrong is not a flag quietly ignored. "-seg_max_retry 3 -i in.mp4" makes ffmpeg
+// print "Option seg_max_retry not found." and exit before opening the file, so a budget
+// rendered against a direct source would refuse every cast of one. The read table already
+// withholds it from the row that answers a source no playlist described, and this is the
+// second half of that: whatever the policy says, the rendering asks what castor is about to
+// open.
+func TestOnlyAPlaylistIsToldToRefetchAFailedSegment(t *testing.T) {
+	url := mustURL(t, "http://example.test/in")
+	budget := []string{"-seg_max_retry", "3"}
+
+	for _, tt := range []struct {
+		name        string
+		contentType string
+		policy      read.Policy
+		want        bool
+	}{{
+		name:        "a playlist is asked to re-fetch a segment whose open failed",
+		contentType: media.HLS,
+		policy:      fragileRead,
+		want:        true,
+	}, {
+		name:        "so is a playlist of MPEG-TS segments, where a failed open is the same event",
+		contentType: media.HLS,
+		policy:      vodRead,
+		want:        true,
+	}, {
+		name:        "a direct file is not, because the option is one its demuxer aborts on",
+		contentType: media.MP4,
+		policy:      fragileRead,
+		want:        false,
+	}, {
+		name:        "nor is a raw MPEG-TS stream, whichever policy is carrying a budget",
+		contentType: media.MPEGTS,
+		policy:      vodRead,
+		want:        false,
+	}, {
+		name:        "and a policy with no budget renders none even against a playlist",
+		contentType: media.HLS,
+		policy:      longGETRead,
+		want:        false,
+	}} {
+		t.Run(tt.name, func(t *testing.T) {
+			src := NetworkSource{URL: url, ContentType: tt.contentType, Read: tt.policy}
+			args := src.inputArgs(tt.policy.Pace)
+			if got := containsSequence(args, budget); got != tt.want {
+				t.Errorf("policy %q against a %s source renders %q; -seg_max_retry present = %t, want %t",
+					tt.policy.Name, tt.contentType, args, got, tt.want)
+			}
+		})
 	}
 }
 

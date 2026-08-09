@@ -148,9 +148,15 @@ type Health struct {
 	Lead      float64
 	LeadDone  bool
 
-	// Requests is how many times the renderer has come for bytes, and SinceFetch how
-	// long ago it last did (measured from the start of the watch while it never has).
-	Requests   int
+	// Handed is how many bytes of what this delivery made the renderer has actually been
+	// given, and SinceFetch how long ago a byte last moved (measured from the start of the
+	// watch while none has).
+	//
+	// What it took and not how often it asked: a sink counts a request before it writes a byte
+	// of the response, and a renderer's first move on a stream URL is a probe (see
+	// watch.Consumer), so a count reads as a fetch for a renderer that came to the door and
+	// took nothing. That is the whole of the shape the one renderer verdict is for.
+	Handed     int64
 	SinceFetch time.Duration
 
 	// Delivered is how much media the renderer can already fetch: the position the
@@ -182,9 +188,9 @@ type Health struct {
 // String names the measurements for a log line and for the fault a verdict carries,
 // where they are the whole of what anyone has to act on.
 func (h Health) String() string {
-	return fmt.Sprintf("landed=%d position=%s speed=%.4gx headroom=%.4gx samples=%d since_growth=%s requests=%d since_fetch=%s buffered=%s",
+	return fmt.Sprintf("landed=%d position=%s speed=%.4gx headroom=%.4gx samples=%d since_growth=%s handed=%d since_fetch=%s buffered=%s",
 		h.Landed, h.Position.Round(time.Second), float64(h.Speed), h.Headroom,
-		h.Samples, h.SinceGrowth.Round(time.Second), h.Requests, h.SinceFetch.Round(time.Second),
+		h.Samples, h.SinceGrowth.Round(time.Second), h.Handed, h.SinceFetch.Round(time.Second),
 		h.buffer().Round(time.Second))
 }
 
@@ -264,11 +270,16 @@ const (
 	transcriptionLeadSeconds = read.EncodeBurstSeconds + 10
 
 	// StallWindow is how long a producer that is still supposed to be delivering may
-	// deliver nothing before castor stops waiting on it. ffmpeg's own
-	// -rw_timeout/-reconnect handle transient drops; this catches the CDN that keeps the
+	// deliver nothing before castor stops waiting on it. It catches the CDN that keeps the
 	// connection open but sends nothing (throttled or burned token), which would
 	// otherwise hang a cast in silence forever, and the renderer that stops fetching
 	// what castor is still producing for it.
+	//
+	// On most reads ffmpeg's own -rw_timeout/-reconnect answer a transient drop first and
+	// this is the backstop. On one read it is the ONLY answer: a source whose fragments must
+	// arrive whole is read with no mid-read deadline at all, because abandoning a fragment
+	// partway through corrupts it fatally (see read's segment-fragile row), so nothing but
+	// this window ever notices that such a read has gone quiet.
 	//
 	// It is derived from the reconnect ceiling rather than picked, because a judgement
 	// that fires inside the backoff it handed the reader is not observing a stall, it is

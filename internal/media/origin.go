@@ -65,6 +65,54 @@ func (r Reach) String() string {
 	}
 }
 
+// Ladder is what a captured document's own grammar says about renditions: whether it
+// enumerates several to choose between (an HLS master's #EXT-X-STREAM-INF tags) or is
+// itself one rendition. It is read from the body the browser has already downloaded,
+// so it costs no request against the origin, ages no signed link, and needs no
+// knowledge of any site: the format's own tags are the whole of it.
+//
+// It is a fact about the document at the URL as it was CAPTURED. Once a playlist has
+// actually been read, Origin.Renditions and Origin.Sole are the authority, and a
+// stream narrowed from a master to one of its rungs still carries the Ladder of the
+// master it came from. Nothing may re-derive this from a URL.
+//
+// It exists because "is this a master" was answered from path substrings, so a master
+// served as index.m3u8 answered no. Three runs in a row selected a single media
+// playlist as their best stream, reported renditions=1 sole=true, and had nothing to
+// offer when the link then delivered 0.39x realtime: every recovery that wanted a
+// lighter rung found no ladder to walk.
+type Ladder int
+
+const (
+	// LadderUnknown is the zero value because reading the body is best-effort and must
+	// stay lenient in exactly the way Reach is: a redirect carries no body, a body
+	// Chrome evicted cannot be handed over, and a request that never finished has none
+	// to give. All three establish nothing, and nothing established may cost a
+	// candidate its place. Unknown is never "not a master". A document that read as no
+	// playlist at all (a CDN error page, an HTML interstitial) lands here too, because
+	// its silence about renditions is not a statement about the source.
+	LadderUnknown Ladder = iota
+	// LadderMultivariant is a document advertising renditions: a master, carrying the
+	// rungs a recovery degrades within.
+	LadderMultivariant
+	// LadderSole is a playlist advertising no renditions: it IS the rendition, so what
+	// it carries is the whole of what the source offers at that URL.
+	LadderSole
+)
+
+// String names the ladder for a log line. Unknown is the default arm because it is
+// where every failed and every unattempted reading already lands.
+func (l Ladder) String() string {
+	switch l {
+	case LadderMultivariant:
+		return "multivariant"
+	case LadderSole:
+		return "sole"
+	default:
+		return "unknown"
+	}
+}
+
 // Bitrate is a rate in bits per second. It is a type rather than a bare int64
 // because the two rates a cast holds are not interchangeable: what a source
 // DECLARED for a rendition it is offering, and what a reader MEASURED coming down

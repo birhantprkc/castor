@@ -68,23 +68,16 @@ func (f *fakeProducer) settle(err error) {
 	close(f.done)
 }
 
-// fakeConsumer is a scripted renderer: how many times it has fetched and when it last
-// did.
+// fakeConsumer is a scripted renderer: how much of the program it has been handed and when a
+// byte of it last moved.
 type fakeConsumer struct {
-	mu       sync.Mutex
-	requests int
-	last     time.Time
+	mu     sync.Mutex
+	handed int64
+	last   time.Time
 }
 
-func (f *fakeConsumer) Fetched() (int, time.Time) {
+func (f *fakeConsumer) Handed() (int64, time.Time) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.requests, f.last
-}
-
-func (f *fakeConsumer) fetch() {
-	f.mu.Lock()
-	f.requests++
-	f.last = time.Now()
-	f.mu.Unlock()
+	return f.handed, f.last
 }

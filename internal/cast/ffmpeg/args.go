@@ -131,14 +131,23 @@ func scaleFilter(maxHeight int) string {
 	return fmt.Sprintf("scale=-2:'min(%d,ih)'", maxHeight)
 }
 
-// containerInputArgs returns the ffmpeg input flags a source container needs.
-// HLS (and DASH) playlists require the extension checks relaxed; those flags
-// are options on the HLS demuxer, so ffmpeg aborts a plain-file input (MP4,
-// MKV) with "Option not found" when they are present. Direct files need none.
-func containerInputArgs(contentType string) []string {
+// containerInputArgs returns the ffmpeg input flags a source container needs, plus the
+// terms of the read that only that container's demuxer understands.
+//
+// HLS (and DASH) playlists require the extension checks relaxed, and a segment whose open
+// failed is re-fetched rather than skipped. Both are options on the HLS demuxer, so ffmpeg
+// aborts a plain-file input (MP4, MKV) with "Option not found" and reads nothing at all when
+// either is present: "-seg_max_retry 3 -i in.mp4" exits before opening the file. Direct files
+// need none, and a policy carrying a segment retry budget for a source that turns out not to
+// be a playlist renders none here rather than failing the read.
+func containerInputArgs(contentType string, p read.Policy) []string {
 	switch contentType {
 	case media.HLS:
-		return media.HLSInputArgs
+		args := slices.Clone(media.HLSInputArgs)
+		if p.SegmentRetries > 0 {
+			args = append(args, "-seg_max_retry", strconv.Itoa(p.SegmentRetries))
+		}
+		return args
 	default:
 		return nil
 	}
@@ -181,10 +190,15 @@ func formatSeconds(d time.Duration) string {
 	return strconv.FormatFloat(d.Seconds(), 'f', -1, 64)
 }
 
-// readArgs renders the fetch terms of a read policy: the mid-read deadline and the
-// reconnect block. A policy with no backoff ceiling renders no reconnect flags at
+// readArgs renders the protocol-level fetch terms of a read policy: the mid-read deadline
+// and the reconnect block. A policy with no backoff ceiling renders no reconnect flags at
 // all, including the retry status set, because a list of statuses to reconnect on
-// says nothing when reconnecting is off.
+// says nothing when reconnecting is off. A policy with no deadline renders no -rw_timeout,
+// which is the fragile read's whole point and not an omission: ffmpeg's default is no
+// deadline, so what is withheld here is withheld from the reader too.
+//
+// The segment retry budget is not rendered here, because it is an option of one demuxer
+// rather than of the protocol (see containerInputArgs).
 //
 // SourceProber renders the same terms, which is what makes its claim to open the
 // source exactly as the reader will true of the deadline and the retries and not
@@ -250,7 +264,7 @@ func (s NetworkSource) input(pace read.Pace, u *url.URL) []string {
 	args := paceArgs(pace)
 	args = append(args, readArgs(s.Read)...)
 	args = append(args, media.HeaderArgs(s.Headers)...)
-	args = append(args, containerInputArgs(s.ContentType)...)
+	args = append(args, containerInputArgs(s.ContentType, s.Read)...)
 	return append(args, "-i", u.String())
 }
 

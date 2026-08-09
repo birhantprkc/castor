@@ -164,8 +164,8 @@ func TestWatchGivesARendererItsGraceWindow(t *testing.T) {
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Watch = %v; a renderer inside its grace window must not be convicted", err)
 	}
-	if requests, _ := consumer.Fetched(); requests != 0 {
-		t.Errorf("the watch reported %d fetches nobody made", requests)
+	if handed, _ := consumer.Handed(); handed != 0 {
+		t.Errorf("the watch reported %d bytes handed to a renderer that took nothing", handed)
 	}
 }
 
@@ -183,7 +183,7 @@ func TestWatchGivesARendererItsGraceWindow(t *testing.T) {
 // production reads off both sinks.
 func TestWatchLeavesAPausedViewerTheCastTheyArePausing(t *testing.T) {
 	stopped := func() *fakeConsumer {
-		return &fakeConsumer{requests: 3, last: time.Now().Add(-StallWindow - time.Second)}
+		return &fakeConsumer{handed: 8 << 20, last: time.Now().Add(-StallWindow - time.Second)}
 	}
 
 	for _, tt := range []struct {

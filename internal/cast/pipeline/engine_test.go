@@ -161,6 +161,11 @@ type castCase struct {
 	// notVideo names a codec the renderer must NOT have been handed, for a row
 	// whose point is that something was re-encoded rather than copied.
 	notVideo media.Codec
+	// height is the picture height the renderer must have received, for a row about
+	// the cast's ceiling. It is exact rather than a bound: what castor produces is
+	// scaled to the ceiling, so a row that asserted "no taller than" would pass on a
+	// leg that dropped the source's resolution to a thumbnail.
+	height int
 }
 
 // chromecastLike and dlnaLike are the two renderer shapes the rows are built
@@ -324,6 +329,39 @@ func TestCastMatrix(t *testing.T) {
 		video:    media.CodecH264,
 		notVideo: media.CodecVP9,
 	}, {
+		// The cast's height ceiling on the leg that used to drop it. Which composition a
+		// cast lands on is settled by what a renderer answered during discovery, and nothing
+		// tells a user which one happened, so a ceiling honoured on the buffered leg and
+		// short-circuited on this one meant the same max_height delivered 1080p or the
+		// source's full 1440p depending on a routing decision reported nowhere.
+		//
+		// Everything else about this source is copyable: h264 this renderer decodes, into a
+		// container that carries it, so the ceiling is the only thing left that can refuse
+		// it. Only the source container is wrong, which is what makes this a remux.
+		name:   "a source over the cast's ceiling is scaled down on the remux too",
+		source: serveTallFixture,
+		family: device.TypeChromecast,
+		caps: media.Renderer{
+			SelfFetch: true, Containers: []string{media.MP4}, ServedContainer: media.MP4,
+			Video: []media.VideoSupport{{Codec: media.CodecH264}},
+			Audio: []media.AudioSupport{{Codec: media.CodecAAC, MaxChannels: 2}},
+		},
+		served: media.MP4,
+		height: 1080,
+	}, {
+		// The stated boundary, and the row that keeps the fix above from becoming a worse
+		// bug than the one it fixed. Castor touches no media on a pass-through, so it cannot
+		// downscale one, and the only way to apply a ceiling here would be to refuse the
+		// shape outright: that answers a 4K source on a renderer that would have played it
+		// perfectly with a 4K read plus a software downscale, spending castor's encoder and
+		// the whole source bitrate to deliver a smaller picture. The ceiling governs the
+		// bytes castor MAKES and the bandwidth castor SPENDS, and this cast makes and spends
+		// none.
+		name:   "a source over the cast's ceiling is still handed to a renderer that fetches it",
+		source: serveTallFixture,
+		family: device.TypeChromecast,
+		caps:   chromecastLike(media.MKV),
+	}, {
 		// A pinned stream map turns a missing track into an argument-parse failure
 		// before a single byte is read. The optional suffix is what keeps such a
 		// source castable rather than refused, on both served shapes.
@@ -405,7 +443,7 @@ func TestCastMatrix(t *testing.T) {
 func assertReceived(t *testing.T, ffprobePath, path string, tt castCase) {
 	t.Helper()
 
-	if tt.video == "" && tt.notVideo == "" && tt.audio == "" && tt.channels == 0 {
+	if tt.video == "" && tt.notVideo == "" && tt.audio == "" && tt.channels == 0 && tt.height == 0 {
 		return
 	}
 	info, err := ffmpeg.FileProbe(ffprobePath, path).Probe(t.Context())
@@ -425,7 +463,11 @@ func assertReceived(t *testing.T, ffprobePath, path string, tt castCase) {
 		t.Errorf("received %d audio channels, want %d: a codec the renderer decodes must not be downmixed",
 			info.AudioChannels, tt.channels)
 	}
-	if tt.video != "" || tt.notVideo != "" {
+	if tt.height > 0 && info.VideoHeight != tt.height {
+		t.Errorf("received a %dp picture, want %dp: the cast's height ceiling bounds what castor produces on every leg",
+			info.VideoHeight, tt.height)
+	}
+	if tt.video != "" || tt.notVideo != "" || tt.height > 0 {
 		if n := videoPackets(t, ffprobePath, path); n == 0 {
 			t.Error("the received stream declares video but carries no packets")
 		}
@@ -1038,6 +1080,23 @@ func serveTheoraFixture(t *testing.T, ffmpegPath string) fixtureOrigin {
 	return serveGenerated(t, ffmpegPath, "fixture.mkv", "/movie.mkv", media.MKV, shortFixture,
 		"-vf", "scale=1920:1440",
 		"-c:v", "libtheora", "-c:a", "aac", "-ac", "2", "-shortest",
+	)
+}
+
+// serveTallFixture is a program above the cast's height ceiling that is copyable on every
+// other ground: h264 inside a container castor's destinations carry, with stereo AAC. The
+// ceiling is the only thing that can refuse it, which is what makes what the renderer
+// receives an answer about the ceiling and nothing else.
+//
+// MKV because that is what makes a renderer's container declaration decide the leg: a
+// renderer that accepts MKV is handed this URL, one that does not is served a remux of it,
+// and both are rows.
+func serveTallFixture(t *testing.T, ffmpegPath string) fixtureOrigin {
+	t.Helper()
+	return serveGenerated(t, ffmpegPath, "tall.mkv", "/tall.mkv", media.MKV, shortFixture,
+		"-vf", "scale=1920:1440",
+		"-c:v", "libx264", "-pix_fmt", "yuv420p", "-profile:v", "baseline",
+		"-c:a", "aac", "-ac", "2", "-shortest",
 	)
 }
 

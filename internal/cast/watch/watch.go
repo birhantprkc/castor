@@ -170,9 +170,9 @@ func (t *tracker) read() Health {
 	}
 
 	if c := t.m.Consumer; c != nil {
-		requests, last := c.Fetched()
-		h.Requests = requests
-		// A renderer that has never fetched is measured from the watch, not from a zero
+		handed, last := c.Handed()
+		h.Handed = handed
+		// A renderer that has taken nothing is measured from the watch, not from a zero
 		// time: "an eternity ago" is not something a watch that just opened knows.
 		h.SinceFetch = time.Since(cmp.Or(last, t.start))
 	}

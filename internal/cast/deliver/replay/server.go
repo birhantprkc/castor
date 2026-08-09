@@ -19,11 +19,23 @@
 // Replaying from byte 0 is what a client gets when it asks for nothing else,
 // and a reconnect that asks for nothing else therefore restarts the program.
 // That is the cost of a viewer's pause: the socket stops draining, the write
-// deadline severs the connection, and the next GET starts the film again. A
-// client that asks to CONTINUE is served from its offset instead, because the
-// spool still holds every byte it had (see resume). Nothing here advertises
-// Accept-Ranges: a resume is answered when a client asks for one, and no client
-// is invited to seek into a stream whose length is not known yet.
+// deadline severs the connection, and the next GET starts the film again.
+//
+// A client that asks to CONTINUE can be served from its offset instead, because
+// the spool still holds every byte it had (see resume), and on a delivery whose
+// responses take ranges that is what the pause costs: nothing. It is not what a
+// pause costs everywhere, and the difference is the delivery's own headers
+// rather than anything a client does. A delivery configured with
+// Accept-Ranges: none has promised the renderer that no partial response will
+// arrive, so every open-ended resume on it is refused and the program really
+// does start over (see rangesDeclined). That is the configuration castor serves
+// a renderer which cannot fetch for itself under, which makes the restart the
+// ordinary outcome of a long pause rather than the exotic one, and it is why a
+// severance is logged with what it cost (see severed).
+//
+// Nothing here advertises Accept-Ranges of its own: a resume is answered when a
+// client asks for one, and no client is invited to seek into a stream whose
+// length is not known yet.
 package replay
 
 import (
@@ -54,7 +66,7 @@ const (
 	// for a renderer hiccup/reconnect, short enough not to hang the CLI.
 	idleGrace = 30 * time.Second
 
-	// defaultWriteDeadline bounds ONE chunk write to one client, so a renderer that stops
+	// DefaultWriteDeadline bounds ONE chunk write to one client, so a renderer that stops
 	// reading cannot park a goroutine on a blocked socket for the rest of the process's
 	// life. That is what used to happen, and it hung the cast outright: Wait needs the
 	// client count to reach zero, and a goroutine wedged inside Write never decrements it.
@@ -68,17 +80,34 @@ const (
 	// It IS reachable by a cast someone is watching, and saying so is the point of naming it
 	// here. A viewer who pauses stops draining this socket while castor still has media for
 	// them, and no verdict convicts that: from outside, a pause, a viewer who walked away and
-	// a crashed renderer are the same absence of requests, so how long a human pause may be is
-	// this bound's to hold and nothing else's. Whether the renderer ever came back for the rest
-	// is answered afterwards, from Sent, rather than guessed at while it is quiet.
+	// a crashed renderer are the same absence of anything being taken, so how long a human
+	// pause may be is this bound's to hold and nothing else's. Whether the renderer ever came
+	// back for the rest is answered afterwards, from what it was handed (see Handed), rather
+	// than guessed at while it is quiet.
 	//
-	// What a longer pause costs is the viewer's POSITION, and two things keep that from being a
-	// silent restart. A reconnect that asks to continue is served from its offset instead of
-	// from byte 0 (see resume), which costs the pause nothing at all. A reconnect that asks for
-	// nothing does start the film over, and the severance that caused it is logged with the
-	// numbers that account for it (see severed), because a film that restarts itself with
-	// nothing in the log to explain it is the worse half of this trade.
-	defaultWriteDeadline = watch.StallWindow + idleGrace
+	// What a longer pause costs is the viewer's POSITION, and how much it costs is decided by
+	// this delivery's own response headers rather than by anything here:
+	//   - Where they take ranges, a reconnect that asks to continue is served from its offset
+	//     instead of from byte 0 (see resume), and the pause costs nothing at all.
+	//   - Where they declare Accept-Ranges: none, every open-ended resume is REFUSED (see
+	//     rangesDeclined) and the film starts over from the beginning whatever the reconnect
+	//     asks for. The declaration is the renderer's own (StreamHeaders) and castor may not
+	//     contradict it, so the resume is unavailable exactly where it would be worth most: the
+	//     one family that makes it (alongside DLNA.ORG_OP=00, which advertises no seek
+	//     operations at all) is the family castor serves when the renderer cannot fetch for
+	//     itself, i.e. the casts whose every byte castor produced. Whether that family can be
+	//     told to accept ranges is a question about that header, not about this server.
+	//
+	// So a severance is logged with the numbers that account for it, including whether a resume
+	// could be answered at all (see severed). A film that restarts itself with nothing in the
+	// log to explain it is the worse half of this trade, and on a delivery that takes no ranges
+	// the restart is the only outcome available.
+	//
+	// It is exported because it is the longest stretch castor lets any peer stay quiet for, so
+	// anything reasoning about what a quiet renderer costs has to be stated in terms of it
+	// instead of recomputing it: the recomputed version of this number landed one idle grace
+	// away from the bound production holds, and called the difference the limit.
+	DefaultWriteDeadline = watch.StallWindow + idleGrace
 )
 
 // Config is what the planner fills in.
@@ -93,7 +122,7 @@ type Config struct {
 	SpoolPath string
 
 	// WriteDeadline overrides how long one chunk write to one client may block before
-	// the connection is severed. Zero uses defaultWriteDeadline; tests set it small,
+	// the connection is severed. Zero uses DefaultWriteDeadline; tests set it small,
 	// because the default is derived to be longer than any cast still worth serving.
 	WriteDeadline time.Duration
 }
@@ -114,21 +143,19 @@ type Server struct {
 	active         int
 	completed      bool // some client consumed the stream to EOF
 	lastDisconnect time.Time
-	// requests is how many clients have been served the stream, and lastFetch when one
-	// last took bytes off it. They are what makes "the renderer accepted Play and never
-	// came for the bytes" sayable: everything else this server tracks is satisfied by a
-	// cast nobody ever fetched, so Wait reported one as delivered.
-	requests  int
+	// sent is the most bytes any ONE client was handed and lastFetch when a byte last moved
+	// to one. They are what makes "the renderer accepted Play and never came for the bytes"
+	// sayable: everything else this server tracks is satisfied by a cast nobody ever fetched,
+	// so Wait reported one as delivered. See Handed.
+	sent      int64
 	lastFetch time.Time
-	// sent is the most bytes any ONE client was handed. See Sent.
-	sent int64
 }
 
 // New binds to cfg.LocalIP on an ephemeral port and starts spooling producer
 // in the background.
 func New(cfg Config, producer io.Reader) (*Server, error) {
 	if cfg.WriteDeadline <= 0 {
-		cfg.WriteDeadline = defaultWriteDeadline
+		cfg.WriteDeadline = DefaultWriteDeadline
 	}
 	sp, err := spool.New(cfg.SpoolPath)
 	if err != nil {
@@ -185,44 +212,37 @@ func (s *Server) Produced() int64 { return s.spool.Size() }
 // "already over".
 func (s *Server) ProducerDone() <-chan struct{} { return s.done }
 
-// Fetched is how many times a renderer has come for the stream and when it last took
-// bytes off it. A HEAD is deliberately not a fetch: a renderer that probes the URL and
-// never gets the stream is the exact failure this reports, and counting its probe would
-// answer that it was watching.
+// Handed is the most of this stream any ONE client was handed, and when a byte of it last
+// moved. It is how much of the program the renderer can be said to have received, and it is
+// what a judgement about a renderer rests on both while a cast runs (see watch.Consumer) and
+// once it is over (see core.Undelivered).
 //
-// last is the zero time until the first byte is written to a client, which is what lets
-// a caller tell "has not fetched yet" from "fetched a long time ago" without this server
-// having to guess when the renderer was told about the URL.
-func (s *Server) Fetched() (int, time.Time) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.requests, s.lastFetch
-}
-
-// Sent is the most of this stream any ONE client was handed, which is how much of the
-// program the renderer can be said to have received: every connection replays from byte 0,
-// so the longest single connection is the whole of what got through, and the SUM over
-// connections would count the same head twice for every renderer that probes with a short
-// GET before the real one.
+// The MOST and not the sum: every connection replays from byte 0, so the longest single
+// connection is the whole of what got through, while adding them would count the same head
+// twice for every renderer that probes with a short GET before the real one.
+//
+// BYTES and not a count of requests, which is the fact that separates a renderer from a
+// renderer's probe. A request is answered before a byte of it is written, and this server's
+// clients arrive as a HEAD, then a short GET, then the real GET, so a count says "it fetched"
+// about a renderer that asked and got nothing: the failure being reported, offered as evidence
+// against itself.
+//
+// last moves only when a byte does, and is the zero time until one has, which is what lets a
+// caller tell "has taken nothing yet" from "took something a long time ago" without this server
+// guessing when the renderer was told about the URL. A connection ENDING is deliberately not a
+// fetch: a probe that opened the stream, took nothing and closed would otherwise restart the
+// recency clock, and a renderer probing on a cadence would never be quiet long enough to be
+// named however little it ever took.
 //
 // It over-counts by whatever the kernel accepted and the renderer never read, which is a
 // socket buffer at most and is the safe direction: the caller judges a cast on this figure
-// being SMALL, and over-counting can only excuse a delivery, never convict one.
-func (s *Server) Sent() int64 {
+// being a small SHARE of what was produced, and over-counting can only excuse a delivery,
+// never convict one.
+func (s *Server) Handed() (int64, time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.sent
+	return s.sent, s.lastFetch
 }
-
-// Lingering is how long this server deliberately outlives a renderer's last byte before
-// Wait can report the delivery over: one write deadline to sever a connection nobody is
-// reading, then one idle grace for the reconnect that never comes.
-//
-// It is exported because it is wall clock the cast spends with nothing being handed over, so
-// anything judging whether the renderer kept up with the cast has to allow for exactly this
-// much of it (see core.Undelivered) or it convicts every renderer that stopped one chunk
-// short of the end.
-func (s *Server) Lingering() time.Duration { return s.cfg.WriteDeadline + idleGrace }
 
 func (s *Server) Close() error {
 	s.cancel()
@@ -286,7 +306,13 @@ type served struct {
 // asks for.
 //
 // A range is answered only where the answer can be TRUTHFUL, and the refusals carry the
-// reasoning:
+// reasoning. The first of them is the one that decides most casts, and it is not about what can
+// be served but about what was promised:
+//   - Any range at all on a delivery whose own headers declare Accept-Ranges: none: REFUSED,
+//     and this is the case a paused viewer actually meets, because that declaration is what the
+//     family castor serves a non-self-fetching renderer under sends (see rangesDeclined). On
+//     those casts the position is gone the moment the write deadline severs the socket, whatever
+//     the reconnect asks for, and the refusal is logged rather than left to be inferred.
 //   - No range at all, or bytes=0- : the ordinary replay, 200 from byte 0. It is what the
 //     HEAD-probe, short-GET, real-GET dance depends on, and a client asking for the whole thing
 //     from byte 0 is asking for exactly those bytes.
@@ -491,15 +517,19 @@ func (s *Server) handleStream(srvCtx context.Context, w http.ResponseWriter, r *
 
 	s.mu.Lock()
 	s.active++
-	s.requests++
 	s.mu.Unlock()
 	reachedEOF := false
+	// The end of a connection is not a fetch, and touching the recency clock here is how a
+	// renderer that never took a byte looked like one that had just been taking them: a probe
+	// GET reaches this defer having moved nothing, so a renderer probing on any cadence stayed
+	// permanently inside the window the one verdict about a renderer waits out. What a client
+	// took is recorded where bytes really move (see Handed); what ends here is the count of
+	// clients and the idle clock Wait reads.
 	defer func() {
 		s.mu.Lock()
 		s.active--
 		s.completed = s.completed || reachedEOF
 		s.lastDisconnect = time.Now()
-		s.lastFetch = time.Now()
 		s.mu.Unlock()
 	}()
 

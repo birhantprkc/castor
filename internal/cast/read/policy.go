@@ -77,11 +77,38 @@ var (
 // opens).
 var EncodePace = Pace{Realtime: 1.15, Burst: EncodeBurstSeconds * time.Second}
 
-// rateLimited is the status set a dropped read is retried on. 429 alone: a
-// rate-limited CDN answers 429, and pairing that with a minute of backoff is what
-// lets it be waited out instead of the HLS demuxer burning through segment numbers
-// that all fail and keeping the IP tarpitted.
-var rateLimited = []int{429}
+// transient is the status set a dropped read is retried on: the answers an origin gives
+// about ITSELF, which the very next request can get past. A rate-limited CDN answers 429
+// and pairing that with a minute of backoff is what lets it be waited out instead of the
+// HLS demuxer burning through segment numbers that all fail and keeping the IP tarpitted.
+// The 5xx class is the same event with a different number on it: an edge answering one
+// mid-stream segment 502/503/504 (or 500, which a CDN also emits for an origin fetch it
+// could not complete) has said nothing about the next segment, and failing the whole read
+// on it throws away a title over one bad request.
+//
+// 501 and 505 are deliberately absent, and so is every refusal (401, 403, 404, 410, the
+// statuses internal/source/resolve/ffprobe classifies as ReachRefused). Those are answers
+// about the REQUEST: an unsupported method and a spent signed link do not become supported
+// or unspent by being asked again, and retrying them for a full backoff ceiling each spends
+// a viewer's time reaching a conclusion the first answer already gave.
+var transient = []int{429, 500, 502, 503, 504}
+
+// segmentOpenRetries is how many times a segment whose OPEN failed is re-fetched before
+// ffmpeg's HLS demuxer gives up on it and skips to the next one ("Segment N of playlist 0
+// failed too many times, skipping", which at ffmpeg's own default of zero is what the FIRST
+// failed open prints: the fragment is simply gone, and on an fMP4 program that is a hole in
+// the picture no downstream copy can fill).
+//
+// Three, and both ends of that are derived rather than picked. It has to be more than one
+// because the fault it covers is the one that is gone by the next request (a connection
+// reset, a DNS blip, a status outside the set above), and each retry here is an immediate
+// re-open: the waiting lives in the HTTP protocol's own reconnect ladder, which Backoff
+// bounds, so a budget spent on a fast-failing open costs round trips and not minutes. It
+// does not need to be more than three because nothing about a segment that has refused
+// three immediate re-fetches suggests a fourth lands, and because the retries cannot outrun
+// the judgement over the read either way: a read is convicted on delivering no BYTES for
+// the derived stall window, whatever the demuxer is busy doing while it delivers none.
+const segmentOpenRetries = 3
 
 // Shape is what castor knows about how a source has to be fetched. Every field comes
 // from what the source itself published (see media.Origin, established from a
@@ -141,9 +168,23 @@ type Policy struct {
 	// Deadline is how long ONE read may stall before ffmpeg abandons it and reconnects
 	// (-rw_timeout). Zero withholds it entirely, which is a real answer rather than a
 	// missing one: on a source whose fragments must arrive whole, abandoning a read
-	// mid-fragment corrupts the stream, and the stall it guarded is better observed by
-	// something that can name it.
+	// mid-fragment corrupts the stream fatally (see the segment-fragile row), and the
+	// silence it guarded is instead observed by the party that can name it, castor's own
+	// stall judgement over the bytes the read has landed.
 	Deadline time.Duration
+
+	// SegmentRetries is how many times a segment whose OPEN failed is re-fetched before the
+	// reader skips it (-seg_max_retry, an option of ffmpeg's HLS demuxer, so it renders only
+	// where the source castor opens is a playlist).
+	//
+	// It is a separate term from Deadline because it covers a separate failure, and the two
+	// were long conflated: this one answers a segment castor never got a byte of, while the
+	// deadline answers one whose read died partway through. Two field logs show them apart:
+	// a failed open prints "Segment N of playlist 0 failed too many times, skipping", while
+	// a mid-read timeout is a silent jump to the next segment with no line at all. So no
+	// value here makes a withheld deadline safe, and withholding the deadline is no reason
+	// to leave this at ffmpeg's zero.
+	SegmentRetries int
 
 	// Backoff is the ceiling on how long a fetch may keep retrying one read before it
 	// fails (-reconnect_delay_max). Zero means a dropped read is not retried at all,

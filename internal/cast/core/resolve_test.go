@@ -1,7 +1,12 @@
 package core
 
 import (
+	"fmt"
+	"log/slog"
 	"os/exec"
+	"slices"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stupside/castor/internal/cast/carriage"
@@ -207,22 +212,56 @@ func TestDecideVideo(t *testing.T) {
 	})
 
 	// The two policies, which are the only thing that differs between the served
-	// shapes. The network remux changes the wrapper and not the picture, so it
-	// copies a source the spool path would have re-encoded; carriage still applies
-	// to it, because that is a fact about the muxer rather than a ceiling.
-	t.Run("CopyWhatever copies past the gates but not past carriage", func(t *testing.T) {
-		tall := media.ProbeInfo{VideoCodec: media.CodecHEVC, VideoHeight: 2160, VideoBitDepth: 8}
+	// shapes, and the exact width of what they differ IN. A remux changes the wrapper
+	// and not the picture, so it copies a bitstream this renderer never advertised;
+	// what it does not lift is anything that was never a judgement about the renderer.
+	t.Run("CopyWhatever copies past the renderer's envelope and nothing else", func(t *testing.T) {
+		// A codec the renderer advertises no support for, inside the ceiling and carriable
+		// by the destination: the capability gate is the only thing left to answer.
+		undeclared := media.ProbeInfo{VideoCodec: media.CodecHEVC, VideoHeight: 720, VideoBitDepth: 8}
 		in := VideoInputs{
-			Caps: h264Renderer, Probe: tall, Into: mpegtsFormat,
+			Caps: h264Renderer, Probe: undeclared, Into: mpegtsFormat,
 			Policy: CopyWhatever, MaxHeight: 1080, FFmpegPath: requireFFmpeg(t),
 		}
 		if enc, ok := DecideVideo(t.Context(), in).Encode(); ok {
-			t.Errorf("expected a stream-copy, got %q: a remux applies no height ceiling and no capability check", enc.Encoder.Name)
+			t.Errorf("expected a stream-copy, got %q: a remux hands over the envelope the source published, and a renderer listing h264 alone routinely decodes it", enc.Encoder.Name)
 		}
 
 		in.Probe = media.ProbeInfo{VideoCodec: media.CodecVP9, VideoHeight: 720, VideoBitDepth: 8}
 		if _, ok := DecideVideo(t.Context(), in).Encode(); !ok {
 			t.Error("expected a re-encode: MPEG-TS cannot carry VP9 whatever the policy says")
+		}
+	})
+
+	// TestDecideVideo's ceiling row above proves it under CopyWhatFits; this is the half
+	// that used to be missing, and its absence is what let one delivery path honour
+	// max_height while the other ignored it.
+	//
+	// The two legs are reached by discovery: a renderer that fetches for itself and takes
+	// the container gets a pass-through, one that fetches but rejects the container gets a
+	// remux, one that never fetches gets the buffer. Nothing tells a user which of those
+	// happened, so a ceiling that only bound the third meant a 1080p-capped cast of a 4K
+	// source delivered 4K, at full source bitrate, with no line anywhere saying why.
+	//
+	// The source here is one the permissive policy would otherwise copy on every other
+	// ground: an envelope this renderer does advertise, in a container that carries it.
+	t.Run("the height ceiling binds on every policy", func(t *testing.T) {
+		tall := media.ProbeInfo{VideoCodec: media.CodecH264, VideoHeight: 2160, VideoBitDepth: 8}
+		for _, policy := range []VideoPolicy{CopyWhatFits, CopyWhatever} {
+			track := DecideVideo(t.Context(), VideoInputs{
+				Caps: h264Renderer, Probe: tall, Into: mpegtsFormat,
+				Policy: policy, MaxHeight: 1080, FFmpegPath: requireFFmpeg(t),
+			})
+			enc, ok := track.Encode()
+			if !ok {
+				t.Errorf("under %v a 2160p source was copied under a 1080 ceiling: no policy value may short-circuit what the user asked for", policy)
+				continue
+			}
+			// And the re-encode has to actually carry it, or the ceiling has only cost the
+			// cast an encode and delivered the same 2160p picture out the far side.
+			if enc.MaxHeight != 1080 {
+				t.Errorf("under %v the forced re-encode carries MaxHeight %d, want the cast's 1080", policy, enc.MaxHeight)
+			}
 		}
 	})
 
@@ -276,22 +315,134 @@ func TestDecideVideo(t *testing.T) {
 	})
 }
 
-// TestWithinMaxHeightTreatsZeroAsNoCeiling pins the zero-value convention. Read
-// the other way round, maxHeight 0 meant "reject every source whose height is
-// known", i.e. force a transcode on every cast, which only config validation was
-// keeping out of production. Zero means "no ceiling" everywhere else in the
-// capability model and it means that here too.
-func TestWithinMaxHeightTreatsZeroAsNoCeiling(t *testing.T) {
-	tall := media.ProbeInfo{VideoHeight: 2160}
-	if !withinMaxHeight(tall, 0) {
-		t.Error("maxHeight 0 must mean no ceiling, matching VideoSupport.Profiles nil and AudioSupport.MaxChannels 0")
-	}
+// TestWithinMaxHeightConvictsOnlyAMeasuredSourceOverTheCeiling pins the one asymmetry
+// left in the predicate, now that the ceiling has no sentinel to be absent through.
+//
+// An unmeasured height is not a tall source. A probe that failed or a container that
+// states no height is an ordinary thing for a hostile upstream to be, and reading that
+// silence as a conviction spends a decode, a scale and a re-encode on every unmeasured
+// cast to bound a height that may already fit. It is the same leniency an unproven
+// media.Reach and an unmeasured height in resolve.preference already carry: nothing
+// established may convict.
+//
+// The other direction has no zero case to pin, deliberately: max_height is
+// `validate:"required,min=1"`, so there is no configuration in which the ceiling is
+// missing, and inventing a sentinel for it would be re-introducing the very thing this
+// predicate no longer lets a policy do.
+func TestWithinMaxHeightConvictsOnlyAMeasuredSourceOverTheCeiling(t *testing.T) {
 	if !withinMaxHeight(media.ProbeInfo{}, 1080) {
-		t.Error("an unknown height must pass rather than force a transcode on missing metadata")
+		t.Error("an unmeasured height must pass rather than force a transcode on missing metadata")
 	}
-	if withinMaxHeight(tall, 1080) {
-		t.Error("a source above a real ceiling must not be copy-eligible")
+	if !withinMaxHeight(media.ProbeInfo{VideoHeight: 1080}, 1080) {
+		t.Error("the ceiling is inclusive: a source at exactly the configured height is what the user asked for")
 	}
+	if withinMaxHeight(media.ProbeInfo{VideoHeight: 2160}, 1080) {
+		t.Error("a source above the ceiling must not be copy-eligible")
+	}
+}
+
+// TestTheCeilingsForcedTranscodeIsAttributable pins the line, because the line is half the
+// change. The ceiling now buys a decode, a scale and a re-encode on casts that used to copy,
+// and that work has to hold realtime for the whole title: a hardware encoder does it
+// comfortably, a software one on a busy host measures well under 1.0x (the deliverability
+// rule's calibration runs 0.0627x to 0.39x). Nothing downstream will attribute it, and
+// deliberately so: no deliverability verdict is reached on an encode castor chose to run, so a
+// user watching a 4K source stutter under a 1080 ceiling has this line or nothing.
+//
+// The four terms are each load-bearing. Without the two heights the cost cannot be traced to
+// the ceiling rather than to a codec the renderer refused; without the encoder and its
+// hardware flag it cannot be traced to this host, which is the half a user can actually
+// change (raise the ceiling, or cast from a machine with an encoder).
+func TestTheCeilingsForcedTranscodeIsAttributable(t *testing.T) {
+	lines := captureLog(t)
+	track := DecideVideo(t.Context(), VideoInputs{
+		Caps:   media.Renderer{Video: []media.VideoSupport{{Codec: media.CodecH264}}},
+		Probe:  media.ProbeInfo{VideoCodec: media.CodecH264, VideoHeight: 2160, VideoBitDepth: 8},
+		Into:   testFormat(t, media.MPEGTS),
+		Policy: CopyWhatever, MaxHeight: 1080, FFmpegPath: requireFFmpeg(t),
+	})
+	enc, ok := track.Encode()
+	if !ok {
+		t.Fatal("a 2160p source under a 1080 ceiling was copied, so there is no cost to attribute")
+	}
+
+	got, found := lines.find("height ceiling")
+	if !found {
+		t.Fatalf("the ceiling forced a transcode to %q and said nothing about it: %v", enc.Encoder.Name, lines.all())
+	}
+	for _, want := range []string{
+		"source_height=2160",
+		"max_height=1080",
+		"encoder=" + enc.Encoder.Name,
+		fmt.Sprintf("hardware=%v", enc.Encoder.Hardware),
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the forced-transcode line %q does not carry %q", got, want)
+		}
+	}
+}
+
+// TestTheCeilingIsSilentWhenItCostsNothing is the other half: the line is an attribution of a
+// cost, so a re-encode nobody's ceiling forced must not be blamed on one. A cast whose source
+// already fits is the common case, and a line claiming the ceiling made it transcode would send
+// a user to raise a ceiling that was never in the way.
+func TestTheCeilingIsSilentWhenItCostsNothing(t *testing.T) {
+	lines := captureLog(t)
+	// Under the cap in height, refused for an entirely different reason: a codec the
+	// renderer never advertised.
+	DecideVideo(t.Context(), VideoInputs{
+		Caps:   media.Renderer{Video: []media.VideoSupport{{Codec: media.CodecH264}}},
+		Probe:  media.ProbeInfo{VideoCodec: media.CodecHEVC, VideoHeight: 720, VideoBitDepth: 8},
+		Into:   testFormat(t, media.MPEGTS),
+		Policy: CopyWhatFits, MaxHeight: 1080, FFmpegPath: requireFFmpeg(t),
+	})
+	if got, found := lines.find("height ceiling"); found {
+		t.Errorf("a re-encode the ceiling had no part in was attributed to it: %q", got)
+	}
+}
+
+// logLines collects what a decision said about itself for one test. The log is not a shortcut
+// around the API here: a forced transcode has no return value to inspect (a re-encode forced by
+// the ceiling and one forced by a codec produce the identical track), so the line IS the
+// statement, and it is the statement production makes.
+type logLines struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func captureLog(t *testing.T) *logLines {
+	t.Helper()
+	l := &logLines{}
+	restore := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(l, nil)))
+	t.Cleanup(func() { slog.SetDefault(restore) })
+	return l
+}
+
+func (l *logLines) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.lines = append(l.lines, string(p))
+	return len(p), nil
+}
+
+// find answers with the one line mentioning substr, so a test names what it is looking for
+// rather than an index into whatever else the decision logged.
+func (l *logLines) find(substr string) (string, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, line := range l.lines {
+		if strings.Contains(line, substr) {
+			return line, true
+		}
+	}
+	return "", false
+}
+
+func (l *logLines) all() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.lines)
 }
 
 // requireFFmpeg returns the ffmpeg path or skips: the re-encode branch of

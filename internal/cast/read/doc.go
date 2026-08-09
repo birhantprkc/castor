@@ -10,8 +10,9 @@
 // from. Nothing about a read could be stated, compared or tested without building
 // a command line, and a rule about a hostile CDN could only be written as a string.
 //
-// A read is a policy: how long one read may stall before it is abandoned, how long
-// a retry may be waited out, which HTTP answers are worth retrying at all, and how
+// A read is a policy: how long one read may stall before it is abandoned (or whether
+// it may be abandoned at all), how long a retry may be waited out, which HTTP answers
+// are worth retrying, how many times a segment whose open failed is re-fetched, and how
 // fast the source may be consumed. Which policy a source gets is a function of what
 // the source itself published (see media.Origin, harvested from a playlist the
 // reader is about to open anyway), so the answer is a table keyed on those facts,

@@ -59,9 +59,13 @@ whisper:
 
 resolver:
   # The tallest video to cast. Source selection prefers the largest stream no
-  # taller than this, and the encoder scales its output down to it. Defaults to
-  # 1080; raise it to your TV's native height (e.g. 2160 for a 4K panel) to pass
-  # 4K through, or lower it to save bandwidth.
+  # taller than this, and everything Castor produces is scaled down to it: the
+  # spool it serves a DLNA renderer and the remux it serves a Chromecast alike.
+  # A source handed straight to a device that fetches for itself is untouched, so
+  # that path plays whatever the source is (Castor is not in the middle of it and
+  # cannot scale it). Defaults to 1080; raise it to your TV's native height (e.g.
+  # 2160 for a 4K panel), or lower it to save bandwidth. There is no "off": to
+  # lift the ceiling, set it above anything you own.
   # max_height: 1080
 
 tmdb:

@@ -110,6 +110,9 @@ func (r *Resolver) measureAll(ctx context.Context, streams []*media.Stream) []me
 					ContentType: s.ContentType,
 					Bandwidth:   s.Bandwidth,
 					Live:        s.Live,
+					// Carried, never re-derived: the ladder was read from a body only the
+					// browser held, and extraction has already been torn down.
+					Ladder: s.Ladder,
 				},
 				info:  info,
 				reach: reach,
@@ -282,20 +285,61 @@ func admitted(m measurement, v verdict) candidate {
 	return c
 }
 
-// exceedsCap reports whether a candidate's own resolution is a hard limit above
-// maxHeight. HLS masters are exempt: a master lists every variant and is capped
-// when Resolve picks one, so its single-variant probe height is not a ceiling.
+// carriesLadder reports that this candidate's captured document advertises renditions,
+// so a cast against it has rungs to move between. It is the fact the document's own
+// tags established during extraction, never a reading of the URL (see media.Ladder).
+//
+// Unknown answers false and is therefore compared equal to a confirmed single
+// rendition. That is deliberate and it is the whole of the leniency: a body Chrome
+// evicted, a redirect, a request that never finished all leave this unknown, and none
+// of them is evidence against the candidate.
+func (c candidate) carriesLadder() bool { return c.stream.Ladder == media.LadderMultivariant }
+
+// unreadLadder reports a playlist whose renditions nobody could establish: Chrome had
+// no body to hand over, so this document may well be a master and there is no evidence
+// either way. It is the lenient half of the cap's exemption, in the convention
+// media.ReachUnproven and an unmeasured height already keep: what was never established
+// may not convict a candidate.
+//
+// It is confined to playlists because only a playlist has a document that could have
+// advertised anything. A whole file's measured height is final: there is no rung
+// beneath it and no body would ever have said there was, so reading its silence as
+// doubt would exempt every direct 2160p recording from the ceiling the user set.
+func (c candidate) unreadLadder() bool {
+	return c.stream.ContentType == media.HLS && c.stream.Ladder == media.LadderUnknown
+}
+
+// exceedsCap reports whether a candidate's measured height is a real ceiling above
+// maxHeight, which is the tier preference compares before any measurement.
+//
+// A document that advertises renditions is exempt, and the exemption is sound for
+// exactly that shape: a master lists every variant, ffprobe reports the height of
+// whichever one it happened to open, and the cap binds for real when a rung is picked
+// out of it (see pickVariant). A document that advertises NONE is its own ceiling: its
+// measured height is what a cast against it reads, and there is no rung to narrow to.
+// Exempting one of those for carrying a .m3u8 is how a user capped at 1080 is handed a
+// 2160p variant playlist, so the exemption keys on the fact the document's own tags
+// established and never on the container it arrived in.
+//
+// Honouring the ceiling here is also the only place it is free. Preferring the 1080p
+// candidate costs a comparison; honouring the same ceiling once a 4K source is being
+// read costs a decode, a scale and a realtime re-encode, which a software-only host
+// cannot pace.
 func (c candidate) exceedsCap(maxHeight int) bool {
-	return c.stream.ContentType != media.HLS && c.height > 0 && c.height > maxHeight
+	if c.carriesLadder() || c.unreadLadder() {
+		return false
+	}
+	return c.height > 0 && c.height > maxHeight
 }
 
 // preference orders two admitted candidates, the better one greater, in the manner
 // of a slices.MaxFunc comparator: one within the height cap is always preferred
 // over one that exceeds it (so a direct 1080p beats a direct 4K when capped at
-// 1080, even at a lower bitrate); ties, and the all-over-cap case, fall to the
-// tallest probed height, and only then to the highest bandwidth. A height nobody
-// measured is compared as unknown rather than as short, so the two candidates fall
-// straight through to bandwidth.
+// 1080, even at a lower bitrate); then a document that advertises renditions over one
+// that does not; then ties, and the all-over-cap case, fall to the tallest probed
+// height, and only then to the highest bandwidth. A height nobody measured is compared
+// as unknown rather than as short, so the two candidates fall straight through to
+// bandwidth.
 //
 // Resolution leads and bitrate follows, which is the opposite of what this used to
 // do, because the two are not equally trustworthy. A height is measured off the
@@ -330,6 +374,23 @@ func preference(a, b candidate, maxHeight int) int {
 	if ao, bo := a.exceedsCap(maxHeight), b.exceedsCap(maxHeight); ao != bo {
 		if bo {
 			return 1 // a is within the cap, b exceeds it: a wins
+		}
+		return -1
+	}
+	// A confirmed ladder is preferred, and it is the only signal here that is about
+	// RECOVERY rather than about the picture: a master carries rungs to fall back to,
+	// and a source that published one rendition leaves a cast that starts failing with
+	// no move to make. Three runs ended exactly there, one 3840x1600 rendition at 18505
+	// kb/s delivering 0.39x realtime and nothing lighter in existence to drop to.
+	//
+	// It sits below the cap tier, which states what the user asked for, and above the two
+	// measurement tiers below, because on a master both of those are structurally weak:
+	// ffprobe reports the height of whichever variant it happened to open, not the
+	// master's range, and it cannot report a top-level bit_rate for a master at all, so
+	// the ladder arrives floored to 1 (see admitted).
+	if al, bl := a.carriesLadder(), b.carriesLadder(); al != bl {
+		if al {
+			return 1 // a publishes a ladder, b does not: a wins
 		}
 		return -1
 	}

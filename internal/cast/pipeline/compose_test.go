@@ -153,6 +153,40 @@ func TestCompositionsReproduceTheForksTheyReplaced(t *testing.T) {
 	}
 }
 
+// TestARendererServedALivePlaylistIsRemuxedIntoOne is the premise everything the segmented
+// delivery says about its renderer rests on, which is why it is pinned here rather than assumed
+// in core.
+//
+// A cast served as a live playlist is composed as a remux, and a remux has no reader of castor's
+// own behind it: it hands the delivery driver no supervisor, so nothing watches its renderer
+// while it plays. That is what makes the delivery's own statement at the end of the cast the ONLY
+// judgement of whether anybody fetched it, and it is what a renderer accepting the URL and never
+// asking for a segment used to walk straight through.
+func TestARendererServedALivePlaylistIsRemuxedIntoOne(t *testing.T) {
+	// A renderer that fetches for itself, cannot be handed this source (it takes no Matroska) and
+	// asks to be served a live playlist. That is the shipping shape of a segmented cast.
+	caps := media.Renderer{SelfFetch: true, Containers: []string{media.HLS}, ServedContainer: media.HLS}
+	target := &fakeTarget{profile: selfFetching(), caps: caps}
+	source := &media.Stream{URL: &url.URL{Scheme: "https", Host: "cdn.example", Path: "/movie"}, ContentType: media.MKV}
+
+	row, shape, err := compose(t.Context(), compositions, target, newHeld(target.Acquire), source, core.DeliveryAuto)
+	if err != nil {
+		t.Fatalf("compose: %v", err)
+	}
+	if row.name != "remux" {
+		t.Fatalf("composition = %q, want remux (shape: %s)", row.name, shape)
+	}
+
+	into, err := core.ServedFormat(caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if into.Delivery != media.DeliverSegmented {
+		t.Fatalf("a cast served %s is delivered by mechanism %v, want the segmented one: this test says nothing about the leg that hides an unfetched cast unless it is that mechanism it lands on",
+			caps.ServedContainer, into.Delivery)
+	}
+}
+
 // TestNoNegotiatedRowIsReachableWhenTheStaticRowMatched is the invariant that makes the
 // two-pass resolution sound rather than a guess dressed up as a table.
 //
@@ -256,9 +290,11 @@ func TestOnlyARendererThatNeverFetchesForItselfIsServedABuffer(t *testing.T) {
 // codec probes exactly like a copy of it: what a wrong value here costs is a whole title
 // re-encoded for nothing, or a picture handed over that the renderer cannot decode.
 //
-// A remux changes the wrapper and not the picture, so no height ceiling and no decode envelope
-// applies to its copy. The buffered encode IS the picture, so all of them do, and a burn-in
-// besides.
+// A remux changes the wrapper and not the picture, so it hands over an envelope this renderer
+// never advertised. The buffered encode is produced for a renderer that has already answered,
+// so it holds it to what it said, and can be forced to produce the picture by a burn-in
+// besides. Neither value says anything about the cast's height ceiling, which is not a
+// judgement about a renderer and is not the policy's to lift.
 func TestEachCompositionsPolicyIsTheOneItsPictureRequires(t *testing.T) {
 	want := map[string]core.VideoPolicy{
 		"read-once": core.CopyWhatFits,
@@ -284,35 +320,48 @@ func TestEachCompositionsPolicyIsTheOneItsPictureRequires(t *testing.T) {
 
 // TestTheCompositionsPolicyDecidesWhatItsCopyMayRefuse pins the column against the decision
 // it feeds. The two served compositions differ here and (beyond what they measure) nowhere
-// else, and the difference is not cosmetic: a remux changes the wrapper and not the picture,
-// so it copies a bitstream this renderer cannot decode and this cast's ceiling excludes, while
-// the buffered encode must re-encode exactly that.
+// else, and the difference is exactly one clause wide: a remux changes the wrapper and not the
+// picture, so it copies a bitstream this renderer never advertised, while the buffered encode
+// is produced for a renderer that has answered and holds it to that answer.
 func TestTheCompositionsPolicyDecidesWhatItsCopyMayRefuse(t *testing.T) {
 	ffmpegPath, _ := requireFFmpegTools(t)
 
-	// A source no CopyWhatFits leg would copy: above the height ceiling, in a codec the
-	// renderer advertises no support for. MPEG-TS carries h264, so carriage refuses nothing and
-	// the policy is the only thing left deciding.
-	probe := media.ProbeInfo{VideoCodec: media.CodecH264, VideoHeight: 2160, AudioCodec: media.CodecAAC, AudioChannels: 2}
+	// A source that turns on the capability clause and on nothing else: inside the cast's
+	// ceiling, and in a codec MPEG-TS carries, so carriage refuses nothing. The renderer
+	// advertises no video support at all, so what it decodes is the only open question.
+	probe := media.ProbeInfo{VideoCodec: media.CodecH264, VideoHeight: 720, AudioCodec: media.CodecAAC, AudioChannels: 2}
 	caps := media.Renderer{ServedContainer: media.MPEGTS, Audio: []media.AudioSupport{{Codec: media.CodecAAC, MaxChannels: 2}}}
 	into, err := core.ServedFormat(caps)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	decide := func(policy core.VideoPolicy) string {
+	decide := func(policy core.VideoPolicy, source media.ProbeInfo) string {
 		c := &cast{
 			cfg:    core.Config{Transcode: core.TranscodeConfig{FFmpegPath: ffmpegPath}, Resolver: resolve.Config{MaxHeight: 1080}},
 			policy: policy,
 		}
-		return c.encode(t.Context(), caps, into, encodeInput{facts: core.Facts{Probe: probe, Measured: true}}).Video.Name()
+		return c.encode(t.Context(), caps, into, encodeInput{facts: core.Facts{Probe: source, Measured: true}}).Video.Name()
 	}
 
-	if got := decide(core.CopyWhatever); got != "copy" {
+	if got := decide(core.CopyWhatever, probe); got != "copy" {
 		t.Errorf("under the remux composition's policy the video was %q, want a copy: it changes the wrapper and not the picture", got)
 	}
-	if got := decide(core.CopyWhatFits); got == "copy" {
-		t.Error("under the read-once composition's policy a 2160p source the renderer does not decode was copied")
+	if got := decide(core.CopyWhatFits, probe); got == "copy" {
+		t.Error("under the read-once composition's policy a source the renderer advertises no support for was copied")
+	}
+
+	// And the clause that is NOT the policy's, through the same wiring, because this is where
+	// the ceiling reaches the decision FROM CONFIGURATION on both legs. The divergence it
+	// closes was invisible by construction: which composition a cast lands on is settled by
+	// what a renderer answered during discovery, so a ceiling honoured on one path and dropped
+	// on the other meant the same max_height produced 1080p or 2160p with nothing telling a
+	// user which they were getting.
+	tall := media.ProbeInfo{VideoCodec: media.CodecH264, VideoHeight: 2160, AudioCodec: media.CodecAAC, AudioChannels: 2}
+	for _, policy := range []core.VideoPolicy{core.CopyWhatFits, core.CopyWhatever} {
+		if got := decide(policy, tall); got == "copy" {
+			t.Errorf("under %v a 2160p source was copied under the configured 1080 ceiling", policy)
+		}
 	}
 }
 
