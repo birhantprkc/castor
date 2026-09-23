@@ -21,11 +21,7 @@ const (
 	modeEpisodes
 )
 
-// drilldown is the TV navigation screen: seasons, then episodes. It owns the
-// show identity, the list, and which level is showing. The model asks it to
-// begin (from a picked TV result) and feeds it the async season/episode
-// payloads; the drilldown decides what each key press means and hands back an
-// outcome.
+// drilldown is a TV navigation screen (seasons then episodes) interpreting key presses.
 type drilldown struct {
 	ctx    context.Context
 	client *tmdb.Client
@@ -47,16 +43,14 @@ func newDrilldown(ctx context.Context, client *tmdb.Client, delegate list.Defaul
 	return drilldown{ctx: ctx, client: client, list: l}
 }
 
-// drillOutcome is what a key press produced, from the model's point of view.
 type drillOutcome struct {
-	cmd      tea.Cmd    // a command to run (season fetch, or list housekeeping)
-	loading  bool       // cmd is a network fetch → show the spinner
-	exit     bool       // leave the drilldown, back to browse
-	selected *Selection // an episode was chosen → quit with this
+	cmd      tea.Cmd
+	loading  bool // show spinner while cmd runs
+	exit     bool
+	selected *Selection
 }
 
-// begin loads the seasons for a picked TV show. The model switches screens once
-// showSeasons runs on the returned data.
+// begin loads seasons for a picked show; model updates display via showSeasons.
 func (d *drilldown) begin(id int, name string) tea.Cmd {
 	d.tvID = id
 	d.tvName = name
@@ -67,7 +61,6 @@ func (d *drilldown) setSize(w, h int) { d.list.SetSize(max(w, 30), h) }
 
 func (d drilldown) filtering() bool { return d.list.SettingFilter() }
 
-// showSeasons installs the season list from fetched show details.
 func (d *drilldown) showSeasons(tv *tmdb.TVDetails) {
 	d.tvName = tv.Name
 	items := make([]list.Item, 0, len(tv.Seasons))
@@ -83,7 +76,6 @@ func (d *drilldown) showSeasons(tv *tmdb.TVDetails) {
 	d.mode = modeSeasons
 }
 
-// showEpisodes installs the episode list for the selected season.
 func (d *drilldown) showEpisodes(sd *tmdb.SeasonDetails) {
 	items := make([]list.Item, 0, len(sd.Episodes))
 	for _, e := range sd.Episodes {
@@ -97,7 +89,6 @@ func (d *drilldown) showEpisodes(sd *tmdb.SeasonDetails) {
 	d.mode = modeEpisodes
 }
 
-// update handles one message while the drilldown is showing.
 func (d *drilldown) update(msg tea.Msg, keys keyMap) drillOutcome {
 	if km, ok := msg.(tea.KeyMsg); ok && !d.list.SettingFilter() {
 		switch {
@@ -142,8 +133,7 @@ func (d *drilldown) enter() drillOutcome {
 	return drillOutcome{}
 }
 
-// view renders the breadcrumb header and the list body. The model appends the
-// shared footer.
+// view renders breadcrumb header and list body (model appends footer).
 func (d drilldown) view(st styles) string {
 	sep := st.Muted.Render(" › ")
 	parts := []string{st.TitleText.Render(d.tvName)}
@@ -159,8 +149,6 @@ func (d drilldown) view(st styles) string {
 	header := headerPad(strings.Join(parts, ""))
 	return lipgloss.JoinVertical(lipgloss.Left, header, "", d.list.View())
 }
-
-// ---------------------------------------------------------------- list items
 
 type seasonItem struct{ s tmdb.Season }
 
@@ -191,8 +179,6 @@ func (i episodeItem) Description() string {
 }
 
 func (i episodeItem) FilterValue() string { return i.e.Name }
-
-// ---------------------------------------------------------------- messages + cmds
 
 type tvDoneMsg struct {
 	tv  *tmdb.TVDetails

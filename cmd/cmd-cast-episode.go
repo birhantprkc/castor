@@ -34,13 +34,13 @@ func (a *app) castEpisodeCommand() *cli.Command {
 				Destination: &itemID,
 			},
 		},
-		Action: func(ctx context.Context, cmd *cli.Command) error {
+		Action: func(ctx context.Context, _ *cli.Command) error {
 			cfg, err := a.config()
 			if err != nil {
 				return err
 			}
 
-			return a.extractAndCast(ctx, cmd, cfg.AllEpisodeURLs(itemID, uint(season), uint(episode)))
+			return a.extractAndCast(ctx, cfg, cfg.Target(), cfg.Sources.EpisodeURLs(itemID, uint(season), uint(episode)))
 		},
 	}
 }

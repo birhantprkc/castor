@@ -35,6 +35,38 @@ go vet ./...
 
 With [direnv](https://direnv.net) installed, the checked-in `.envrc` exports the environment automatically on `cd`, so plain `go build`, `go run .`, and `go test ./...` just work after `direnv allow`.
 
+## The rules
+
+Castor holds a handful of architecture rules, and each one below says what proves it. The first table is mechanised: break one of these and `go test ./...` or the `lint` job goes red. The list after it is held by review alone.
+
+### Mechanised
+
+| Rule | What it says | Proved by |
+| --- | --- | --- |
+| A port with two implementations has one specification | Both delivery mechanisms, opened the way a cast opens them, answer to one set of assertions: where they are fetched, that a delivery nobody fetched is flagged and one the renderer took is not, that Close finishes reading before it returns, that a cancelled Wait stops. What each mechanism decides for itself (its idle rule) is deliberately not judged there. | `execute.TestEveryMechanism...` in `sink_conformance_test.go` |
+| Every device family answers to one suite | A family's `AwaitEnd` keeps polling a playing device (the suite runs several poll intervals in a synctest bubble) and returns the cast's reason when it ends, and the envelope it states holds the universal H.264 baseline (and, where it asks the device nothing, no model-specific codec). | `devicetest`, called from each family's own tests |
+| Nothing ships that nothing reaches | `deadcode -test ./...` reports no unreachable function. The `-test` flag is load-bearing: without it everything only a test reaches reads as dead. | the `lint` job |
+| The tree stays modern Go | `modernize` reports nothing over `./internal/...` and `./cmd/...`. | the `lint` job |
+| staticcheck is clean | `staticcheck` reports nothing over `./internal/...` and `./cmd/...`. | the `lint` job |
+| go vet is clean | `go vet ./...` reports nothing. | the `lint` job |
+| Every file is `gofmt -s` clean | `gofmt -s -l cmd internal e2e main.go` prints nothing. | the `lint` job |
+
+Notes on reading that table:
+
+- `deadcode` allows exactly one line through, and the exception is written into the step: `castorNativeLog` carries `//export` and `nativelog.c` installs it as whisper.cpp's global log callback, so its only caller is C and no Go call graph can see it.
+- Every lint tool is pinned to a version. A gate that changes under CI turns an unrelated push red and teaches everyone to ignore it.
+- Tests exercise behaviour. A test whose subject is the shape of the code (an import graph, which call site supplies a value, whether a table has a row per name) is not written here.
+- The suites are worth what breaking them proves. Anything added to one should be mutation tested: break the behaviour, confirm the test fails and says which property died, restore, confirm it passes. A test that passes against a broken implementation is worse than no test, because it manufactures confidence.
+
+### Held by review
+
+These are real and nothing checks them. They are yours to hold in review.
+
+- **The core is agnostic to where a cast comes from and where it goes.** A decision reads capabilities as data. Device families and source formats are listed only in the composition root, which attaches each family's typed section from `config.yaml`: no decision, table or policy anywhere else branches on a device family, and nothing in the tree names a streaming site.
+- **A consumer declares the narrow port it needs, and a composition root binds it.** Each package declares only the methods it drives (`source.Format` and `device.Family` are the strategies a format or a family implements), so the judgement stays exercisable with no ffmpeg, no network and no renderer. The composition root binds every port but the subtitle burn-in, which the command layer binds because it is the one cgo mechanism the root may not name.
+- **Absence is a value.** An optional lookup returns `(T, bool)`, never a nil the caller has to remember to check: `media.Program.PrimaryInput`, `compose.Compose`, `container.FormatForContentType`. A caller that cannot handle absence should say so where it happens, with an error naming what was missing, rather than dereference and fail five steps later.
+- **A comment is one short line, or it is not there.** Write one only for what the code cannot say: a reason, a constraint, a field failure. Never restate a name or narrate the next line.
+
 ## Commit messages
 
 Castor uses [Conventional Commits](https://www.conventionalcommits.org). Each subject is `type(scope)?: summary`, where `type` is one of `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`. Use `feat!:` (or a `BREAKING CHANGE:` footer) for a breaking change. These types drive the changelog and the next version bump, so they are not cosmetic.
@@ -53,6 +85,5 @@ For a bleeding-edge preview, run the **canary** workflow (Actions tab) on any br
 
 ## Notes
 
-- Castor uses bleeding-edge Go (`go 1.26`): use `slices`/`maps` packages, `min`/`max`/`clear` builtins, range-over-int, generics. No hand-rolled equivalents.
+- Castor uses bleeding-edge Go (`go 1.26`): `errors.AsType` over `errors.As`, `sync.WaitGroup.Go`, `reflect.TypeFor`, the `slices`/`maps` packages, the `min`/`max`/`clear` builtins, range-over-int and range-over-func, generics. No hand-rolled equivalents. `modernize` runs in CI over `./internal/...` and `./cmd/...`, so most of this is now enforced rather than remembered.
 - Don't add compatibility shims or dead fallback paths.
-- Comments only when the *why* is non-obvious.

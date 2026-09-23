@@ -1,9 +1,3 @@
-// Castor is a proof of concept provided for lawful, personal, and educational
-// use. This file is part of its stream-extraction pipeline and is intended only
-// for accessing content you are authorized to view. Do not use it to infringe
-// copyright or to circumvent access controls. The author does not endorse or
-// condone piracy. See the "Purpose and disclaimer" section of the README.
-
 package extract
 
 import (
@@ -11,48 +5,40 @@ import (
 	_ "embed"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/chromedp/chromedp"
 )
 
-// turnstileIframePosJS returns the center coordinates of the Turnstile checkbox
-// iframe, or null if the Turnstile container or its iframe is not yet visible.
-//
+// turnstileSelector names the challenge widget for every script that looks for it.
+const turnstileSelector = ".cf-turnstile"
+
 //go:embed js/turnstile_iframe_pos.js
-var turnstileIframePosJS string
+var turnstileIframePosTemplate string
 
-// turnstileGoneJS returns true when the .cf-turnstile element is no longer in
-// the DOM (i.e. the page has reloaded after successful verification).
-//
 //go:embed js/turnstile_gone.js
-var turnstileGoneJS string
+var turnstileGoneTemplate string
 
-// detectTurnstile returns true if a .cf-turnstile element is present in the DOM.
+var (
+	turnstileIframePosJS = strings.ReplaceAll(turnstileIframePosTemplate, "__TURNSTILE__", turnstileSelector)
+	turnstileGoneJS      = strings.ReplaceAll(turnstileGoneTemplate, "__TURNSTILE__", turnstileSelector)
+)
+
 func detectTurnstile(ctx context.Context) bool {
 	var present bool
-	if err := chromedp.Run(ctx,
-		chromedp.Evaluate(`document.querySelector('.cf-turnstile') !== null`, &present),
-	); err != nil {
+	if err := chromedp.Run(ctx, chromedp.Evaluate("!("+turnstileGoneJS+")", &present)); err != nil {
 		return false
 	}
 	return present
 }
 
-// solveTurnstile attempts to solve a Cloudflare Turnstile challenge on the
-// current page. It races two paths concurrently:
-//  1. Poll for the interactive iframe to appear -> click it -> wait for gone
-//  2. Wait for turnstile to disappear (covers auto-solve and cftCallback reload)
-//
-// The caller should check detectTurnstile before calling this function.
-// The entire flow is bounded by solveTimeout.
 func solveTurnstile(ctx context.Context, solveTimeout time.Duration) bool {
 	tCtx, cancel := context.WithTimeout(ctx, solveTimeout)
 	defer cancel()
 
 	ch := make(chan struct{}, 2)
 
-	// Path 1: interactive iframe click.
 	go func() {
 		var pos map[string]any
 		if err := chromedp.Run(tCtx,
@@ -77,7 +63,7 @@ func solveTurnstile(ctx context.Context, solveTimeout time.Duration) bool {
 		ch <- struct{}{}
 	}()
 
-	// Path 2: passive, handles auto-solve token fill and cftCallback page reload.
+	// Passive: handles auto-solve token fill and the cftCallback page reload.
 	go func() {
 		var gone bool
 		if err := chromedp.Run(tCtx,
@@ -99,7 +85,6 @@ func solveTurnstile(ctx context.Context, solveTimeout time.Duration) bool {
 	}
 }
 
-// bypassTurnstile attempts to bypass a Cloudflare Turnstile challenge.
 func bypassTurnstile(ctx context.Context, solveTimeout, retryTimeout time.Duration) error {
 	if !detectTurnstile(ctx) {
 		return nil

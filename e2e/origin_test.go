@@ -2,7 +2,7 @@ package e2e
 
 import (
 	"context"
-	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,53 +13,30 @@ import (
 	"time"
 )
 
-// liveSource describes a live HLS origin to stand up. The zero value is a
-// TS-segmented AAC stream, which is what the overwhelming majority of sources in
-// the wild look like.
+// liveSource describes a live HLS origin to stand up (zero value is TS-segmented AAC).
 type liveSource struct {
-	// SegmentType is ffmpeg's -hls_segment_type: "" (mpegts) or "fmp4". It decides
-	// how the source frames its AAC, which is the fact castor must not assume: the
-	// same playlist extension serves ADTS from TS segments and out-of-band AAC from
-	// fMP4 ones.
+	// SegmentType: "" (mpegts) or "fmp4"; frames AAC differently so castor must not assume.
 	SegmentType string
-	// SegmentExt is the extension segments are written under. ".jpg" reproduces the
-	// embed-CDN disguise, which an HTTP server then labels image/jpeg.
-	SegmentExt string
-	// AudioCodec is ffmpeg's -c:a for the origin.
-	AudioCodec string
-	// AudioChannels is -ac.
+	// SegmentExt disguises segments as ".jpg" to test embed-CDN handling.
+	SegmentExt    string
+	AudioCodec    string
 	AudioChannels string
-	// VideoCodec is ffmpeg's -c:v.
-	VideoCodec string
-	// NoAudio publishes video alone, the shape that turns a pinned stream map into
-	// an argument-parse failure before a byte is read.
+	VideoCodec    string
+	// NoAudio publishes video alone, turning a pinned stream map into parse failure before read.
 	NoAudio bool
-	// Demuxed publishes the two tracks as separate renditions, the shape an HLS
-	// master with an audio group resolves to. Neither rendition is playable alone,
-	// so reading such a program takes two inputs muxed back into one output.
+	// Demuxed publishes tracks as separate renditions (HLS master with audio group); need re-mux.
 	Demuxed bool
 }
 
-// liveSeconds is how much media each origin publishes. It only has to outlast
-// what a cell consumes, and every second of it costs the suite encode time.
+// liveSeconds outlasts reading; every second costs encode time.
 const liveSeconds = "40"
 
-// origin is a running live HLS stream served over HTTP.
 type origin struct {
-	// PlaylistURL is what a cast is pointed at.
 	PlaylistURL string
-	// AudioURL is the companion rendition of a demuxed program, empty otherwise.
-	AudioURL string
-	dir      string
-	playlist string
+	AudioURL    string // Companion rendition of demuxed program, empty otherwise.
+	dir         string
 }
 
-// startLive brings up a genuinely live HLS stream: a real ffmpeg encoding in real
-// time (-re) into a rolling window with no EXT-X-ENDLIST, served by a real HTTP
-// server. It never ends on its own, so it is killed when the test does, and it is
-// what makes these tests different from the fixed-length fixtures the unit suites
-// use: the playlist rolls while castor reads it, ffprobe finds no duration, and
-// the cast has to be interrupted rather than waited out.
 func startLive(t *testing.T, tl tools, src liveSource) *origin {
 	t.Helper()
 
@@ -79,19 +56,10 @@ func startLive(t *testing.T, tl tools, src liveSource) *origin {
 	dir := t.TempDir()
 	args := []string{
 		"-hide_banner", "-loglevel", "error", "-y",
-		// Bounded, and written as fast as the machine allows rather than paced with
-		// -re. Pacing the ORIGIN made it compete for CPU with the cell reading it: a
-		// cell that also re-encodes audio then read under two seconds of media in
-		// fourteen, and failed for want of packets its own fixture never published.
-		//
-		// Nothing is lost. What "live" has to mean here is that the stream announces
-		// no end, which is omit_endlist below, and castor paces its own read at 1x
-		// regardless. A CDN whose segments are already published is the ordinary case
-		// anyway; a reader chasing an encoder is the exception.
 		"-t", liveSeconds, "-f", "lavfi", "-i", "testsrc=size=320x240:rate=15",
 	}
 	if !src.NoAudio {
-		args = append(args, "-re", "-f", "lavfi", "-i", "sine=frequency=440")
+		args = append(args, "-f", "lavfi", "-i", "sine=frequency=440")
 	}
 	args = append(args,
 		"-c:v", src.VideoCodec, "-pix_fmt", "yuv420p", "-g", "15",
@@ -111,17 +79,7 @@ func startLive(t *testing.T, tl tools, src liveSource) *origin {
 	args = append(args,
 		"-f", "hls",
 		"-hls_time", "1",
-		// A window wide enough that the fixture is never the bottleneck. Four seconds
-		// starves a cell that re-encodes audio and reads at wall-clock speed: it falls
-		// behind, segments roll off underneath it, and the run dies of a hostile origin
-		// rather than of anything castor did.
-		// The playlist keeps every segment it has published. A rolling window would
-		// be closer to a real CDN, but it makes the ORIGIN the thing under test: a
-		// cell that re-encodes audio reads slower than wall clock, falls behind a
-		// window that deletes, and fails for want of a segment castor did nothing
-		// wrong to miss. What this suite needs from "live" is that the stream has no
-		// end, and omit_endlist alone gives that: no EXT-X-ENDLIST, no duration, a
-		// playlist that grows while it is being read.
+		// Keep all segments (rolling window would lose segments the cell reads slower than wall clock).
 		"-hls_list_size", "0",
 		"-hls_flags", "independent_segments",
 	)
@@ -154,7 +112,7 @@ func startLive(t *testing.T, tl tools, src liveSource) *origin {
 	server := httptest.NewServer(http.FileServer(http.Dir(live)))
 	t.Cleanup(server.Close)
 
-	o := &origin{PlaylistURL: server.URL + "/" + playlist, dir: live, playlist: playlist}
+	o := &origin{PlaylistURL: server.URL + "/" + playlist, dir: live}
 	o.publish(t, dir, playlist)
 	if src.Demuxed {
 		o.AudioURL = server.URL + "/rendition_1.m3u8"
@@ -172,15 +130,14 @@ func (o *origin) publish(t *testing.T, staged, playlist string) {
 	}
 	header, segments := splitPlaylist(string(full))
 
-	// Copy every file the playlist can ever reference. Only the playlist itself is
-	// revealed progressively; a segment that appears before it is listed is invisible
-	// to a reader, and one that appears after it is listed is a 404.
+	// Copy all files; reveal playlist progressively (unlisted segments are 404).
 	entries, err := os.ReadDir(staged)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
-		if e.Name() == playlist || e.IsDir() {
+		// Don't copy sibling playlists (would expose staged EXT-X-ENDLIST).
+		if filepath.Ext(e.Name()) == ".m3u8" || e.IsDir() {
 			continue
 		}
 		media, err := os.ReadFile(filepath.Join(staged, e.Name()))
@@ -198,13 +155,15 @@ func (o *origin) publish(t *testing.T, staged, playlist string) {
 			t.Errorf("publishing the playlist: %v", err)
 		}
 	}
-	// Enough to join, then one per second for as long as the cell reads.
-	const joinable = 4
+	const joinable = 4 // Enough to join; then one per second.
 	write(joinable)
 
 	ctx, stop := context.WithCancel(t.Context())
-	t.Cleanup(stop)
+	// Joined (not merely cancelled) so t.Errorf after test returns doesn't panic.
+	done := make(chan struct{})
+	t.Cleanup(func() { stop(); <-done })
 	go func() {
+		defer close(done)
 		tick := time.NewTicker(time.Second)
 		defer tick.Stop()
 		for n := joinable; n < len(segments); n++ {
@@ -218,9 +177,7 @@ func (o *origin) publish(t *testing.T, staged, playlist string) {
 	}()
 }
 
-// splitPlaylist separates a playlist's header from its segment entries, so the
-// entries can be revealed a few at a time. An entry is its #EXTINF line plus the
-// URI that follows it, which is the only grouping HLS guarantees.
+// splitPlaylist separates header and segment entries for progressive reveal; entry is #EXTINF line + URI.
 func splitPlaylist(playlist string) (header string, segments []string) {
 	lines := strings.SplitAfter(playlist, "\n")
 	var head strings.Builder
@@ -232,8 +189,7 @@ func splitPlaylist(playlist string) (header string, segments []string) {
 				i++
 			}
 		case strings.HasPrefix(lines[i], "#EXT-X-ENDLIST"):
-			// The staged playlist is complete; the published one must not be, or a
-			// reader treats it as VOD and the cast never exercises the live path.
+			// Exclude ENDLIST (reader would treat as VOD, not test live path).
 		case len(segments) == 0:
 			head.WriteString(lines[i])
 		}
@@ -241,24 +197,24 @@ func splitPlaylist(playlist string) (header string, segments []string) {
 	return head.String(), segments
 }
 
-// isLive reports what castor will conclude about the source, so a test that means
-// to exercise the live path fails loudly if its fixture stopped being live.
-func (o *origin) isLive(t *testing.T, tl tools) bool {
+// isLive reports what castor concludes, so test fails loudly if fixture stopped being live.
+func (o *origin) isLive(t *testing.T) bool {
 	t.Helper()
-	out, err := exec.Command(tl.ffprobe,
-		"-v", "error",
-		"-allowed_extensions", "ALL",
-		"-allowed_segment_extensions", "ALL",
-		"-extension_picky", "0",
-		"-show_entries", "format=duration",
-		"-of", "default=nw=1:nk=1",
-		o.PlaylistURL,
-	).Output()
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, o.PlaylistURL, nil)
 	if err != nil {
-		t.Fatalf("probing origin: %v", err)
+		t.Fatalf("building origin request: %v", err)
 	}
-	d := strings.TrimSpace(string(out))
-	return d == "" || d == "N/A"
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("reading origin playlist: %v", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		t.Fatalf("reading origin playlist body: %v", err)
+	}
+	text := string(body)
+	return strings.Contains(text, "#EXTM3U") && !strings.Contains(text, "#EXT-X-ENDLIST")
 }
-
-func (o *origin) String() string { return fmt.Sprintf("live origin at %s", o.PlaylistURL) }

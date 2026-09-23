@@ -1,9 +1,3 @@
-// Castor is a proof of concept provided for lawful, personal, and educational
-// use. This file is part of its stream-extraction pipeline and is intended only
-// for accessing content you are authorized to view. Do not use it to infringe
-// copyright or to circumvent access controls. The author does not endorse or
-// condone piracy. See the "Purpose and disclaimer" section of the README.
-
 package extract
 
 import (
@@ -12,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/chromedp/cdproto/browser"
 	"github.com/chromedp/cdproto/emulation"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
@@ -59,8 +54,7 @@ var stealthFontMetricJS string
 //go:embed js/stealth_stack_trace.js
 var stealthStackTraceJS string
 
-// buildStealthJS joins all stealth snippets and fills placeholders from a Profile.
-func buildStealthJS(profile *Profile) string {
+func buildStealthJS(profile *profile) string {
 	snippets := []string{
 		stealthToStringJS,
 		stealthPluginsJS,
@@ -77,7 +71,8 @@ func buildStealthJS(profile *Profile) string {
 		stealthFontMetricJS,
 		stealthStackTraceJS,
 	}
-	joined := strings.Join(snippets, "\n")
+	// One closure, so the helpers the snippets share never reach the page's globals.
+	joined := "(() => {\n" + strings.Join(snippets, "\n") + "\n})();"
 
 	r := strings.NewReplacer(
 		"__DEVICE_MEMORY__", fmt.Sprintf("%d", profile.DeviceMemory),
@@ -92,21 +87,14 @@ func buildStealthJS(profile *Profile) string {
 	return r.Replace(joined)
 }
 
-// allocatorOpts returns chromedp exec-allocator options that avoid common
-// headless-detection flags. It reads window size and UA from the profile.
-func allocatorOpts(cfg BrowserConfig, profile *Profile) []chromedp.ExecAllocatorOption {
-	var headlessVal string
-	if cfg.Headless {
-		headlessVal = "new"
-	}
-
-	return []chromedp.ExecAllocatorOption{
+// Returns exec-allocator options avoiding headless-detection flags.
+func allocatorOpts(cfg BrowserConfig, profile *profile) []chromedp.ExecAllocatorOption {
+	opts := []chromedp.ExecAllocatorOption{
 		chromedp.ExecPath(cfg.ChromePath),
 
 		chromedp.NoFirstRun,
 		chromedp.NoDefaultBrowserCheck,
 
-		chromedp.Flag("headless", headlessVal),
 		chromedp.Flag("no-sandbox", cfg.NoSandbox),
 		chromedp.Flag("disable-dev-shm-usage", true),
 
@@ -124,14 +112,29 @@ func allocatorOpts(cfg BrowserConfig, profile *Profile) []chromedp.ExecAllocator
 		chromedp.Flag("incognito", true),
 
 		chromedp.WindowSize(profile.ScreenWidth, profile.ScreenHeight),
+	}
 
-		chromedp.UserAgent(profile.UserAgent),
+	// Only append when wanted; presence matters, not value.
+	if cfg.Headless {
+		opts = append(opts, chromedp.Flag("headless", "new"))
+	}
+
+	return opts
+}
+
+// identifyBrowser pins the profile's user agent to the version of the browser actually running.
+func identifyBrowser(profile *profile) chromedp.ActionFunc {
+	return func(ctx context.Context) error {
+		_, product, _, _, _, err := browser.GetVersion().Do(ctx)
+		if err != nil {
+			return fmt.Errorf("asking the browser its version: %w", err)
+		}
+		return profile.identify(product)
 	}
 }
 
-// injectStealth returns a chromedp action that injects the stealth script
-// before any page JS runs, parameterized by the given profile.
-func injectStealth(profile *Profile) chromedp.ActionFunc {
+// injectStealth injects the stealth script before any page JS runs.
+func injectStealth(profile *profile) chromedp.ActionFunc {
 	return func(ctx context.Context) error {
 		js := buildStealthJS(profile)
 		_, err := page.AddScriptToEvaluateOnNewDocument(js).Do(ctx)
@@ -139,9 +142,8 @@ func injectStealth(profile *Profile) chromedp.ActionFunc {
 	}
 }
 
-// injectCDPStealth returns a chromedp action that uses CDP-level overrides to
-// mask automation signals that cannot be covered by JS injection alone.
-func injectCDPStealth(profile *Profile) chromedp.ActionFunc {
+// CDP-level overrides for automation signals JS can't mask.
+func injectCDPStealth(profile *profile) chromedp.ActionFunc {
 	return func(ctx context.Context) error {
 		if err := emulation.SetAutomationOverride(false).Do(ctx); err != nil {
 			return err

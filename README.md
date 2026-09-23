@@ -155,12 +155,12 @@ whisper:
 Set `max_height` to your TV's vertical resolution. It is a maximum on what reaches the device, so it caps the stream Castor picks and everything Castor produces, whether that is the spool it serves a DLNA renderer or the remux it serves a Chromecast.
 
 > [!NOTE]
-> It binds the hand-off too. Castor cannot scale a stream it never reads, so a source whose playlist declares a rendition taller than `max_height` is relayed and scaled down instead of being handed to a device that fetches for itself. That relay decodes and re-encodes the whole title, which wants hardware encoding to keep up, so raise `max_height` if you would rather the device play the source as it is. A source that declares no resolution is handed over as before: Castor never measures one on that path, and refusing on a resolution nobody stated would rule out nearly every hand-off.
+> It binds the hand-off too. Castor only hands over a source after measuring a complete video program and confirming that its container, video, audio, dynamic range, and height fit the renderer. A source above `max_height` is relayed and scaled down instead. That relay decodes and re-encodes the whole title, which benefits greatly from hardware encoding, so raise `max_height` if you would rather the device play the source as-is.
 
 ```yaml
 resolver:
   max_height: 2160         # default: 1080
-  # hls_timeout: 30s
+  # playlist_timeout: 30s
   # probe_timeout: 30s
   # probe_max_concurrency: 2
   # ffprobe_path: ffprobe
@@ -289,7 +289,7 @@ The prebuilt `ghcr.io/stupside/castor` image bundles Chrome, ffmpeg, and ffprobe
 # Discover devices (no config needed)
 docker run --rm --network host ghcr.io/stupside/castor:latest scan
 
-# Cast, passing the Intel GPU through for hardware transcoding
+# Cast, passing a Linux render device through for hardware transcoding
 docker run --rm --network host --device /dev/dri \
   -v "$PWD/config.yaml:/config.yaml" \
   -v castor-cache:/root/.cache \
@@ -297,7 +297,7 @@ docker run --rm --network host --device /dev/dri \
   cast player https://example.com/watch/some-video
 ```
 
-- `--device /dev/dri` hands the container your Intel GPU for VA-API hardware H.264 encoding. Without it (or on a non-Intel host) Castor falls back to software `libx264`.
+- `--device /dev/dri` exposes Linux VA-API/QSV render devices to Castor. Castor test-encodes one frame through the available VideoToolbox, NVENC, QSV, VA-API, and AMF strategies and selects the first one that actually works; if none does, it falls back to software `libx264`.
 - Either way, when your TV already accepts the source video, Castor stream-copies it and skips encoding entirely.
 - Run from the directory holding your [`config.yaml`](config.yaml) (mounted at `/config.yaml`).
 - The `castor-cache` volume persists auto-downloaded whisper models.

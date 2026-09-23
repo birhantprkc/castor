@@ -1,7 +1,4 @@
-// Package cmd wires the castor command tree. Configuration is loaded lazily
-// into a typed struct the subcommand closures share, with no metadata maps and
-// no runtime type assertions, so commands that don't need a config (scan, info,
-// help) never require one.
+// Package cmd wires the castor command tree with lazy config loading for commands that don't need it.
 package cmd
 
 import (
@@ -14,33 +11,39 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/urfave/cli/v3"
 
+	"github.com/stupside/castor/internal/cast"
+	"github.com/stupside/castor/internal/cast/execute"
 	"github.com/stupside/castor/internal/config"
+	"github.com/stupside/castor/internal/device"
+	"github.com/stupside/castor/internal/subtitle"
+	"github.com/stupside/castor/internal/subtitle/whisper"
 	"github.com/stupside/castor/internal/version"
 )
 
-// app carries state shared by every subcommand.
 type app struct {
 	configPath string
+	configSet  bool
 	debug      bool
+	dryRun     bool
 
-	once sync.Once
-	cfg  *config.Config
-	err  error
-}
-
-// config loads the configuration on first use and memoizes the result.
-func (a *app) config() (*config.Config, error) {
-	a.once.Do(func() {
-		a.cfg, a.err = config.Load(a.configPath)
-		if a.err == nil {
-			slog.Info("config loaded", "path", a.configPath)
-		}
-	})
-	return a.cfg, a.err
+	config func() (*config.Config, error)
 }
 
 func Root() *cli.Command {
 	a := &app{}
+	a.config = sync.OnceValues(func() (*config.Config, error) {
+		// The default path may be absent (env and defaults suffice); a path the user named may not.
+		if a.configSet {
+			if _, err := os.Stat(a.configPath); err != nil {
+				return nil, fmt.Errorf("config file: %w", err)
+			}
+		}
+		cfg, err := config.Load(a.configPath)
+		if err == nil {
+			slog.Info("config loaded", "path", a.configPath)
+		}
+		return cfg, err
+	})
 
 	return &cli.Command{
 		Name:    "castor",
@@ -61,6 +64,7 @@ func Root() *cli.Command {
 			},
 		},
 		Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+			a.configSet = cmd.IsSet("config")
 			if a.debug {
 				slog.SetDefault(slog.New(
 					log.NewWithOptions(os.Stderr, log.Options{
@@ -90,5 +94,23 @@ func infoCommand() *cli.Command {
 			fmt.Printf("build time %s\n", version.BuildTime)
 			return nil
 		},
+	}
+}
+
+func playback(cfg *config.Config, target device.Info) cast.Config {
+	return cfg.Playback(target, burnIn(cfg.Whisper))
+}
+
+func burnIn(settings subtitle.Whisper) execute.Subtitles {
+	if !settings.Enable {
+		return nil
+	}
+	return func(ctx context.Context, workDir string) execute.Burn {
+		b, err := whisper.New(ctx, settings, workDir)
+		if err != nil {
+			slog.WarnContext(ctx, "whisper init failed; casting without subtitles", "error", err)
+			return nil
+		}
+		return b
 	}
 }

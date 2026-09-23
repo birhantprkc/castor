@@ -1,81 +1,17 @@
 package browse
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/stupside/castor/internal/browse/tmdb"
+	"github.com/stupside/castor/internal/device"
 )
-
-func TestFormatRuntime(t *testing.T) {
-	cases := map[int]string{0: "", -5: "", 45: "45m", 60: "1h", 128: "2h 8m"}
-	for in, want := range cases {
-		if got := formatRuntime(in); got != want {
-			t.Errorf("formatRuntime(%d) = %q, want %q", in, got, want)
-		}
-	}
-}
-
-func TestTruncate(t *testing.T) {
-	cases := []struct {
-		s     string
-		width int
-		want  string
-	}{
-		{"hello", 10, "hello"},
-		{"hello", 5, "hello"},
-		{"hello", 4, "hel…"},
-		{"hello", 1, "…"},
-		{"hello", 0, ""},
-		{"héllo", 4, "hél…"}, // rune-aware: é is not split mid-byte
-	}
-	for _, c := range cases {
-		if got := truncate(c.s, c.width); got != c.want {
-			t.Errorf("truncate(%q,%d) = %q, want %q", c.s, c.width, got, c.want)
-		}
-	}
-}
-
-func TestMetaLines(t *testing.T) {
-	r := tmdb.SearchResult{VoteAverage: 8.1}
-
-	// Without details, only the rating is known.
-	info, tagline, cast := metaLines(r, nil, 60)
-	if info != "★ 8.1" || tagline != "" || cast != "" {
-		t.Fatalf("nil details: info=%q tagline=%q cast=%q", info, tagline, cast)
-	}
-
-	// With details, runtime + genres enrich the info line and cast appears.
-	d := &tmdb.Details{
-		Runtime: 128,
-		Tagline: "It begins.",
-		Genres:  []tmdb.Genre{{ID: 28, Name: "Action"}, {ID: 878, Name: "Science Fiction"}},
-	}
-	d.Credits.Cast = []struct {
-		Name string `json:"name"`
-	}{{Name: "A"}, {Name: "B"}, {Name: "C"}, {Name: "D"}}
-
-	info, tagline, cast = metaLines(r, d, 80)
-	if info != "★ 8.1 · 2h 8m · Action, Science Fiction" {
-		t.Errorf("info = %q", info)
-	}
-	if tagline != "It begins." {
-		t.Errorf("tagline = %q", tagline)
-	}
-	if cast != "With A, B, C" {
-		t.Errorf("cast = %q", cast)
-	}
-
-	// Narrow width truncates the info line.
-	if info, _, _ = metaLines(r, d, 10); len([]rune(info)) != 10 {
-		t.Errorf("narrow info not clamped to 10 runes: %q", info)
-	}
-}
-
-// --- headless model driver -------------------------------------------------
 
 func drive(t *testing.T, m model, msg tea.Msg) (model, tea.Cmd) {
 	t.Helper()
@@ -97,135 +33,9 @@ func fakeResults(n int) []tmdb.SearchResult {
 	return rs
 }
 
-// TestBrowseDiscoverFlow drives the full genre → discover → paginate → search
-// path through Update/View headlessly, asserting state transitions and that no
-// render panics along the way.
-func TestBrowseDiscoverFlow(t *testing.T) {
-	m := newModel(t.Context(), tmdb.New("dummy", 0), "", "")
-
-	m, _ = drive(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
-	mustRender(t, m)
-
-	// Genre catalog + a curated tab arrive.
-	cat := tmdb.GenreCatalog{
-		Movie: []tmdb.Genre{{ID: 28, Name: "Action"}, {ID: 35, Name: "Comedy"}, {ID: 878, Name: "Science Fiction"}},
-		TV:    []tmdb.Genre{{ID: 10759, Name: "Action & Adventure"}, {ID: 35, Name: "Comedy"}},
-	}
-	m, _ = drive(t, m, genresLoadedMsg{cat: cat})
-	m, _ = drive(t, m, topsLoadedMsg{tab: tabTrending, res: fakeResults(3)})
-	if got := len(m.results.Items()); got != 3 {
-		t.Fatalf("curated items = %d, want 3", got)
-	}
-	mustRender(t, m)
-
-	// Open the genre picker.
-	m, _ = drive(t, m, tea.KeyMsg{Type: tea.KeyCtrlG})
-	if !m.picker.shown {
-		t.Fatal("ctrl+g did not open the genre overlay")
-	}
-	if got := len(m.picker.list.Items()); got != len(cat.Movie) {
-		t.Fatalf("overlay shows %d genres, want %d", got, len(cat.Movie))
-	}
-	mustRender(t, m)
-
-	// Toggle the first genre (Action).
-	m, _ = drive(t, m, tea.KeyMsg{Type: tea.KeySpace})
-	if !m.picker.selected[28] {
-		t.Fatal("space did not select Action")
-	}
-
-	// Switch to TV inside the overlay: selection clears, catalog swaps.
-	m, _ = drive(t, m, runes("m"))
-	if m.picker.media != tmdb.MediaTV {
-		t.Fatalf("overlay media = %q, want tv", m.picker.media)
-	}
-	if len(m.picker.selected) != 0 {
-		t.Fatal("switching media should clear genre selection")
-	}
-	if got := len(m.picker.list.Items()); got != len(cat.TV) {
-		t.Fatalf("overlay now shows %d genres, want %d (tv)", got, len(cat.TV))
-	}
-	// Back to movies and reselect Action for the apply.
-	m, _ = drive(t, m, runes("m"))
-	m, _ = drive(t, m, tea.KeyMsg{Type: tea.KeySpace})
-
-	// Apply → Discover mode, a fetch is issued.
-	m, cmd := drive(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	if m.picker.shown {
-		t.Fatal("apply should close the overlay")
-	}
-	if m.mode != modeDiscover {
-		t.Fatal("apply should enter discover mode")
-	}
-	if cmd == nil {
-		t.Fatal("apply should issue a discover command")
-	}
-	mustRender(t, m)
-
-	// First discover page (5 results, 5 pages total ⇒ more remain).
-	m, _ = drive(t, m, discoverDoneMsg{tok: m.disc.tok, page: 1, res: fakeResults(5), totalPages: 5})
-	if got := len(m.results.Items()); got != 5 {
-		t.Fatalf("discover items = %d, want 5", got)
-	}
-	if !m.disc.hasMore {
-		t.Fatal("discHasMore should be true (page 1 of 5)")
-	}
-	mustRender(t, m)
-
-	// Scroll toward the end to trigger a page-2 prefetch.
-	m, _ = drive(t, m, tea.KeyMsg{Type: tea.KeyDown})
-	m, _ = drive(t, m, tea.KeyMsg{Type: tea.KeyDown})
-	if !m.disc.loadingMore {
-		t.Fatal("nearing the end should start loading page 2")
-	}
-	m, _ = drive(t, m, discoverDoneMsg{tok: m.disc.tok, page: 2, res: fakeResults(5), totalPages: 5})
-	if got := len(m.disc.results); got != 10 {
-		t.Fatalf("after page 2, discResults = %d, want 10", got)
-	}
-	if m.disc.loadingMore {
-		t.Fatal("discLoadingMore should reset after page 2 lands")
-	}
-
-	// A stale page (wrong token) must be ignored.
-	before := len(m.disc.results)
-	m, _ = drive(t, m, discoverDoneMsg{tok: m.disc.tok - 99, page: 3, res: fakeResults(5), totalPages: 5})
-	if len(m.disc.results) != before {
-		t.Fatal("stale discover page should have been dropped")
-	}
-
-	// Cycle sort → refetch issued, token advances.
-	prevTok := m.disc.tok
-	m, cmd = drive(t, m, tea.KeyMsg{Type: tea.KeyCtrlS})
-	if m.disc.sort != tmdb.SortRating || cmd == nil || m.disc.tok == prevTok {
-		t.Fatalf("ctrl+s should cycle sort and refetch (sort=%v tok=%d→%d)", m.disc.sort, prevTok, m.disc.tok)
-	}
-	m, _ = drive(t, m, discoverDoneMsg{tok: m.disc.tok, page: 1, res: fakeResults(4), totalPages: 1})
-	if m.disc.hasMore {
-		t.Fatal("single-page result should clear discHasMore")
-	}
-
-	// Type a search query (overrides the feed), then clear it (restores feed).
-	m, _ = drive(t, m, runes("a"))
-	if m.query.Value() != "a" {
-		t.Fatalf("query = %q, want a", m.query.Value())
-	}
-	m, _ = drive(t, m, tea.KeyMsg{Type: tea.KeyEsc})
-	if m.query.Value() != "" || m.mode != modeDiscover {
-		t.Fatalf("esc should clear query and stay in discover (query=%q mode=%v)", m.query.Value(), m.mode)
-	}
-
-	// Esc again exits discover back to the curated tabs.
-	m, _ = drive(t, m, tea.KeyMsg{Type: tea.KeyEsc})
-	if m.mode != modeCurated {
-		t.Fatal("esc in discover (empty query) should return to curated")
-	}
-	mustRender(t, m)
-}
-
-// TestGenreOverlayDoesNotQuitOnQ guards the fix for the genre list's default
-// "q" keybinding quitting the whole program when forwarded from the overlay.
+// The list's default "q" quit binding must not leak out of the overlay.
 func TestGenreOverlayDoesNotQuitOnQ(t *testing.T) {
-	m := newModel(t.Context(), tmdb.New("dummy", 0), "", "")
+	m := newModel(t.Context(), tmdb.New("dummy"), "", "")
 	m, _ = drive(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 	m, _ = drive(t, m, genresLoadedMsg{cat: tmdb.GenreCatalog{
 		Movie: []tmdb.Genre{{ID: 28, Name: "Action"}},
@@ -243,14 +53,113 @@ func TestGenreOverlayDoesNotQuitOnQ(t *testing.T) {
 	}
 }
 
-func mustRender(t *testing.T, m model) {
-	t.Helper()
-	defer func() {
-		if r := recover(); r != nil {
-			t.Fatalf("View panicked: %v", r)
+// Esc must not return a zero device.Info as the selection.
+func TestDevicePickerEscDoesNotQuit(t *testing.T) {
+	m := newPickerModel(t.Context(), func(context.Context) []device.Info { return nil }, "")
+	tm, _ := m.Update(devicesDoneMsg{devices: []device.Info{{Name: "TV", Type: "dlna", Address: "10.0.0.2"}}})
+	m = tm.(pickerModel)
+
+	tm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = tm.(pickerModel)
+	if cmd != nil {
+		if _, isQuit := cmd().(tea.QuitMsg); isQuit {
+			t.Fatal("esc quit the device picker (list quit binding leaked through)")
 		}
-	}()
-	if strings.TrimSpace(m.View()) == "" {
-		t.Fatal("View produced empty output")
+	}
+	if m.selected != (device.Info{}) {
+		t.Fatalf("esc selected %+v", m.selected)
+	}
+}
+
+func TestGenreOverlayOpenedBeforeCatalogIsUsable(t *testing.T) {
+	m := newModel(t.Context(), tmdb.New("dummy"), "", "")
+	m, _ = drive(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m, _ = drive(t, m, tea.KeyMsg{Type: tea.KeyCtrlG})
+	m, _ = drive(t, m, genresLoadedMsg{cat: tmdb.GenreCatalog{
+		Movie: []tmdb.Genre{{ID: 28, Name: "Action"}, {ID: 35, Name: "Comedy"}},
+	}})
+
+	if h := m.picker.list.Height(); h <= 0 {
+		t.Fatalf("overlay list height = %d after the catalogue landed", h)
+	}
+	if !strings.Contains(m.View(), "Action") {
+		t.Fatalf("overlay renders no genre rows:\n%s", m.View())
+	}
+}
+
+func TestGenreCursorClampedOnShorterCatalogue(t *testing.T) {
+	m := newModel(t.Context(), tmdb.New("dummy"), "", "")
+	m, _ = drive(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m, _ = drive(t, m, genresLoadedMsg{cat: tmdb.GenreCatalog{
+		Movie: []tmdb.Genre{{ID: 1, Name: "A"}, {ID: 2, Name: "B"}, {ID: 3, Name: "C"}},
+		TV:    []tmdb.Genre{{ID: 100, Name: "T"}},
+	}})
+	m, _ = drive(t, m, tea.KeyMsg{Type: tea.KeyCtrlG})
+	m, _ = drive(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	m, _ = drive(t, m, tea.KeyMsg{Type: tea.KeyDown})
+
+	m, _ = drive(t, m, runes("m"))
+	if m.picker.list.SelectedItem() == nil {
+		t.Fatalf("cursor parked at %d in a %d-item catalogue", m.picker.list.Index(), len(m.picker.list.Items()))
+	}
+	m, _ = drive(t, m, tea.KeyMsg{Type: tea.KeySpace})
+	if !m.picker.selected[100] {
+		t.Fatal("space toggled nothing after the media switch")
+	}
+}
+
+func TestClearingQueryClearsTransientStatus(t *testing.T) {
+	base := newModel(t.Context(), tmdb.New("dummy"), "", "")
+	base, _ = drive(t, base, tea.WindowSizeMsg{Width: 100, Height: 30})
+	base, _ = drive(t, base, topsLoadedMsg{tab: tabTrending, res: fakeResults(3)})
+
+	search := func(t *testing.T, m model) (model, int) {
+		t.Helper()
+		m, _ = drive(t, m, runes("a"))
+		tok := m.queryTok
+		m, _ = drive(t, m, searchTickMsg{tok: tok, query: "a"})
+		if !m.loading {
+			t.Fatal("the debounce tick should have started the search")
+		}
+		return m, tok
+	}
+
+	m, tok := search(t, base)
+	m, _ = drive(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m, _ = drive(t, m, searchDoneMsg{tok: tok, res: fakeResults(9)})
+	if m.loading || m.statusLine() != "" {
+		t.Fatalf("spinner survived the cleared query: loading=%v status=%q", m.loading, m.statusLine())
+	}
+
+	m, tok = search(t, base)
+	m, _ = drive(t, m, searchDoneMsg{tok: tok, err: fmt.Errorf("boom")})
+	m, _ = drive(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.err != nil || m.statusLine() != "" {
+		t.Fatalf("error survived the cleared query: err=%v status=%q", m.err, m.statusLine())
+	}
+}
+
+func TestReturningFromDrilldownFitsTheTerminal(t *testing.T) {
+	const height = 30
+	m := newModel(t.Context(), tmdb.New("dummy"), "", "")
+	m, _ = drive(t, m, tea.WindowSizeMsg{Width: 100, Height: height})
+	m, _ = drive(t, m, topsLoadedMsg{tab: tabTrending, res: fakeResults(5)})
+	m, _ = drive(t, m, tvDoneMsg{tv: &tmdb.TVDetails{
+		Name:    "Show",
+		Seasons: []tmdb.Season{{SeasonNumber: 1, Name: "One", EpisodeCount: 5, AirDate: "2020-01-01"}},
+	}})
+	if got := lipgloss.Height(m.View()); got > height {
+		t.Fatalf("drilldown renders %d rows in a %d-row terminal", got, height)
+	}
+
+	// '?' on the drilldown sizes the shared body for the drilldown's chrome.
+	m, _ = drive(t, m, runes("?"))
+	m, _ = drive(t, m, runes("?"))
+	m, _ = drive(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.scr != screenBrowse {
+		t.Fatal("esc on seasons should return to browse")
+	}
+	if got := lipgloss.Height(m.View()); got > height {
+		t.Fatalf("browse renders %d rows in a %d-row terminal", got, height)
 	}
 }

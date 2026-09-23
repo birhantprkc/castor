@@ -1,15 +1,4 @@
-// Package browse is a Bubble Tea TUI for searching TMDB and picking a movie or
-// TV episode to cast. It does not touch the cast pipeline: Run returns the
-// user's Selection and the caller hands it off.
-//
-// The screen is composed from focused parts, each owning its own state:
-//
-//	model       - this file: the results browser (curated tabs / search /
-//	              discover feed) plus screen routing and layout.
-//	inspector   - the poster + metadata panel and its async asset loading.
-//	genrePicker - the modal genre filter.
-//	drilldown   - the TV seasons → episodes navigation.
-//	tmdb.Client - the read-only data source.
+// Package browse is a Bubble Tea TUI for searching TMDB and picking media to cast (results browser).
 package browse
 
 import (
@@ -31,8 +20,6 @@ import (
 	"github.com/stupside/castor/internal/device"
 )
 
-// ---------------------------------------------------------------- public API
-
 type Kind int
 
 const (
@@ -49,9 +36,8 @@ type Selection struct {
 	Episode uint
 }
 
-// Run blocks on the TUI until the user picks or quits.
 func Run(ctx context.Context, client *tmdb.Client, devName string, devType device.Type) (Selection, error) {
-	final, err := tea.NewProgram(newModel(ctx, client, devName, devType), tea.WithAltScreen()).Run()
+	final, err := tea.NewProgram(newModel(ctx, client, devName, devType), tea.WithAltScreen(), tea.WithContext(ctx)).Run()
 	if err != nil {
 		return Selection{}, err
 	}
@@ -61,14 +47,8 @@ func Run(ctx context.Context, client *tmdb.Client, devName string, devType devic
 	return Selection{}, nil
 }
 
-// ---------------------------------------------------------------- constants
-
 const (
-	// Poster footprint in terminal cells. Half-block rendering means each cell
-	// shows 2 stacked pixels vertically, so the rendered pixel grid is
-	// posterCols × (posterRows*2). 27 × 40 ≈ 2:3, the canonical movie-poster
-	// aspect ratio. Sizing the box correctly stops pixterm from stretching the
-	// image horizontally.
+	// Poster: 27×40 cells approximate 2:3 movie ratio (prevents pixterm horizontal stretch).
 	posterCols     = 27
 	posterRows     = 20
 	searchDebounce = 250 * time.Millisecond
@@ -80,8 +60,6 @@ const (
 	screenBrowse screen = iota
 	screenDrilldown
 )
-
-// ---------------------------------------------------------------- tabs
 
 type tabID int
 
@@ -98,22 +76,24 @@ func (t tabID) label() string {
 	return [...]string{"Trending", "Popular Movies", "Top Movies", "Popular TV", "Top TV"}[t]
 }
 
+// fetch uses discover, not TMDB's popular/top_rated lists, so unreleased titles stay out.
 func (t tabID) fetch(ctx context.Context, c *tmdb.Client) ([]tmdb.SearchResult, error) {
+	var p tmdb.DiscoverParams
 	switch t {
 	case tabPopularMovies:
-		return c.PopularMovies(ctx)
+		p = tmdb.DiscoverParams{MediaType: tmdb.MediaMovie, Sort: tmdb.SortPopularity}
 	case tabTopMovies:
-		return c.TopRatedMovies(ctx)
+		p = tmdb.DiscoverParams{MediaType: tmdb.MediaMovie, Sort: tmdb.SortRating}
 	case tabPopularTV:
-		return c.PopularTV(ctx)
+		p = tmdb.DiscoverParams{MediaType: tmdb.MediaTV, Sort: tmdb.SortPopularity}
 	case tabTopTV:
-		return c.TopRatedTV(ctx)
+		p = tmdb.DiscoverParams{MediaType: tmdb.MediaTV, Sort: tmdb.SortRating}
 	default:
 		return c.Trending(ctx)
 	}
+	pg, err := c.Discover(ctx, p)
+	return pg.Results, err
 }
-
-// ---------------------------------------------------------------- result item
 
 type resultItem struct{ r tmdb.SearchResult }
 
@@ -145,8 +125,6 @@ func toResultItems(rs []tmdb.SearchResult) []list.Item {
 	return items
 }
 
-// ---------------------------------------------------------------- model
-
 type model struct {
 	ctx    context.Context
 	client *tmdb.Client
@@ -158,7 +136,6 @@ type model struct {
 
 	scr screen
 
-	// results browser (screenBrowse)
 	tab        tabID
 	mode       browseMode
 	query      textinput.Model
@@ -169,7 +146,6 @@ type model struct {
 	topsCursor [tabCount]int
 	disc       discoverState
 
-	// composed parts
 	inspector inspector
 	picker    genrePicker
 	drill     drilldown
@@ -254,8 +230,6 @@ func newHelp() help.Model {
 	return h
 }
 
-// ---------------------------------------------------------------- results messages
-
 type topsLoadedMsg struct {
 	tab tabID
 	res []tmdb.SearchResult
@@ -292,8 +266,6 @@ func searchCmd(ctx context.Context, c *tmdb.Client, tok int, q string) tea.Cmd {
 		return searchDoneMsg{tok: tok, res: res, err: err}
 	}
 }
-
-// ---------------------------------------------------------------- tea.Model
 
 func (m model) Init() tea.Cmd {
 	return tea.Batch(
@@ -339,7 +311,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case genresLoadedMsg:
 		if msg.err == nil {
-			m.picker.setCatalog(msg.cat)
+			m.picker.setCatalog(msg.cat, m.w, m.h)
 		}
 		return m, nil
 
@@ -376,7 +348,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.drill.showSeasons(msg.tv)
-		m.scr = screenDrilldown
+		m.goTo(screenDrilldown)
 		return m, nil
 
 	case seasonDoneMsg:
@@ -428,8 +400,6 @@ func (m model) onSearchTick(msg searchTickMsg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(searchCmd(m.ctx, m.client, msg.tok, msg.query), m.spin.Tick)
 }
 
-// ---------------------------------------------------------------- browse update
-
 func (m model) updateBrowse(msg tea.Msg) (tea.Model, tea.Cmd) {
 	km, ok := msg.(tea.KeyMsg)
 	if !ok {
@@ -476,9 +446,7 @@ func (m model) updateBrowse(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m.forwardToQuery(msg)
 }
 
-// forwardToQuery sends a message to the search input and, when the query text
-// changed, kicks a debounced search (reflowing if the discover filter bar
-// appeared or disappeared).
+// forwardToQuery debounces search and reflows if discover filter appears/disappears.
 func (m model) forwardToQuery(msg tea.Msg) (tea.Model, tea.Cmd) {
 	prev := m.query.Value()
 	var cmd tea.Cmd
@@ -525,9 +493,10 @@ func (m *model) applyTab() {
 	}
 }
 
-// applyMode restores the underlying feed (curated tab or discover results)
-// after a search query is cleared.
+// applyMode restores feed after query clears; spinner/error were abandoned.
 func (m *model) applyMode() {
+	m.loading = false
+	m.err = nil
 	if m.mode == modeDiscover {
 		m.results.SetItems(toResultItems(m.disc.results))
 		m.results.Select(0)
@@ -577,8 +546,6 @@ func (m model) selectedResult() *tmdb.SearchResult {
 	return nil
 }
 
-// ---------------------------------------------------------------- drilldown update
-
 func (m model) updateDrilldown(msg tea.Msg) (tea.Model, tea.Cmd) {
 	out := m.drill.update(msg, m.keys)
 	switch {
@@ -586,7 +553,7 @@ func (m model) updateDrilldown(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sel = *out.selected
 		return m, tea.Quit
 	case out.exit:
-		m.scr = screenBrowse
+		m.goTo(screenBrowse)
 		return m, nil
 	case out.loading:
 		m.loading = true
@@ -600,7 +567,11 @@ func (m model) drilldownFiltering() bool {
 	return m.scr == screenDrilldown && m.drill.filtering()
 }
 
-// ---------------------------------------------------------------- layout
+// goTo is the only way to change screen; different chrome needs recompute.
+func (m *model) goTo(s screen) {
+	m.scr = s
+	m.resize()
+}
 
 func (m *model) resize() {
 	h := m.bodyHeight()
@@ -609,8 +580,7 @@ func (m *model) resize() {
 	m.query.Width = max(m.w-spInline*2, 20)
 }
 
-// bodyHeight is the fixed list/poster row height: total minus footer and the
-// chrome above the body (header, query, discover filter bar, blank spacers).
+// bodyHeight is list/poster row height (total minus footer and chrome above).
 func (m model) bodyHeight() int {
 	chrome := 3 // drilldown: header + 2 blanks
 	if m.scr == screenBrowse {
@@ -621,8 +591,6 @@ func (m model) bodyHeight() int {
 	}
 	return max(m.h-lipgloss.Height(m.footer())-chrome, 8)
 }
-
-// ---------------------------------------------------------------- view
 
 func (m model) View() string {
 	switch {
@@ -644,9 +612,7 @@ func (m model) viewBrowse() string {
 	return lipgloss.JoinVertical(lipgloss.Left, rows...)
 }
 
-// browseHeader puts the active label flush-left and a mode/device indicator
-// flush-right via lipgloss.PlaceHorizontal: tab dots on curated, media type on
-// discover, plus the cast target device on every screen.
+// browseHeader renders active label (left), mode/cast target (right).
 func (m model) browseHeader() string {
 	var label, rhs string
 	switch {
@@ -668,8 +634,6 @@ func (m model) browseHeader() string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, title, placed)
 }
 
-// filterBar summarizes the active discover filters (genres + sort) on the left
-// and echoes the discover key hints on the right.
 func (m model) filterBar() string {
 	summary := "All genres"
 	if names := m.picker.selectedNames(); len(names) > 0 {
@@ -677,7 +641,7 @@ func (m model) filterBar() string {
 	}
 	left := lipgloss.NewStyle().Padding(0, spInline).Render(
 		m.styles.MetaTitle.Render(truncate(summary, max(m.w/2, 12))) +
-			m.styles.Muted.Render("  ·  Sort: "+m.disc.sort.Label()),
+			m.styles.Muted.Render("  ·  Sort: "+sortLabel(m.disc.sort)),
 	)
 	hints := m.help.Styles.ShortDesc.Render("^g genres · ^s sort · ^t movie/tv")
 	rhs := lipgloss.PlaceHorizontal(max(m.w-lipgloss.Width(left), 0), lipgloss.Right, hints)
@@ -698,7 +662,6 @@ func (m model) renderTabDots() string {
 	return strings.Join(parts, " ")
 }
 
-// bodyRow renders the results list + inspector panel as one fixed-height row.
 func (m model) bodyRow() string {
 	h := m.bodyHeight()
 	left := m.results.View()
@@ -706,10 +669,7 @@ func (m model) bodyRow() string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", spGutter), right)
 }
 
-// ---------------------------------------------------------------- footer
-
-// footer always renders the help line + a status row so the body height does
-// not jitter as loading/error transitions toggle.
+// footer always renders both rows to prevent body-height jitter during transitions.
 func (m model) footer() string {
 	pad := lipgloss.NewStyle().Padding(0, spInline)
 	helpLine := pad.Render(m.help.View(screenKeys{k: m.keys, s: m.scr, discover: m.mode == modeDiscover}))

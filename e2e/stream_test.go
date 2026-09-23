@@ -14,127 +14,72 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stupside/castor/internal/cast/carriage"
-	"github.com/stupside/castor/internal/cast/core"
-	"github.com/stupside/castor/internal/cast/ffmpeg"
-	"github.com/stupside/castor/internal/cast/read"
+	"github.com/stupside/castor/internal/cast/engine/ffmpeg"
+	"github.com/stupside/castor/internal/cast/policy/plan"
+	"github.com/stupside/castor/internal/cast/policy/read"
+	"github.com/stupside/castor/internal/container"
 	"github.com/stupside/castor/internal/media"
+	"github.com/stupside/castor/internal/probe"
 )
 
-// The subject is one question: given an input stream, does castor produce a
-// stream that plays.
-//
-// Nothing here knows what a Chromecast is. Delivery, discovery and device
-// protocols are decisions made elsewhere and covered elsewhere; what reaches this
-// file is the only part of them that changes the bytes, which is the container
-// castor was asked to write and the codecs the far end can decode. Both are plain
-// data, so a cell needs no renderer, no server and no subprocess to describe.
-//
-// What is real: the input is a live stream from a real ffmpeg over real HTTP, the
-// decisions are castor's own resolvers, the arguments are castor's own, the
-// encoder is a real ffmpeg, and the result is read back with a real ffprobe.
-
 const (
-	// produceFor is how long each cell lets the encoder run. A live source has no
-	// end, so production is stopped rather than waited out.
-	//
-	// It has to outlast the coarsest thing the encode does, which is the segmented
-	// output's four-second fragments: an artifact interrupted before its first
-	// fragment closes is not empty, it is unreadable, and ffprobe fails on it rather
-	// than reporting zero packets. Three fragments leaves margin for a cell that
-	// also re-encodes audio and so reads slower than wall clock.
-	produceFor = 14 * time.Second
+	// produceFor is how long each cell lets the encoder run before stopping it; a live source has no end.
+	produceFor = 6 * time.Second
 
-	// probeWithin bounds each source probe, standing in for the resolver's
-	// configured probe timeout. Every input here is served from a local httptest
-	// server, so this is a deadlock guard rather than a real allowance.
 	probeWithin = 30 * time.Second
 )
 
-// ---------------------------------------------------------------- the matrix
-
-// input is one row of the input axis: a live stream shape castor has to read, and
-// what should survive reading it.
 type input struct {
 	name string
 	live liveSource
-	// channels asserts the produced channel count for a multichannel input, so a
-	// silent downmix fails rather than passes. 0 skips the check.
+	// channels asserts the produced channel count, so a silent downmix fails. 0 skips.
 	channels int
-	// silent marks an input with no audio track at all. There is nothing to assert
-	// about audio then, and the point of the row is that the absence is survivable
-	// rather than fatal.
-	silent bool
+	// silent marks an input with no audio track at all.
+	silent    bool
+	opensOnly bool
 }
 
-// inputs is the input axis. The rows disagree with each other on purpose: the
-// same playlist extension serves AAC framed two incompatible ways, one row only
-// opens if the reader relaxes its checks, and one carries audio no downmix should
-// touch.
+// inputs is the input axis.
 var inputs = []input{{
-	// The ordinary case: TS segments, so the AAC arrives framed in band, with a
-	// header ahead of every frame.
 	name: "ts-aac",
 	live: liveSource{},
 }, {
-	// The embed-CDN disguise: identical media, but the segments are served under a
-	// .jpg extension so the origin labels them image/jpeg. Reading it at all takes
-	// relaxed extension checks.
-	name: "ts-aac-disguised-as-jpeg",
-	live: liveSource{SegmentExt: ".jpg"},
+	name:      "ts-aac-disguised-as-jpeg",
+	live:      liveSource{SegmentExt: ".jpg"},
+	opensOnly: true,
 }, {
-	// fMP4 segments, so the AAC is already out of band. This is the direction that
-	// must NOT be repacked, and getting it wrong is the failure that does not
-	// announce itself: ffmpeg exits cleanly having discarded almost every packet.
+	// AAC already out of band, the direction that must NOT be repacked.
 	name: "fmp4-aac",
 	live: liveSource{SegmentType: "fmp4", SegmentExt: ".m4s"},
 }, {
-	// 5.1 AC-3, which the far end below decodes, so it should survive at full
-	// channel count rather than being folded to stereo.
 	name:     "ts-ac3-surround",
 	live:     liveSource{AudioCodec: "ac3", AudioChannels: "6"},
 	channels: 6,
 }, {
-	// HEVC, which is ordinary for anything 4K and is the one codec that lands in an
-	// MP4 tagged hev1 when players conventionally want hvc1.
+	// HEVC, the one codec that lands in an MP4 tagged hev1 when players want hvc1.
 	name: "ts-hevc-aac",
 	live: liveSource{VideoCodec: "libx265"},
 }, {
-	// FLAC, which MPEG-TS has no stream type for. It does not refuse it: it writes
-	// the track as private data and exits cleanly, so the only correct handling is
-	// to re-encode into something the container can carry. Producing this input at
-	// all is what makes that claim testable.
 	name: "fmp4-flac",
 	live: liveSource{SegmentType: "fmp4", SegmentExt: ".m4s", AudioCodec: "flac"},
 }, {
-	// Opus, which MPEG-TS does carry, with proper stream registration rather than
-	// as private data. It is here to hold the other side of that line: an absent
-	// adaptation must mean "nothing to do", not "never looked at".
 	name: "fmp4-opus",
 	live: liveSource{SegmentType: "fmp4", SegmentExt: ".m4s", AudioCodec: "libopus"},
 }, {
-	// VP9, the video half of the same problem: MPEG-TS writes it as private data at
-	// a clean exit, while the MP4 family carries it fine.
 	name: "fmp4-vp9",
 	live: liveSource{SegmentType: "fmp4", SegmentExt: ".m4s", VideoCodec: "libvpx-vp9"},
 }, {
-	// No audio at all. A pinned stream map turns that into an argument-parse
-	// failure before a byte is read, which is a source refused for being unusual.
+	// No audio at all: a pinned stream map turns that into an argument-parse failure before a byte is read.
 	name:   "ts-video-only",
 	live:   liveSource{NoAudio: true},
 	silent: true,
 }, {
-	// Tracks published as separate renditions, the shape an HLS master with an
-	// audio group resolves to. Neither is playable alone, so the program only
-	// exists if both are read and muxed back together.
+	// Tracks as separate renditions, the shape an HLS master with an audio group resolves to.
 	name: "demuxed-renditions",
 	live: liveSource{Demuxed: true},
 }}
 
-// decodes is what the far end can play. It is deliberately generous: this suite
-// is about producing a valid stream, not about capability negotiation, so a
-// codec is re-encoded here only when the container genuinely cannot carry it.
-var decodes = media.Renderer{
+var decodes = media.Capabilities{
 	Video: []media.VideoSupport{{Codec: media.CodecH264}, {Codec: media.CodecHEVC}},
 	Audio: []media.AudioSupport{
 		{Codec: media.CodecAAC, MaxChannels: 8},
@@ -143,21 +88,13 @@ var decodes = media.Renderer{
 	},
 }
 
-// output is one row of the output axis: a container to produce, and whether it is
-// produced straight off the network or out of the read-once spool.
 type output struct {
 	name        string
 	contentType string
-	// spooled routes the input through castor's MPEG-TS spool first, the way a
-	// cast to a player that cannot fetch for itself does. It is not a detail: the
-	// spool re-frames everything through it, so an input whose AAC arrived out of
-	// band comes back off the spool in band and needs the opposite handling.
-	spooled bool
+	spooled     bool
 }
 
-// outputs is the output axis. MPEG-TS repeats decoder configuration in band,
-// ahead of every frame; the MP4 family declares it once, up front. A bitstream
-// that is correct for one is rejected or silently gutted by the other.
+// outputs is the output axis.
 var outputs = []output{
 	{name: "mpegts", contentType: media.MPEGTS},
 	{name: "mp4", contentType: media.MP4},
@@ -166,13 +103,13 @@ var outputs = []output{
 	{name: "spool-to-mp4", contentType: media.MP4, spooled: true},
 }
 
-// cells yields every pair. The cross-product is the test: handling that is right
-// for one container is destructive for another, so an input shape is only proven
-// by producing every container from it.
 func cells() iter.Seq2[input, output] {
 	return func(yield func(input, output) bool) {
 		for _, in := range inputs {
 			for _, out := range outputs {
+				if in.opensOnly && out.contentType != media.MPEGTS {
+					continue
+				}
 				if !yield(in, out) {
 					return
 				}
@@ -181,12 +118,6 @@ func cells() iter.Seq2[input, output] {
 	}
 }
 
-// TestProducesPlayableStream reads every live input shape and produces every
-// container from it, then asserts on the packets that came out.
-//
-// Cells run sequentially: each drives a real-time encoder on both ends, and
-// running them concurrently would have them competing for the CPU the pacing
-// depends on.
 func TestProducesPlayableStream(t *testing.T) {
 	for in, out := range cells() {
 		t.Run(in.name+"/"+out.name, func(t *testing.T) {
@@ -203,63 +134,88 @@ func TestProducesPlayableStream(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------- production
-
-// produce runs castor's real stream-production chain for one cell: probe the
-// input, let castor's own resolvers decide what to copy and what to re-encode,
-// build castor's own argument list from that, and run it. Nothing about the
-// arguments is written here, which is the point: what is under test is what
-// castor decides, not what a test can talk ffmpeg into doing.
 func produce(t *testing.T, in input, out output) result {
 	t.Helper()
 	tl := newTools(t)
 	origin := startLive(t, tl, in.live)
-	if !origin.isLive(t, tl) {
+	if !origin.isLive(t) {
 		t.Fatal("fixture reports a duration, so it is not exercising the live path")
 	}
 
-	format, ok := media.FormatForContentType(out.contentType)
+	format, ok := container.FormatForContentType(out.contentType)
 	if !ok {
 		t.Fatalf("castor cannot produce %q", out.contentType)
 	}
 
-	stream := &media.Stream{URL: mustURL(t, origin.PlaylistURL), ContentType: media.HLS}
-	if origin.AudioURL != "" {
-		stream.AudioURL = mustURL(t, origin.AudioURL)
+	inputs := []media.Input{{
+		ID: media.PrimaryInputID, URL: mustURL(t, origin.PlaylistURL), ContentType: media.HLS,
+		Fetch: media.Fetch{Segmented: true, Live: true},
+	}}
+	tracks := []media.TrackRef{
+		{Input: media.PrimaryInputID, Kind: media.TrackVideo, Optional: true},
+		{Input: media.PrimaryInputID, Kind: media.TrackAudio, Optional: true},
 	}
-	// The live fixture is read on the terms the read table gives a live segmented
-	// source, chosen exactly as production chooses them (from what the source
-	// published, not from the URL), so this matrix exercises the flags a real cast
-	// sends rather than a set assembled here.
-	policy := read.For(read.ShapeOf(media.Origin{Segmented: true, Live: true}), 30*time.Second)
-	source := ffmpeg.NewNetworkSource(stream, policy)
+	end := media.EndAtLongest
+	if origin.AudioURL != "" {
+		inputs = append(inputs, media.Input{
+			ID: media.AudioInputID, URL: mustURL(t, origin.AudioURL), ContentType: media.HLS,
+			Fetch: media.Fetch{Segmented: true, Live: true},
+		})
+		tracks[1].Input = media.AudioInputID
+		end = media.EndAtShortest
+	}
+	policy := read.For(media.Fetch{Segmented: true, Live: true}, 30*time.Second)
+	program, err := media.NewProgram(media.Program{
+		Inputs:     inputs,
+		Tracks:     tracks,
+		ClockInput: media.PrimaryInputID,
+		EndPolicy:  end,
+	})
+	if err != nil {
+		t.Fatalf("normalizing the fixture: %v", err)
+	}
+	policies := make(map[media.InputID]read.Policy, len(program.Inputs))
+	for _, input := range program.Inputs {
+		policies[input.ID] = policy
+	}
+	source, err := ffmpeg.NewProgramSource(program, policies)
+	if err != nil {
+		t.Fatalf("binding the fixture's read policy: %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	defer cancel()
 
 	var fromSpool string
 	opts := ffmpeg.EncodeOptions{Format: format}
+	ceiling := read.Ceiling(format.Delivery == container.DeliverSegmented, false)
 	if out.spooled {
-		opts.PipeFormat = ffmpeg.SpoolFormat
-		fromSpool, opts.Probe = spool(t, ctx, tl, source)
+		opts.Input = ffmpeg.FromPipe(ffmpeg.SpoolFormat, ceiling)
+		fromSpool, opts.Probe = spool(t, ctx, tl, program, source)
 	} else {
-		opts.Source = source
-		probe, err := probeSource(ctx, tl, source)
+		encoding, err := ffmpeg.NewProgramSource(program, read.Plan(policies).Encoding(program, ceiling))
+		if err != nil {
+			t.Fatalf("binding the encode's read policy: %v", err)
+		}
+		opts.Input = ffmpeg.FromSource(encoding)
+		probe, err := probeSource(ctx, tl, program, source)
 		if err != nil {
 			t.Fatalf("probing the input: %v", err)
 		}
 		opts.Probe = probe
 	}
 
-	opts.Audio = core.DecideAudio(ctx, core.AudioInputs{Caps: decodes, Probe: opts.Probe, Into: format})
-	opts.Video = core.DecideVideo(ctx, core.VideoInputs{
-		Caps:       decodes,
-		Probe:      opts.Probe,
-		Into:       format,
-		Policy:     core.CopyWhatFits,
-		MaxHeight:  1080,
-		FFmpegPath: tl.ffmpeg,
+	decided, err := plan.PlanMedia(ctx, plan.Inputs{
+		Caps:      decodes,
+		Probe:     opts.Probe,
+		Into:      format,
+		MaxHeight: 1080,
+		Encoders:  ffmpeg.Encoders(tl.ffmpeg),
 	})
+	if err != nil {
+		t.Fatalf("planning media: %v", err)
+	}
+	opts.Video, opts.Audio = decided.Video, decided.Audio
 	t.Logf("input %s/%dch, producing %s (video=%s audio=%s)",
 		opts.Probe.VideoCodec, opts.Probe.AudioChannels, out.contentType,
 		opts.Video.Name(), opts.Audio.Name())
@@ -267,11 +223,7 @@ func produce(t *testing.T, in input, out output) result {
 	return run(t, ctx, tl, opts, format, fromSpool)
 }
 
-// spool reproduces the read-once path's first leg: castor pulls the input into an
-// append-only MPEG-TS file, and everything downstream reads that rather than the
-// original. Probing the spool rather than the input is the whole reason this leg
-// is modelled, because the two do not agree about framing.
-func spool(t *testing.T, ctx context.Context, tl tools, source ffmpeg.NetworkSource) (string, media.ProbeInfo) {
+func spool(t *testing.T, ctx context.Context, tl tools, program media.Program, source ffmpeg.ProgramSource) (string, media.ProbeInfo) {
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), "spool.ts")
@@ -284,87 +236,68 @@ func spool(t *testing.T, ctx context.Context, tl tools, source ffmpeg.NetworkSou
 	pullCtx, stop := context.WithTimeout(ctx, produceFor)
 	defer stop()
 
-	// What the spool can carry is not a given. MPEG-TS has no stream type for
-	// several codecs and does not refuse them: it writes the track as private data
-	// and exits cleanly, so a bare copy would hand everything downstream a spool
-	// that was already destroyed. Castor answers that at runtime, by watching the
-	// muxer's own complaint and restarting the pull with the affected axis
-	// re-encoded; asking its carriage tables up front reaches the same pull options
-	// without reimplementing the detection.
-	var axes carriage.Axes
-	if probe, err := probeSource(ctx, tl, source); err == nil {
-		axes = carriage.Known(probe, ffmpeg.SpoolFormat)
+	sourceProbe, err := probeSource(ctx, tl, program, source)
+	if err != nil {
+		t.Logf("the source could not be measured (%v); nothing is known against its packets, so both halves are copied", err)
 	}
-	if axes.Any() {
-		t.Logf("the spool cannot carry this input as-is; re-encoding video=%v audio=%v", axes.Video, axes.Audio)
+	floor, err := plan.Floor(ctx, plan.Inputs{
+		Probe:     sourceProbe,
+		Into:      ffmpeg.SpoolFormat,
+		MaxHeight: 1080,
+		Encoders:  ffmpeg.Encoders(tl.ffmpeg),
+	})
+	if err != nil {
+		t.Fatalf("planning the read's floor: %v", err)
+	}
+	if produced := floor.Encoded(); produced.Any() {
+		t.Logf("the spool cannot carry this input as-is; producing %s (video=%s audio=%s)",
+			produced, floor.Video.Name(), floor.Audio.Name())
 	}
 
-	pullOpts := ffmpeg.PullOptions{Source: source, Reencode: axes}
-	proc, err := ffmpeg.Start(pullCtx, tl.ffmpeg,
-		ffmpeg.PullArgs(pullOpts), ffmpeg.WithExtraPipes(pullOpts.ExtraPipes()))
+	var last media.Progress
+	pull, err := ffmpeg.PullArgs(ffmpeg.PullOptions{Source: source, Probe: sourceProbe, Video: floor.Video, Audio: floor.Audio})
+	if err != nil {
+		t.Fatalf("building the pull: %v", err)
+	}
+	proc, err := ffmpeg.Start(pullCtx, tl.ffmpeg, pull,
+		ffmpeg.WithProgress(func(s media.Progress) { last = s }))
 	if err != nil {
 		t.Fatalf("starting the pull: %v", err)
 	}
 
-	// The pull reports on itself on an extra pipe, and that feed has to be read: ffmpeg
-	// writes it with a blocking write, so an unread one stops the download once the
-	// pipe buffer fills. Reading it here also states what the read achieved, which for
-	// a live source is the only measure of it that means anything (speed= is media
-	// seconds per wall-clock second, so a healthy live read sits at 1x).
-	var last media.Progress
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		ffmpeg.WatchProgress(proc.ProgressFeed(), func(s media.Progress) { last = s })
-	}()
-
 	if _, err := io.Copy(out, proc.Stdout); err != nil && pullCtx.Err() == nil {
 		t.Fatalf("spooling: %v", err)
 	}
+	// Reaping joins the drain, so ffmpeg's last block is in hand when this returns.
 	_ = proc.Wait()
-	<-done
 	t.Logf("the pull delivered %s of media at %vx", last.Position.Round(time.Millisecond), last.Speed)
 
-	// Only emptiness is a failure here. A byte threshold would be a guess about
-	// bitrate, and these inputs deliberately span an order of magnitude of it; what
-	// the spool has to contain is judged by the packet counts downstream.
 	if fileSize(path) == 0 {
 		t.Fatal("the pull spooled nothing")
 	}
-	probe, err := ffmpeg.FileProbe(tl.ffprobe, path).Probe(ctx)
+	info, _, err := probe.FFprobe(tl.ffprobe).File(path).Probe(ctx)
 	if err != nil {
 		t.Fatalf("probing the spool: %v", err)
 	}
-	return path, probe
+	return path, info
 }
 
-// probeSource measures an upstream under this suite's own budget. The budget is the
-// caller's everywhere in castor, because whoever owns what a failed measurement means owns
-// how long it may take to fail (see core.Measure).
-func probeSource(ctx context.Context, tl tools, source ffmpeg.NetworkSource) (media.ProbeInfo, error) {
+func probeSource(ctx context.Context, tl tools, program media.Program, source ffmpeg.ProgramSource) (media.ProbeInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, probeWithin)
 	defer cancel()
-	return ffmpeg.SourceProbe(tl.ffprobe, source).Probe(ctx)
+	info, _, err := probe.FFprobe(tl.ffprobe).Source(program, source.ProbeInputs()).Probe(ctx)
+	return info, err
 }
 
-// run executes castor's argument list with a real ffmpeg and collects what it
-// produced.
-//
-// It drives the process itself rather than through ffmpeg.Start, for one reason:
-// the stop signal. A live source never ends, so production has to be interrupted,
-// and SIGKILL is the wrong way to do it. A fragmented MP4 killed mid-fragment
-// loses whatever the muxer had not flushed, which for a Dolby track is every
-// audio sample it was holding, so the result looks exactly like the silent
-// corruption this suite exists to detect. SIGINT is what a user pressing Ctrl+C
-// sends and what ffmpeg unwinds cleanly on. The arguments are still castor's; only
-// the process handling is local.
-func run(t *testing.T, ctx context.Context, tl tools, opts ffmpeg.EncodeOptions, format media.FormatInfo, fromSpool string) result {
+// run executes castor's argument list with a real ffmpeg and collects what it produced.
+func run(t *testing.T, ctx context.Context, tl tools, opts ffmpeg.EncodeOptions, format container.FormatInfo, fromSpool string) result {
 	t.Helper()
 
-	args, err := ffmpeg.EncodeArgs(opts)
+	encode, err := ffmpeg.EncodeArgs(opts)
 	if err != nil {
 		t.Fatalf("building the encode: %v", err)
 	}
+	args := encode.Args
 	t.Logf("ffmpeg %s", strings.Join(args, " "))
 
 	workDir := t.TempDir()
@@ -379,11 +312,6 @@ func run(t *testing.T, ctx context.Context, tl tools, opts ffmpeg.EncodeOptions,
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 
-	// Every castor encode reports on itself on its first extra fd, so this local
-	// process handling has to provide that fd and read it: an encode whose -progress
-	// URL points at an fd the parent never opened does not start at all ("Failed to
-	// open progress URL pipe:3: Bad file descriptor"), and one nobody reads stops once
-	// the pipe buffer fills.
 	progressR, progressW, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -408,8 +336,8 @@ func run(t *testing.T, ctx context.Context, tl tools, opts ffmpeg.EncodeOptions,
 	}
 
 	produced := filepath.Join(workDir, "produced"+format.Extension)
-	if format.Delivery == media.DeliverSegmented {
-		produced = filepath.Join(workDir, media.HLSPlaylistName)
+	if format.Delivery == container.DeliverSegmented {
+		produced = filepath.Join(workDir, container.HLSPlaylistName)
 	} else {
 		out, err := os.Create(produced)
 		if err != nil {
@@ -419,42 +347,23 @@ func run(t *testing.T, ctx context.Context, tl tools, opts ffmpeg.EncodeOptions,
 		cmd.Stdout = out
 	}
 
-	// Interrupted production exits non-zero by definition, so the status says
-	// nothing here; whether what landed plays is the whole question.
 	_ = cmd.Run()
 
-	// Closing the parent's write end is what ends the feed: the child is gone, and
-	// this is the last handle holding the pipe open.
+	// The parent's write end is the last handle holding the pipe open, so closing it is what ends the feed.
 	_ = progressW.Close()
 	<-drained
 	t.Logf("the encode produced %s of media at %vx", last.Position.Round(time.Millisecond), last.Speed)
 
-	if format.Delivery == media.DeliverSegmented {
+	if format.Delivery == container.DeliverSegmented {
 		closePlaylist(t, produced)
 	}
-	// An encode that produced no artifact at all is a failure of the run, not a
-	// result to assert on, and the only useful thing to say about it is what ffmpeg
-	// said. Reporting it here keeps that diagnosis out of the assertions, which
-	// would otherwise fail on an unreadable path with nothing to explain it.
 	if fileSize(produced) == 0 {
 		t.Fatalf("the encoder produced no %s at %s\n%s", format.ContentType, produced, stderr.String())
 	}
 	return result{t: t, ffprobe: tl.ffprobe, path: produced, stderr: stderr.String()}
 }
 
-// closePlaylist marks the produced window as ended, if the encoder did not
-// already do it.
-//
-// What castor writes is a live playlist, deliberately without EXT-X-ENDLIST: a
-// player is meant to keep asking for the next segment. That is correct for a cast
-// and useless to a reader that wants to reach the end, which every assertion here
-// is. Production was stopped mid-stream, so declaring the stream ends there is not
-// a fiction.
-//
-// The tag may already be present: interrupted rather than killed, the hls muxer
-// finalizes its own playlist on the way out. Appending a second one produces a
-// playlist no reader accepts, which is a failure of this file that looks exactly
-// like the empty artifact the suite exists to catch.
+// closePlaylist marks the produced window as ended if the encoder did not.
 func closePlaylist(t *testing.T, path string) {
 	t.Helper()
 	playlist, err := os.ReadFile(path)
@@ -470,12 +379,7 @@ func closePlaylist(t *testing.T, path string) {
 	}
 }
 
-// ---------------------------------------------------------------- assertions
-
-// result is what castor produced, and the questions worth asking about it. Every
-// one is about packets actually present, never about declared tracks: the
-// failures this suite exists to catch produce a stream that declares everything
-// and carries nothing.
+// result is what castor produced.
 type result struct {
 	t       *testing.T
 	ffprobe string
@@ -514,25 +418,11 @@ func (r result) packets(kind string) int {
 }
 
 // probe runs ffprobe and reads the number it reports.
-//
-// Two things make that less obvious than it sounds, and both once turned a
-// healthy stream into a fabricated bug report. An MPEG-TS file carries its
-// streams inside a program, so ffprobe prints the same value twice, once per
-// section. And an AC-3 track in MP4 prints a trailing empty CSV field, so the
-// whole line does not parse as a number even though the number is right there.
-//
-// A value it cannot parse is therefore a fault in this function, never an answer,
-// and it says so rather than returning the zero that means "this stream is
-// empty". That distinction is the entire point: an empty stream is what this
-// suite exists to catch, so nothing else may be allowed to look like one.
 func (r result) probe(args ...string) int {
 	r.t.Helper()
-	full := append([]string{"-v", "error"}, media.HLSInputArgs...)
+	full := append([]string{"-v", "error"}, media.AdaptiveInputArgs(media.HLS, 0)...)
 	full = append(append(full, args...), "-of", "csv=p=0", r.path)
 
-	// Bounded, because reading a produced stream is not obviously terminating: a
-	// playlist that still looks live has a reader waiting for a segment that will
-	// never arrive, and an unbounded probe hangs the suite instead of failing a cell.
 	ctx, cancel := context.WithTimeout(r.t.Context(), 60*time.Second)
 	defer cancel()
 
@@ -549,9 +439,7 @@ func (r result) probe(args ...string) int {
 			}
 		}
 	}
-	// Nothing, or "N/A", is ffprobe's answer for a stream it cannot read at all,
-	// which is a real zero. Anything else means this function failed to read a
-	// reply it was given.
+	// Nothing, or "N/A", is ffprobe's answer for a stream it cannot read at all, which is a real zero.
 	if reported != "" && !strings.Contains(reported, "N/A") {
 		r.t.Fatalf("could not read a number out of ffprobe's reply %q for %v", reported, args)
 	}

@@ -5,41 +5,30 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stupside/castor/internal/cast/watch"
+	"github.com/stupside/castor/internal/cast/policy/watch"
 )
 
-// Kind is what class of thing went wrong with an attempt. It is the key the recovery
-// playbook is written against, so it names classes of cause and not symptoms: two
-// failures share a Kind exactly when the same change to the attempt would answer both.
+// Kind classifies attempt failures: two failures share a Kind exactly when the same change would answer both.
 type Kind int
 
 const (
-	// Unclassified is the zero value because it is the honest answer before any row has
-	// spoken. It is a real verdict and not an error arm: castor meets failures nobody has
-	// characterised, and the useful response is to say so and carry the evidence rather
-	// than to make a class fit and aim a recovery from it.
+	// Unclassified is a real verdict before any row has spoken, not an error.
 	Unclassified Kind = iota
-	// Cancelled is the cast's own context ending. It is not a failure of anything.
+	// Cancelled is the cast's context ending, not a failure.
 	Cancelled
-	// Unreachable is a link that established nothing: the read reached a terminal error
-	// having landed no media and never stated a speed.
+	// Unreachable is a link that established no media and never stated a speed.
 	Unreachable
-	// SourceStalled is a source that stopped delivering while it was still supposed to be
-	// delivering, past the point ffmpeg's own reconnects could have recovered it.
+	// SourceStalled is a source that stopped delivering mid-cast.
 	SourceStalled
-	// UnderDelivering is a source arriving slower than it will be played, so no amount of
-	// patience turns it into playback.
+	// UnderDelivering is a source arriving slower than it will be played.
 	UnderDelivering
-	// CopyBrokeUpstream is a reader that exited on packets it was passing through: the
-	// bitstream it was handed cannot be copied into the container it was copying into, so
-	// what answers it is to stop copying that axis rather than to read the same link again.
+	// CopyBrokeUpstream is a reader that exited on packets it was copying.
 	CopyBrokeUpstream
-	// RendererRefused is a renderer that would not play what it was pointed at, or that
-	// took the URL and never came for the bytes.
+	// RendererGone is a renderer that crashed or switched off, not one that refused.
+	RendererGone
+	// RendererRefused is a renderer that would not play the URL or never came for bytes.
 	RendererRefused
-	// ProducedNothing is a delivery that ended without an artifact a renderer could fetch:
-	// a container refusing a track it has no stream type for at header-write time, or a
-	// producer that never got an input it could read.
+	// ProducedNothing is a delivery that ended without an artifact to fetch.
 	ProducedNothing
 )
 
@@ -55,6 +44,8 @@ func (k Kind) String() string {
 		return "under-delivering"
 	case CopyBrokeUpstream:
 		return "copy-broke-upstream"
+	case RendererGone:
+		return "renderer-gone"
 	case RendererRefused:
 		return "renderer-refused"
 	case ProducedNothing:
@@ -64,65 +55,32 @@ func (k Kind) String() string {
 	}
 }
 
-// classRule is one row of the classification table: what it recognises, why, and the
-// class it names.
 type classRule struct {
-	// Name identifies the row in a log line and in the fault, so a refusal says which rule
-	// read the evidence and not only what it concluded.
 	Name string
-	// Why is the reasoning, carried out to the caller: a cast castor gave up on has to say
-	// what it thinks happened where a user can read it rather than only in this file.
-	Why string
-	// When reports whether this row recognises this evidence. It reads Evidence and nothing
-	// else, which is what makes every class reachable from a test with no process, no
-	// network and no renderer. It is nil where the row is not reached by a predicate at
-	// all: the total row, and the rows a verdict names outright (see verdictClasses).
+	Why  string
 	When func(Evidence) bool
-	// Kind is the class.
 	Kind Kind
 }
 
-// table is the ordered rows plus the row that answers whatever they did not. The total row
-// carries no predicate, so classFor answers with a named class for every attempt rather
-// than with a value a walk could fall off the end of.
 type table struct {
 	rules []classRule
 	total classRule
 }
 
-// classes is what castor makes of a failed attempt, in order, first match.
-//
-// Every row's discriminator is STRUCTURAL: a terminal state, a health verdict, a phase, or
-// a party's own error. None of them reads what ffmpeg printed, and a test pins that: prose
-// is not a contract (see the carriage package doc), so a wording change in ffmpeg may cost
-// a message its sharpness and may never cost a cast its class. Evidence.Lines travels into
-// the fault for a human to read, never into a decision.
-//
-// Adding a class is one row here plus one entry in the playbook plus one case in
-// classify_test.go, and the two coupling tests keep the tables in agreement.
+// classes is the ordered classification rules for failed attempts; every discriminator is STRUCTURAL.
 var classes = table{rules: []classRule{{
-	// First, because a cancellation is upstream of every symptom the rows below read:
-	// castor kills the reader and the encoder, both report a broken pipe, the delivery
-	// reports a severed client, and each of those would happily be named as the fault. A
-	// cast the user stopped failed at nothing.
-	//
-	// This row is the single owner of that rule for a cast's RESULT. A stage suppressing
-	// its own killed process's error is a statement about that stage's terminal state; what
-	// the CAST makes of the whole wreckage is decided once, here, from the context and not
-	// from anybody's error text.
+	// First, because cancellation is upstream of every symptom below; decided from context, not error text.
 	Name: "cancelled",
 	Why:  "the cast was cancelled",
 	When: func(e Evidence) bool { return e.Cancelled },
 	Kind: Cancelled,
 }, {
-	// Nothing was established about this link at all: no byte landed and the reader never
-	// stated a speed, so there is not even a throughput to be disappointed by. That is a
-	// link to abandon rather than a cast to tune, which is why it is a class of its own and
-	// not a stalled read.
-	//
-	// A read that landed media and THEN died is deliberately not this: what killed it is
-	// still to be established, and calling that link unreachable would send a cast that was
-	// working seconds ago to the recovery for one that never worked at all.
+	Name: "renderer-gone",
+	Why:  "the renderer stopped answering the protocol it was being watched over, so there is nothing at the far end of this cast to send anything to",
+	When: func(e Evidence) bool { return e.RendererGone != nil },
+	Kind: RendererGone,
+}, {
+	// Media landed then died is deliberately not unreachable; that would send a working cast to recovery.
 	Name: "unreachable",
 	Why:  "the source read reached a terminal error having landed no media and never stated a speed, so nothing about this link was established",
 	When: func(e Evidence) bool {
@@ -130,22 +88,7 @@ var classes = table{rules: []classRule{{
 	},
 	Kind: Unreachable,
 }, {
-	// The reader exited on its own account while passing packets through untouched. This is
-	// the failure that used to reach a user with the reader's own status buried inside the
-	// name of the stage that read the wreckage, and the fix for it is the one thing nothing
-	// there could say: which party failed at what.
-	//
-	// It is keyed on the READER because the reader is the process that copies into MPEG-TS,
-	// and therefore the one carrying the *_mp4toannexb filter ffmpeg inserts itself and the
-	// only one a truncated bitstream can kill (see read's segment-fragile row). The
-	// discriminator is structural: a POSITIVE exit status (castor kills the reader on every
-	// fault it names itself, and a killed process has no status, so reading "no status" as
-	// an exit would blame the copy for every stall) and at least one axis being copied (a
-	// produced axis is produced to the floor, which is carriable by definition).
-	//
-	// The line that names the bitstream sharpens the refusal and decides nothing: the class
-	// and the recovery are the same whatever ffmpeg printed, which is what keeps a wording
-	// change from costing a cast (see tells and TestNoClassIsDecidedByProse).
+	// Keyed on READER exit status and copied axes; castor kills the reader on its own faults.
 	Name: "copy-broke-upstream",
 	Why:  "the source read exited on packets it was copying, so the bitstream it was handed cannot be passed through as it is",
 	When: func(e Evidence) bool {
@@ -153,12 +96,7 @@ var classes = table{rules: []classRule{{
 	},
 	Kind: CopyBrokeUpstream,
 }, {
-	// Three shapes, one class, because one change answers all of them: stop asking this
-	// renderer to fetch and hand it something it will take. A renderer that refused the URL
-	// outright, one that accepted it and never came for the bytes (bytes_sent=0), and one that
-	// took some and stopped while castor was still serving the rest are the same event caught
-	// at three different moments, the last of them only after the cast ended (see
-	// Evidence.Undelivered).
+	// One change (stop asking renderer to fetch) answers all three shapes at different moments.
 	Name: "renderer-refused",
 	Why:  "the renderer would not play what it was pointed at, never came for the bytes, or stopped taking them with the program still being served",
 	When: func(e Evidence) bool {
@@ -166,42 +104,21 @@ var classes = table{rules: []classRule{{
 	},
 	Kind: RendererRefused,
 }, {
-	// The producer ended and the artifact a renderer would have been pointed at was never
-	// written. A container refuses a track it has no stream type for at header-write time,
-	// before a single byte, and an ADTS AAC copy into the mp4 muxer exits 255 having
-	// written audio:0KiB; a reader whose every segment answers 404 ends the same way. Both
-	// are a delivery with nothing to deliver, and neither is a renderer's doing.
+	// Container refuses tracks at header-write time or reader's every segment answered 404.
 	Name: "produced-nothing",
 	Why:  "the delivery ended without producing anything a renderer could fetch",
 	When: func(e Evidence) bool { return e.Verdict == watch.Dead && e.Reached == PhaseOpening },
 	Kind: ProducedNothing,
 }}, total: unclassified}
 
-// verdictClasses is what castor makes of the health verdicts whose whole discriminator IS
-// the verdict: no phase, no exit status and no party's error narrows them further, so as
-// rows they were two predicates comparing one field.
-//
-// A map rather than two rows because a map can be checked for COMPLETENESS, and the gap
-// that closes is real: a verdict nobody has been told about falls to the total row, whose
-// playbook entry is deliberately empty, so the cast stops recovering with nothing said
-// anywhere (see TestEveryVerdictThatEndsACastNamesAClassWithARecovery).
-//
-// The verdicts NOT here are the ones a row reads together with something else: Dead means a
-// link that established nothing or a delivery that produced nothing depending on how far the
-// attempt got, and Unfetched is one of the three shapes of a renderer that would not take
-// what it was pointed at.
 var verdictClasses = map[watch.Kind]classRule{
-	// The verdict already waited out two reconnect ceilings before it fired, so by the time
-	// this class is reached the link has had every chance ffmpeg's own retries could give
-	// it. The likeliest cause is a signed playlist whose segments have expired.
+	// It already waited out two reconnect ceilings.
 	watch.Stalled: {
 		Name: "source-stalled",
 		Why:  "the source stopped delivering entirely while it was still supposed to be delivering",
 		Kind: SourceStalled,
 	},
-	// The failure this whole layer was built for. It is a fact about the LINK and not about
-	// the media: the run that named it delivered 33 KB and one second of picture in thirty
-	// seconds against a reader allowed twice realtime.
+	// The failure this whole layer was built for; a fact about the LINK, not media.
 	watch.Undeliverable: {
 		Name: "under-delivering",
 		Why:  "the source delivers fewer media seconds per wall-clock second than playback consumes, so the cast can never catch up however long it is given",
@@ -209,17 +126,13 @@ var verdictClasses = map[watch.Kind]classRule{
 	},
 }
 
-// unclassified is the total row. Naming an unrecognised failure is worth a row of its own:
-// the fault still carries the phase, the measurements and the evidence, which is the whole
-// material the next row is written from.
+// unclassified is the fallback row; fault still carries phase, measurements and evidence.
 var unclassified = classRule{
 	Name: "unclassified",
 	Why:  "the attempt failed in a way no rule recognises",
 	Kind: Unclassified,
 }
 
-// classify names what went wrong with one attempt: the fault the loop keys its recovery
-// on, and the refusal a caller reads when there is none to offer.
 func classify(in Intent, a Attempt, o Outcome) *Fault {
 	r := classFor(o.Evidence)
 	return &Fault{
@@ -233,8 +146,6 @@ func classify(in Intent, a Attempt, o Outcome) *Fault {
 	}
 }
 
-// classFor walks the table for one attempt's evidence: the structural rows first, then the
-// verdicts that name a class on their own, then the total row.
 func classFor(e Evidence) classRule {
 	for _, r := range classes.rules {
 		if r.When(e) {
@@ -247,41 +158,18 @@ func classFor(e Evidence) classRule {
 	return classes.total
 }
 
-// Fault is a failed attempt, classified: what class of thing went wrong, why, on which
-// attempt, on what evidence, and what had already been tried before it.
-//
-// It is the whole hand-off out of this layer. The loop keys its recovery on Kind and its
-// refusal on the measurements, and it carries the failing party's own error unwrapped, so
-// a cast whose reader died fails WITH that error rather than with a description of the
-// stage that noticed.
 type Fault struct {
-	// Kind is the class, Why the row's reasoning, and Rule the row that read the evidence.
 	Kind Kind
 	Why  string
 	Rule string
-
-	// Attempt is what was being tried, which is half of what a failure means: the same
-	// verdict on the fourth candidate at the lightest rung says something very different
-	// from the same verdict on the first.
+	// Attempt is half of what failure means; verdict varies by candidate rank.
 	Attempt Attempt
-
-	// Candidates is how many links the ranker offered this cast, and it is the other half of
-	// what the attempt's own index means: "candidate 2" says nothing until it is read against
-	// how many there were, and a refusal on the last one has to be able to say that castor
-	// spent the ordering rather than stopping early.
+	// Candidates is the other half; refusal on the last one means castor spent the whole ordering.
 	Candidates int
-
-	// Evidence is everything the attempt left behind, measurements included.
-	Evidence Evidence
-
-	// Tried names the strategies this cast already spent, in order. A refusal that lists
-	// them is the difference between "castor could not cast this" and "castor tried the
-	// three things it has and here is what each of them measured".
+	Evidence   Evidence
+	// Tried distinguishes 'could not cast this' from 'tried three things and here is what each measured'.
 	Tried []string
-
-	// Err is the attempt's own error, joined by the adapter in the order that attributes it.
-	// It is unwrapped, so errors.Is over a cast's result still finds a cancellation or an
-	// exit status rather than only this description of it.
+	// Err is the attempt's own error, unwrapped so errors.Is still finds cancellation or exit status.
 	Err error
 }
 
@@ -295,6 +183,9 @@ func (f *Fault) Error() string {
 	if len(f.Tried) > 0 {
 		fmt.Fprintf(&b, "; already tried: %s", strings.Join(f.Tried, ", "))
 	}
+	if gone := f.Evidence.RendererGone; gone != nil {
+		fmt.Fprintf(&b, "; the renderer %q stopped answering", gone.Renderer)
+	}
 	if lines := tells(f.Evidence.Lines); len(lines) > 0 {
 		fmt.Fprintf(&b, "; the reader said: %s", strings.Join(lines, " | "))
 	}
@@ -304,15 +195,6 @@ func (f *Fault) Error() string {
 	return b.String()
 }
 
-// arithmetic is the sentence castor already held every term of and never said. The run this
-// layer was built for ended as a TV error and bytes_sent=0 while the numbers that explain it
-// sat in the evidence unread: what the link measured, how long the program takes at that
-// measurement, whether the source offered anything lighter, and how much of the ranker's
-// ordering had been spent.
-//
-// Every term is skipped rather than guessed at when its input is missing, for the reason
-// media.Origin.ProjectedRuntime refuses one: a source that published no duration has no
-// runtime to project, and a confident number over a missing input is worse than silence.
 func (f *Fault) arithmetic() []string {
 	var terms []string
 	o := f.Attempt.Origin
@@ -340,15 +222,7 @@ func (f *Fault) arithmetic() []string {
 	return terms
 }
 
-// tells is what the blamed party printed, quoted into the refusal so that an opaque exit
-// status is actionable: a bare exit status gives a user nothing to move on, while the line
-// the process printed beside it says whether the bitstream arrived truncated, whether the
-// link answered at all, or whether the container refused what it was handed.
-//
-// It quotes and never decides. Prose is not a contract (see the carriage package doc), so a
-// wording change in ffmpeg may cost this line its sharpness and may never cost a cast its
-// class, which is what TestNoClassIsDecidedByProse holds open. The tail is bounded because a
-// refusal a user has to scroll is one they do not read.
+// tells quotes what the blamed party printed; never decides (see TestNoClassIsDecidedByProse).
 func tells(lines []string) []string {
 	const most = 4
 	if len(lines) > most {

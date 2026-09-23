@@ -1,9 +1,3 @@
-// Castor is a proof of concept provided for lawful, personal, and educational
-// use. This file is part of its stream-extraction pipeline and is intended only
-// for accessing content you are authorized to view. Do not use it to infringe
-// copyright or to circumvent access controls. The author does not endorse or
-// condone piracy. See the "Purpose and disclaimer" section of the README.
-
 package extract
 
 import (
@@ -19,12 +13,13 @@ import (
 	"github.com/chromedp/chromedp"
 )
 
+// snapshot keeps the page at debug level, owner-only: a page can carry session tokens.
 func snapshot(ctx context.Context, dir, label string) {
 	if !slog.Default().Enabled(ctx, slog.LevelDebug) {
 		return
 	}
 
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		slog.DebugContext(ctx, "snapshot mkdir failed", "error", err)
 		return
 	}
@@ -35,21 +30,20 @@ func snapshot(ctx context.Context, dir, label string) {
 	var buf []byte
 	if err := chromedp.Run(ctx, chromedp.FullScreenshot(&buf, 90)); err != nil {
 		slog.DebugContext(ctx, "snapshot screenshot failed", "label", label, "error", err)
-	} else if err := os.WriteFile(prefix+".png", buf, 0o644); err != nil {
+	} else if err := os.WriteFile(prefix+".png", buf, 0o600); err != nil {
 		slog.DebugContext(ctx, "snapshot png write failed", "error", err)
 	}
 
 	var html string
 	if err := chromedp.Run(ctx, chromedp.OuterHTML("html", &html)); err != nil {
 		slog.DebugContext(ctx, "snapshot html failed", "label", label, "error", err)
-	} else if err := os.WriteFile(prefix+".html", []byte(html), 0o644); err != nil {
+	} else if err := os.WriteFile(prefix+".html", []byte(html), 0o600); err != nil {
 		slog.DebugContext(ctx, "snapshot html write failed", "error", err)
 	}
 
 	slog.DebugContext(ctx, "snapshot saved", "label", label, "path", prefix)
 }
 
-// sanitize turns a URL into a safe directory name.
 func sanitize(rawURL string) string {
 	u, err := url.Parse(rawURL)
 	if err != nil {

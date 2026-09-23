@@ -1,4 +1,4 @@
-(function() {
+const __cloak = (function() {
   const registry = new Map();
   const origToString = Function.prototype.toString;
   const replacement = function toString() {
@@ -7,9 +7,8 @@
   };
   registry.set(replacement, 'function toString() { [native code] }');
   Function.prototype.toString = replacement;
-  __cloak = function(fn, orig, name) {
+  return function(fn, orig, name) {
     const n = name || (orig && orig.name) || fn.name || '';
     registry.set(fn, 'function ' + n + '() { [native code] }');
   };
 })();
-var __cloak;

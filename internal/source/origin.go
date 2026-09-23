@@ -1,0 +1,124 @@
+package source
+
+import (
+	"cmp"
+	"net/url"
+	"slices"
+	"time"
+
+	"github.com/stupside/castor/internal/media"
+)
+
+type Ladder int
+
+const (
+	// LadderUnknown is the zero value because reading the body is best-effort.
+	LadderUnknown Ladder = iota
+	// LadderMultivariant is a document advertising renditions: a master.
+	LadderMultivariant
+	// LadderSole is a playlist advertising no renditions: it IS the rendition.
+	LadderSole
+)
+
+func (l Ladder) String() string {
+	switch l {
+	case LadderMultivariant:
+		return "multivariant"
+	case LadderSole:
+		return "sole"
+	default:
+		return "unknown"
+	}
+}
+
+// Rendition is one version of a program a source offered, as the source described it.
+type Rendition struct {
+	URL *url.URL
+
+	Index int
+
+	// AudioURL is the companion audio rendition for this rung.
+	AudioURL *url.URL
+
+	// Bitrate is the rate the source declared, 0 when it declared none.
+	Bitrate media.Bitrate
+
+	// Height is the declared display height, 0 when the source omitted it.
+	Height int
+
+	// Declared is the codec envelope the source declared for this rung.
+	Declared *media.ProbeInfo
+}
+
+func (r Rendition) BackedBy(prior Rendition) Rendition {
+	if r.AudioURL == nil {
+		r.AudioURL = prior.AudioURL
+	}
+	if r.Declared == nil {
+		r.Declared = prior.Declared
+	}
+	return r
+}
+
+// Origin is what the source itself publishes about the program castor chose to read.
+type Origin struct {
+	Renditions []Rendition
+
+	// Segmented reports that the program arrives as many small files rather than one long read.
+	Segmented bool
+
+	Framing media.Framing
+
+	Live bool
+
+	// Encrypted reports that the source declared its media encrypted.
+	Encrypted bool
+
+	// Duration is the program's runtime as the source published it, 0 when it did not.
+	Duration time.Duration
+}
+
+// Sole reports that the source gave castor no choice: it published one rendition, or none that could be read.
+func (o Origin) Sole() bool { return len(o.Renditions) < 2 }
+
+// Lighter returns the renditions cheaper than a ceiling, heaviest first.
+func (o Origin) Lighter(than media.Bitrate) []Rendition {
+	out := make([]Rendition, 0, len(o.Renditions))
+	for _, r := range o.Renditions {
+		if r.Bitrate > 0 && r.Bitrate < than {
+			out = append(out, r)
+		}
+	}
+	slices.SortFunc(out, func(a, b Rendition) int { return cmp.Compare(b.Bitrate, a.Bitrate) })
+	return out
+}
+
+// Choose is the rung a cast reads: the best the ceiling admits by preferred, else the shortest on offer.
+func (o Origin) Choose(ceiling media.HeightCap, preferred func(a, b Rendition) int) Rendition {
+	admitted := slices.DeleteFunc(slices.Clone(o.Renditions), func(r Rendition) bool { return !ceiling.Admits(r.Height) })
+	if len(admitted) > 0 {
+		return slices.MaxFunc(admitted, preferred)
+	}
+	return slices.MinFunc(o.Renditions, func(a, b Rendition) int { return cmp.Compare(a.Height, b.Height) })
+}
+
+// ProjectedRuntime reports how long delivering the whole program takes at a measured speed.
+func (o Origin) ProjectedRuntime(at media.Speed) (time.Duration, bool) {
+	if o.Live || o.Duration <= 0 || at <= 0 {
+		return 0, false
+	}
+	return time.Duration(float64(o.Duration) / float64(at)), true
+}
+
+func SelfFetchHeight(program media.Program, origin Origin, chosen Rendition) int {
+	// A rung with a URL of its own was narrowed at the URL, so the renderer is pinned to it.
+	if chosen.URL != nil {
+		return cmp.Or(chosen.Height, program.MeasuredHeight())
+	}
+	// Otherwise the URL still names the whole ladder. Take the tallest rung it publishes.
+	tallest := 0
+	for _, rung := range origin.Renditions {
+		tallest = max(tallest, rung.Height)
+	}
+	return cmp.Or(tallest, chosen.Height, program.MeasuredHeight())
+}

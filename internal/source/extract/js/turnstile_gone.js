@@ -1,1 +1,1 @@
-document.querySelector('.cf-turnstile') === null
+document.querySelector('__TURNSTILE__') === null

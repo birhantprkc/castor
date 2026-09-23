@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"image/color"
-	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -15,15 +15,10 @@ import (
 	"github.com/stupside/castor/internal/browse/tmdb"
 )
 
-// hoverDebounce collapses a burst of cursor movement into a single asset fetch
-// for the row the cursor lands on, so scrolling a long list doesn't fire a
-// request per row.
+// hoverDebounce collapses cursor movement bursts to avoid requests per row.
 const hoverDebounce = 120 * time.Millisecond
 
-// inspector is the right-hand panel. It owns the lazily-fetched poster and
-// rich-metadata caches for the browsed catalogue, debounces loading to the
-// settled selection, and renders the poster + metadata column. The list side
-// only tells it which result is selected; everything else is private.
+// inspector manages the right-hand panel with lazy poster and metadata caches.
 type inspector struct {
 	ctx    context.Context
 	client *tmdb.Client
@@ -47,17 +42,13 @@ func newInspector(ctx context.Context, client *tmdb.Client, st styles) inspector
 	}
 }
 
-// hover schedules a debounced load for whatever is selected once movement
-// settles. Callers invoke it on every selection change; only the final tick
-// survives the token check.
+// hover is called on every selection change; only the final tick survives the token check.
 func (in *inspector) hover() tea.Cmd {
 	in.tok++
 	return hoverSettleCmd(in.tok)
 }
 
-// update consumes the inspector's own async messages. sel is the currently
-// selected result (nil when the list is empty), used to resolve a settled
-// hover into a fetch.
+// update consumes async messages for settled hovers and ready assets.
 func (in *inspector) update(msg tea.Msg, sel *tmdb.SearchResult) tea.Cmd {
 	switch msg := msg.(type) {
 	case hoverSettleMsg:
@@ -83,8 +74,7 @@ func (in *inspector) update(msg tea.Msg, sel *tmdb.SearchResult) tea.Cmd {
 	return nil
 }
 
-// load fetches poster + details for r, deduped against cache and in-flight
-// requests.
+// load is deduped against both the cache and in-flight requests.
 func (in *inspector) load(r tmdb.SearchResult) tea.Cmd {
 	return tea.Batch(in.loadPoster(r), in.loadDetails(r))
 }
@@ -97,7 +87,7 @@ func (in *inspector) loadPoster(r tmdb.SearchResult) tea.Cmd {
 		return nil
 	}
 	in.posterPending = r.PosterPath
-	return fetchPosterCmd(in.ctx, r.PosterURL("w500"), r.PosterPath, posterCols, posterRows)
+	return fetchPosterCmd(in.ctx, in.client, r.PosterPath, posterCols, posterRows)
 }
 
 func (in *inspector) loadDetails(r tmdb.SearchResult) tea.Cmd {
@@ -112,15 +102,7 @@ func (in *inspector) loadDetails(r tmdb.SearchResult) tea.Cmd {
 	return detailsCmd(in.ctx, in.client, r.MediaType, r.ID)
 }
 
-// view renders the poster + metadata column for sel, clamped to exactly height
-// rows. A nil selection yields a blank column so the layout never shifts.
-//
-// The poster string is either a stream of per-cell true-color ANSI half-block
-// escapes (pixterm fallback) or a single Kitty/iTerm/Sixel image escape
-// sequence padded to posterRows lines. In BOTH cases we deliberately do NOT
-// pass it through lipgloss's Width/Height/Render path: lipgloss rewrites ANSI
-// runs and would strip per-pixel colour codes from pixterm, and it would
-// (worse) split the inline-image control sequence and corrupt it.
+// view renders the column, clamped to height rows; lipgloss rewrites ANSI, so poster strings bypass it.
 func (in inspector) view(sel *tmdb.SearchResult, height int) string {
 	if sel == nil {
 		return blankRect(posterCols, height)
@@ -141,8 +123,7 @@ func (in inspector) view(sel *tmdb.SearchResult, height int) string {
 	d := in.details[detailKey(r.MediaType, r.ID)]
 	info, tagline, cast := metaLines(r, d, posterCols)
 
-	// The poster spans posterRows; the metadata lines below it are fixed, and
-	// the overview flexes into whatever vertical space remains.
+	// Poster fixed; overview flexes into remaining vertical space.
 	meta := []string{"", in.styles.MetaTitle.Render(title)}
 	if info != "" {
 		meta = append(meta, in.styles.Muted.Render(info))
@@ -165,8 +146,6 @@ func (in inspector) view(sel *tmdb.SearchResult, height int) string {
 	}
 	return clampRows(poster+"\n"+strings.Join(meta, "\n"), height)
 }
-
-// ---------------------------------------------------------------- messages + cmds
 
 type posterReadyMsg struct {
 	posterPath string
@@ -196,32 +175,18 @@ func detailsCmd(ctx context.Context, c *tmdb.Client, mediaType string, id int) t
 
 func detailKey(mediaType string, id int) string { return mediaType + ":" + strconv.Itoa(id) }
 
-// fetchPosterCmd downloads the poster at url and renders it to a string of ANSI
-// escapes sized to (cols × rows) terminal cells. Half-block rendering shows 2
-// vertical pixels per cell, so we ask ansimage for 2*rows pixels of height.
-func fetchPosterCmd(ctx context.Context, url, posterPath string, cols, rows int) tea.Cmd {
+// fetchPosterCmd renders the poster to ANSI escapes; half-blocks show 2 pixels per cell.
+func fetchPosterCmd(ctx context.Context, c *tmdb.Client, posterPath string, cols, rows int) tea.Cmd {
 	return func() tea.Msg {
-		c, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-
-		req, err := http.NewRequestWithContext(c, http.MethodGet, url, nil)
+		body, err := c.Poster(ctx, posterPath, "w500")
 		if err != nil {
 			return posterReadyMsg{posterPath: posterPath, err: err}
 		}
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return posterReadyMsg{posterPath: posterPath, err: err}
-		}
-		defer func() { _ = resp.Body.Close() }()
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			return posterReadyMsg{posterPath: posterPath, err: fmt.Errorf("poster: status %d", resp.StatusCode)}
-		}
+		defer func() { _ = body.Close() }()
 
-		// NoDithering uses true-color ▀ glyphs (the highest-quality mode this
-		// lib offers); ScaleModeResize stretches to exactly fit our reserved
-		// footprint so the layout never shifts.
+		// NoDithering uses true-color; ScaleModeResize fits exactly to prevent layout shift.
 		img, err := ansimage.NewScaledFromReader(
-			resp.Body,
+			body,
 			rows*2, cols,
 			color.Transparent,
 			ansimage.ScaleModeResize,
@@ -234,11 +199,7 @@ func fetchPosterCmd(ctx context.Context, url, posterPath string, cols, rows int)
 	}
 }
 
-// ---------------------------------------------------------------- render helpers
-
-// metaLines renders the enriched info + tagline + cast lines, each clamped to
-// width. Rating is always available from the list row; runtime/genres/cast fill
-// in once details arrive.
+// metaLines clamps each line; rating from list, runtime/genres/cast from details.
 func metaLines(r tmdb.SearchResult, d *tmdb.Details, width int) (info, tagline, cast string) {
 	var parts []string
 	if r.VoteAverage > 0 {
@@ -278,7 +239,6 @@ func formatRuntime(minutes int) string {
 	}
 }
 
-// truncate clamps s to at most width runes, appending an ellipsis when cut.
 func truncate(s string, width int) string {
 	if width <= 0 {
 		return ""
@@ -293,21 +253,14 @@ func truncate(s string, width int) string {
 	return string(r[:width-1]) + "…"
 }
 
-// blankRect is a w×h block of spaces, used to hold the poster column's
-// footprint before its image arrives.
 func blankRect(w, h int) string {
 	if w <= 0 || h <= 0 {
 		return ""
 	}
-	line := strings.Repeat(" ", w)
-	rows := make([]string, h)
-	for i := range rows {
-		rows[i] = line
-	}
-	return strings.Join(rows, "\n")
+	return strings.Join(slices.Repeat([]string{strings.Repeat(" ", w)}, h), "\n")
 }
 
-// clampRows forces s to exactly n lines, truncating or padding with blanks.
+// clampRows forces s to exactly n lines; truncate or pad with blanks.
 func clampRows(s string, n int) string {
 	if n <= 0 {
 		return ""
@@ -316,8 +269,7 @@ func clampRows(s string, n int) string {
 	if len(lines) > n {
 		lines = lines[:n]
 	}
-	for len(lines) < n {
-		lines = append(lines, "")
-	}
+	// n-len(lines) cannot go negative: the truncation above leaves at most n lines.
+	lines = append(lines, make([]string, n-len(lines))...)
 	return strings.Join(lines, "\n")
 }

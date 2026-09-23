@@ -1,5 +1,5 @@
 name: Setup
-description: Go toolchain plus cached libwhisper.a for the cgo build
+description: Go toolchain, the media tools, and cached libwhisper.a for the cgo build
 
 runs:
   using: composite
@@ -7,6 +7,12 @@ runs:
     - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
       with:
         go-version-file: go.mod
+    # The runner image carries no ffmpeg, and castor's real-encode tests skip
+    # themselves when they cannot find one. t.Skip is green, so the whole of that
+    # coverage was absent from CI without a single line saying so. scripts/tested.sh
+    # is the other half of this: it fails the run if they skip again.
+    - shell: bash
+      run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
     - id: whisper
       shell: bash
       run: echo "rev=$(git -C third_party/whisper.cpp rev-parse HEAD)" >> "$GITHUB_OUTPUT"

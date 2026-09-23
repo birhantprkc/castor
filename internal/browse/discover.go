@@ -9,10 +9,7 @@ import (
 	"github.com/stupside/castor/internal/browse/tmdb"
 )
 
-// browseMode is the source of the results list on screenBrowse. Curated is the
-// five top-N tabs; Discover is the genre/sort filtered feed. A non-empty search
-// query overrides both without changing the mode, so clearing the query
-// restores the underlying feed.
+// browseMode is the source of the results list on screenBrowse: non-empty search overrides both modes.
 type browseMode int
 
 const (
@@ -20,10 +17,21 @@ const (
 	modeDiscover
 )
 
-// discoverState is the discover feed's own state. The filter itself (media type
-// + genres) lives in the genrePicker; this holds the sort, the accumulated
-// pages, and the token that invalidates in-flight pages when the filter
-// changes.
+// sorts is the order ^s cycles through.
+var sorts = []tmdb.Sort{tmdb.SortPopularity, tmdb.SortRating, tmdb.SortNewest}
+
+func sortLabel(s tmdb.Sort) string {
+	switch s {
+	case tmdb.SortRating:
+		return "Rating"
+	case tmdb.SortNewest:
+		return "Newest"
+	default:
+		return "Popularity"
+	}
+}
+
+// discoverState holds the sort, accumulated pages, token that invalidates in-flight pages on filter change.
 type discoverState struct {
 	sort        tmdb.Sort
 	results     []tmdb.SearchResult
@@ -48,7 +56,7 @@ func discoverCmd(ctx context.Context, c *tmdb.Client, tok int, p tmdb.DiscoverPa
 	}
 }
 
-// discParams snapshots the current filter (from the picker) + sort as a query.
+// discParams snapshots the picker's filter and the current sort as a query.
 func (m model) discParams(page int) tmdb.DiscoverParams {
 	return tmdb.DiscoverParams{
 		MediaType: m.picker.mediaType(),
@@ -58,14 +66,10 @@ func (m model) discParams(page int) tmdb.DiscoverParams {
 	}
 }
 
-// enterDiscover switches to Discover mode and kicks a fresh first-page fetch,
-// invalidating any in-flight discover/search via the bumped token.
 func (m *model) enterDiscover() tea.Cmd {
 	m.mode = modeDiscover
-	if m.query.Value() != "" {
-		m.query.SetValue("")
-		m.queryTok++
-	}
+	m.query.SetValue("")
+	m.queryTok++
 	m.disc.results = nil
 	m.disc.page = 1
 	m.disc.hasMore = false
@@ -77,22 +81,19 @@ func (m *model) enterDiscover() tea.Cmd {
 	return tea.Batch(discoverCmd(m.ctx, m.client, m.disc.tok, m.discParams(1)), m.spin.Tick)
 }
 
-// exitDiscover returns to the curated tabs.
 func (m *model) exitDiscover() tea.Cmd {
 	m.mode = modeCurated
 	m.resize()
 	return m.ensureTabLoaded()
 }
 
-// cycleSort advances the discover sort and refetches from page one.
+// cycleSort advances the sort and refetches from page one.
 func (m *model) cycleSort() tea.Cmd {
-	i := slices.Index(tmdb.Sorts, m.disc.sort)
-	m.disc.sort = tmdb.Sorts[(i+1)%len(tmdb.Sorts)]
+	i := slices.Index(sorts, m.disc.sort)
+	m.disc.sort = sorts[(i+1)%len(sorts)]
 	return m.enterDiscover()
 }
 
-// onDiscoverDone applies a discover page (first replaces, later pages append)
-// unless a newer filter change has superseded it.
 func (m *model) onDiscoverDone(msg discoverDoneMsg) tea.Cmd {
 	if msg.tok != m.disc.tok {
 		return nil // stale: filters changed while this was in flight
@@ -116,8 +117,6 @@ func (m *model) onDiscoverDone(msg discoverDoneMsg) tea.Cmd {
 	return m.inspector.hover()
 }
 
-// maybeLoadMore fetches the next discover page when the cursor nears the end of
-// the loaded results. It is a no-op outside Discover mode.
 func (m *model) maybeLoadMore() tea.Cmd {
 	if m.mode != modeDiscover || m.query.Value() != "" {
 		return nil

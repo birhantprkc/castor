@@ -2,24 +2,19 @@ package browse
 
 import "github.com/charmbracelet/bubbles/key"
 
-// keyMap centralizes every binding the browse TUI uses. Each binding carries
-// its own help text, so help.Model renders a consistent footer without per-
-// screen string lists. j/k are NOT bound to Up/Down because the persistent
-// textinput on screenBrowse needs those keys for typing, so the discover
-// controls (genres/sort/type) use ctrl-chords to stay clear of the query, while
-// the genre overlay (no text input) is free to use bare letters.
+// keyMap holds browse TUI bindings; j/k reserved for textinput on screenBrowse.
 type keyMap struct {
 	Up, Down         key.Binding
 	PageUp, PageDown key.Binding
 	Tab, ShiftTab    key.Binding
 	Enter, Back      key.Binding
 	Filter           key.Binding // display-only; list.Model owns the /-handling on drilldown
-	Genres           key.Binding // open the genre picker
-	Sort             key.Binding // cycle discover sort
-	Media            key.Binding // toggle movie/TV in the discover feed
-	Space            key.Binding // overlay: toggle a genre
-	ClearGenres      key.Binding // overlay: clear selection
-	OverlayMedia     key.Binding // overlay: toggle movie/TV
+	Genres           key.Binding
+	Sort             key.Binding
+	Media            key.Binding
+	Space            key.Binding
+	ClearGenres      key.Binding
+	OverlayMedia     key.Binding
 	Help             key.Binding
 	Quit             key.Binding
 }
@@ -46,8 +41,7 @@ func defaultKeys() keyMap {
 	}
 }
 
-// screenKeys adapts keyMap to bubbles' help.KeyMap interface, with bindings
-// specialized to the current screen and browse mode.
+// screenKeys adapts keyMap to bubbles' help.KeyMap, specialized to the current screen.
 type screenKeys struct {
 	k        keyMap
 	s        screen

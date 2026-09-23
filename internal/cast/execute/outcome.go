@@ -1,0 +1,41 @@
+package execute
+
+import (
+	"context"
+	"errors"
+
+	"github.com/stupside/castor/internal/cast/attempt"
+	"github.com/stupside/castor/internal/cast/policy/watch"
+	"github.com/stupside/castor/internal/media"
+)
+
+// outcome folds cast result and judgement into one value; read error travels beside cast error.
+func (c *cast) outcome(ctx context.Context, err error) attempt.Outcome {
+	e := c.evidence
+
+	if c.reader != nil {
+		e.ReadErr = c.readErr()
+		e.ReadExit = c.reader.ExitStatus()
+		e.Copied = c.reader.Copying()
+		e.Lines = c.reader.Evidence()
+	}
+	e.Cancelled = ctx.Err() != nil
+
+	if undelivered, ok := errors.AsType[*watch.Undelivered](err); ok {
+		e.Undelivered = undelivered
+	}
+
+	// A renderer its family saw go away while the cast played (see supervising).
+	if gone, ok := errors.AsType[*media.Gone](err); ok {
+		e.RendererGone = gone
+	}
+
+	if verdict, ok := errors.AsType[*watch.Fault](err); ok {
+		e.Verdict, e.Health = verdict.Kind, verdict.Health
+		if len(e.Lines) == 0 {
+			e.Lines = verdict.Evidence
+		}
+	}
+
+	return attempt.Outcome{Err: err, Evidence: e}
+}

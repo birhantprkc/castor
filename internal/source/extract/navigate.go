@@ -1,9 +1,3 @@
-// Castor is a proof of concept provided for lawful, personal, and educational
-// use. This file is part of its stream-extraction pipeline and is intended only
-// for accessing content you are authorized to view. Do not use it to infringe
-// copyright or to circumvent access controls. The author does not endorse or
-// condone piracy. See the "Purpose and disclaimer" section of the README.
-
 package extract
 
 import (
@@ -15,14 +9,12 @@ import (
 	"github.com/chromedp/chromedp"
 )
 
-// iframeSrcJS finds the largest visible iframe (min 100x100) and returns its
-// src URL. Returns null if no suitable iframe is found or src is empty/about:.
+// iframeSrcJS finds largest visible iframe (100x100+) and returns src.
 //
 //go:embed js/iframe_src.js
 var iframeSrcJS string
 
-// navigateIframe polls for the largest iframe and navigates into it,
-// repeating through nested iframes until no more are found.
+// navigateIframe polls for largest iframe and navigates; repeat until leaf.
 func navigateIframe(ctx context.Context, timeout time.Duration, maxDepth int) error {
 	iframeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()

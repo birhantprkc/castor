@@ -1,20 +1,18 @@
-// Castor is a proof of concept provided for lawful, personal, and educational
-// use. This file is part of its stream-extraction pipeline and is intended only
-// for accessing content you are authorized to view. Do not use it to infringe
-// copyright or to circumvent access controls. The author does not endorse or
-// condone piracy. See the "Purpose and disclaimer" section of the README.
-
 package extract
 
-import "time"
+import (
+	"time"
 
-// Config is everything an Extractor needs. It is defined here, not in an
-// application-level package, so the dependency arrow points the right way:
-// the app config composes this type, never the reverse.
+	"github.com/stupside/castor/internal/source"
+)
+
+// Config is everything an Extractor needs (app config composes this, not reverse).
 type Config struct {
 	Browser BrowserConfig
 	Capture CaptureConfig
-	Actions ActionConfig
+
+	// Documents: every format whose grammar a captured body may be written in (composition bound).
+	Documents source.Formats
 }
 
 type BrowserConfig struct {
@@ -25,16 +23,17 @@ type BrowserConfig struct {
 }
 
 type CaptureConfig struct {
-	Patterns          []string      `yaml:"patterns" validate:"required,min=1"`
-	MaxCandidates     int           `yaml:"max_candidates" validate:"required,min=1"`
-	MaxConcurrency    int           `yaml:"max_concurrency" validate:"required,min=1"`
-	CollectionWindow  time.Duration `yaml:"collection_window" validate:"required"`
-	GraceAfterActions time.Duration `yaml:"grace_after_actions" validate:"required"`
+	// ParallelURLs bounds how many page URLs are extracted at once, one browser each.
+	ParallelURLs int `yaml:"max_concurrency" validate:"required,min=1"`
 }
 
-type ActionConfig struct {
-	TurnstileRetryTimeout  time.Duration `yaml:"turnstile_retry_timeout" validate:"required"`
-	NavigateIframeTimeout  time.Duration `yaml:"navigate_iframe_timeout" validate:"required"`
-	NavigateIframeMaxDepth int           `yaml:"navigate_iframe_max_depth" validate:"required,min=1"`
-	BypassTurnstileTimeout time.Duration `yaml:"bypass_turnstile_timeout" validate:"required"`
-}
+// Tuning castor ships: how long a page is given, and how far it is driven.
+const (
+	maxCaptures            = 100
+	collectionWindow       = 10 * time.Second
+	graceAfterActions      = 15 * time.Second
+	navigateIframeTimeout  = 10 * time.Second
+	navigateIframeMaxDepth = 5
+	turnstileRetryTimeout  = 10 * time.Second
+	bypassTurnstileTimeout = 20 * time.Second
+)

@@ -1,5 +1,5 @@
 (function() {
-    const c = document.querySelector('.cf-turnstile');
+    const c = document.querySelector('__TURNSTILE__');
     if (!c) return null;
     const f = c.querySelector('iframe');
     if (!f) return null;

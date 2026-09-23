@@ -1,0 +1,143 @@
+package execute
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/stupside/castor/internal/cast/attempt"
+	"github.com/stupside/castor/internal/device"
+	"github.com/stupside/castor/internal/media"
+	"github.com/stupside/castor/internal/probe"
+	"github.com/stupside/castor/internal/source"
+)
+
+// countedAddresses is the host route port a passthrough cast must never reach.
+type countedAddresses struct{ asked *atomic.Int64 }
+
+func (a countedAddresses) LocalIPv4(context.Context) (string, error) {
+	a.asked.Add(1)
+	return "", errors.New("this host has no local route")
+}
+
+func passthroughCandidate() *source.Candidate {
+	c := &source.Candidate{URL: &url.URL{Scheme: "https", Host: "cdn.example", Path: "/movie.mp4"}, ContentType: media.MP4}
+	c.Probe = &media.ProbeInfo{VideoCodec: media.CodecH264, VideoBitDepth: 8, AudioCodec: media.CodecAAC, AudioChannels: 2}
+	return c
+}
+
+func TestPassthroughBuildsNoLocalMachinery(t *testing.T) {
+	var asked atomic.Int64
+	dev := &fakeDevice{caps: chromecastLike(media.MP4)}
+	got := run(t.Context(), Config{MaxHeight: 1080, Renderer: renderer(selfFetching(), dev), Addresses: countedAddresses{asked: &asked}},
+		attempt.Attempt{Program: programFromStream(t, passthroughCandidate())})
+	if got.Err != nil {
+		t.Fatalf("passthrough depended on local relay resources: %v", got.Err)
+	}
+	if n := asked.Load(); n != 0 {
+		t.Errorf("local address resolver called %d time(s), want none for passthrough", n)
+	}
+	if got.Evidence.Reached != attempt.PhaseDelivered {
+		t.Errorf("reached %s, want %s", got.Evidence.Reached, attempt.PhaseDelivered)
+	}
+}
+
+func TestARendererThatRefusesPlayIsBlamedAndReleased(t *testing.T) {
+	refused := errors.New("SOAP SetAVTransportURI: 714")
+	dev := &fakeDevice{caps: chromecastLike(media.MP4), refuse: refused}
+	out := newExecutorAt(castConfig(selfFetching(), "", ""), connectTo(dev), noStage, "127.0.0.1").
+		Run(t.Context(), attempt.Attempt{Try: 1, Program: programFromStream(t, passthroughCandidate())})
+
+	if out.Err == nil {
+		t.Fatal("the cast reported success though the renderer refused the URL")
+	}
+	if !errors.Is(out.Evidence.PlayErr, refused) {
+		t.Errorf("evidence carries PlayErr %v, want the renderer's own refusal %v", out.Evidence.PlayErr, refused)
+	}
+	if !dev.closed.Load() {
+		t.Error("the renderer was never closed")
+	}
+}
+
+func TestAReadOnceCastConnectsWhileItReads(t *testing.T) {
+	ffmpegPath, ffprobePath := requireFFmpegTools(t)
+
+	release := make(chan struct{})
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(origin.Close)
+	sourceURL, err := url.Parse(origin.URL + "/movie.mp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	connecting := make(chan struct{})
+	connect := func(context.Context) (device.Device, error) {
+		close(connecting)
+		return &fakeDevice{caps: dlnaLike()}, nil
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- castOnce(ctx, t, castConfig(pushOnly(), ffmpegPath, ffprobePath), connect, &source.Candidate{URL: sourceURL, ContentType: media.MP4})
+	}()
+
+	select {
+	case <-connecting:
+	case err := <-done:
+		t.Fatalf("the cast ended before the renderer was connected: %v", err)
+	case <-time.After(castTimeout):
+		t.Fatal("the renderer was not connected while the source was still answering nothing")
+	}
+	close(release)
+	cancel()
+	<-done
+}
+
+// TestEveryAttemptOwnsAFreshWorkDirectoryAndLeavesNoneBehind is what makes a revised cast safe to offer.
+func TestEveryAttemptOwnsAFreshWorkDirectoryAndLeavesNoneBehind(t *testing.T) {
+	var dirs []string
+	watchDir := func(_ context.Context, workDir string) Burn {
+		dirs = append(dirs, workDir)
+		if _, err := os.Stat(workDir); err != nil {
+			t.Errorf("the read started with no work directory to buffer into: %v", err)
+		}
+		return nil
+	}
+
+	candidate := &source.Candidate{URL: &url.URL{Scheme: "https", Host: "cdn.example"}, ContentType: media.MP4}
+	for range 2 {
+		// No ffmpeg configured, so the read fails after the work directory exists.
+		program := programFromStream(t, candidate)
+		cfg := Config{
+			Renderer:  renderer(pushOnly(), &fakeDevice{caps: dlnaLike()}),
+			Subtitles: watchDir, Addresses: fixedAddress("127.0.0.1"), Probes: probe.FFprobe(""),
+		}
+		out := run(t.Context(), cfg, attempt.Attempt{Program: program, Read: sourceReadPlan(t, program, 30*time.Second)})
+		if out.Err == nil {
+			t.Fatal("a cast with no ffmpeg to read with reported success")
+		}
+	}
+
+	if len(dirs) != 2 || dirs[0] == dirs[1] {
+		t.Fatalf("two attempts ran in %v, want two different directories", dirs)
+	}
+	for _, dir := range dirs {
+		if _, err := os.Stat(dir); !os.IsNotExist(err) {
+			t.Errorf("the abandoned attempt's directory %s is still on disk (%v)", dir, err)
+		}
+	}
+}

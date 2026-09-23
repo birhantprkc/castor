@@ -3,39 +3,18 @@ package e2e
 import (
 	"context"
 	"errors"
-	"io"
-	"net/http"
-	"net/url"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/stupside/castor/internal/cast/attempt"
-	"github.com/stupside/castor/internal/cast/core"
-	"github.com/stupside/castor/internal/cast/pipeline"
-	"github.com/stupside/castor/internal/cast/read"
-	"github.com/stupside/castor/internal/cast/watch"
-	"github.com/stupside/castor/internal/device"
+	"github.com/stupside/castor/internal/cast/policy/read"
+	"github.com/stupside/castor/internal/cast/policy/watch"
 	"github.com/stupside/castor/internal/media"
+	"github.com/stupside/castor/internal/source"
 )
 
-// What castor does about a hostile origin, over the real executor.
-//
-// Everything asserted here is castor's OWN behaviour and never ffmpeg's: which verdict it
-// reached, on which measurements, how long it took to reach it, and above all that no
-// renderer was ever pointed at anything. The last one is the whole point of the pre-playback
-// window: past a Play call no revision exists (see attempt.Phase), so a source castor could
-// have refused becomes a failure a viewer watches instead of one an operator is told about.
-//
-// The wall clock here is real and it is derived, not chosen. Two windows dominate: one
-// reconnect ceiling before a measured deficit convicts a read (watch's deficitWindow, which
-// is read.BackoffMax), and two ceilings plus a margin before silence does (watch.StallWindow).
-// Both are derived from the backoff castor itself hands the reader, because a judgement that
-// fires inside the backoff it granted is not observing a stall, it is causing one. There is
-// no shortening them from a test without testing something else, so each case states its
-// bound as the sum of the windows it must outlast and the cases run in parallel, which makes
-// the suite's added cost the longest of them rather than their sum.
+// Package e2e tests castor against hostile origins to verify refusal logic.
 
 // hostileCase is one origin pathology and the answer castor must reach about it.
 type hostileCase struct {
@@ -43,153 +22,82 @@ type hostileCase struct {
 	how   hostility
 	shape hostileShape
 
-	// origin is what source resolution would have established about this source, and it is
-	// the only input to the read policy. This is where a case states whether the mid-read
-	// deadline applies, because that is the question read.For answers, and it is the axis two
-	// of these cases exist to separate.
-	origin media.Origin
+	// origin states whether mid-read deadline applies; the axis two cases exist for.
+	origin source.Origin
 
-	// verdict is the verdict castor must reach, and it is the assertion this suite is for: a
-	// rule verified against a hand-built Health says nothing about whether the shipping
-	// wiring ever reaches it.
+	// verdict is what castor must conclude; a test rule != actual shipping wiring.
 	verdict watch.Kind
 
-	// landed states whether media must have reached the buffer before the verdict. It is not
-	// decoration: it is the difference between a read judged on a measured rate and a read
-	// judged on silence, and those are two different rows of the health table.
+	// landed: whether media reached buffer before verdict (rate vs. silence).
 	landed bool
 
-	// starved requires the verdict to carry a measured deficit: a stated speed under playback
-	// rate, against a pace above realtime, sustained past the window that licenses acting on
-	// it. Without these numbers the refusal is an opinion.
+	// starved requires measured deficit (speed under playback rate) to verify verdict.
 	starved bool
 
-	// silence requires the verdict to carry a producer that delivered nothing for the derived
-	// stall window.
+	// silence requires a producer that delivered nothing for the derived stall window.
 	silence bool
 
-	// readFailed requires the READER's own terminal failure rather than castor's judgement of
-	// a reader that was still running. The discriminator is the exit status: positive is a
-	// read that failed at something it was doing, negative is one castor killed, and castor
-	// kills the reader on every fault it names itself.
+	// readFailed requires terminal failure; exit status > 0 is reader's, < 0 is killed.
 	readFailed bool
 
-	// tells are substrings the retained stderr must carry. They are the material a user acts
-	// on, and they exist nowhere else: castor kills the reader, so its own error path never
-	// runs and these lines are only ever seen because the fault carried them out.
+	// tells: substrings stderr must carry (reader killed, error path never runs).
 	tells []string
 
-	// within is the wall-clock bound, derived per row from the windows the case has to
-	// outlast. It is also the case's context, so a bound that is missed reports "never ruled"
-	// rather than an unrelated assertion failure.
+	// within: wall-clock bound and case context (missed = "never ruled" not fail).
 	within time.Duration
 }
 
-// probeBudget is what core.Measure gives the source probe before a cast proceeds on nothing
-// known. It is not configurable and it is not skippable, so every case that tarpits the
-// probe pays it in full before its read even starts, and every bound below carries it.
+// probeBudget is what cast.Measure gives the source probe; not configurable or skippable.
 const probeBudget = read.BackoffMax / 2
 
-// verdictMargin is how much longer than the window itself a verdict is allowed to take. It
-// covers the watch's polling cadence (a fifth of a second) and the ten media seconds a
-// stalling origin serves before it freezes, and nothing else: everything else about these
-// bounds is a window castor derived, and padding them would be padding the claim.
+// schedulingSlack allows the machine to be slow; bounds must prove castor ruled at all.
+const schedulingSlack = 120 * time.Second
+
+// verdictMargin covers watch polling and stall detection, nothing else.
 const verdictMargin = 30 * time.Second
 
 var hostileCases = []hostileCase{{
-	// The 403 storm, and the one case that has to be FAST: a refusal is not a transient
-	// answer, so nothing here should be waited out. The reader gives up on each segment after
-	// its open retries and then reaches a terminal error of its own, which the playback gate
-	// reads as a dead read and refuses while the attempt can still be changed.
-	//
-	// Bound: the probe budget, which a dead playlist may legitimately spend in full (ffmpeg
-	// answers one whose segments all refuse by walking every segment, and a real one measured
-	// 199 seconds of that before the budget existed), plus one reconnect ceiling. Measured at
-	// under a second for a sixty-segment playlist over loopback, and the bound is what says a
-	// refusal may never be waited out the way silence is: there is no window to outlast here.
+	// 403 storm: refusal is not transient; read fails immediately, no window to outlast.
 	name:       "a source whose every segment is refused is named, not waited out",
 	how:        refusesSegments,
 	shape:      tsSegments,
-	origin:     media.Origin{Segmented: true, Framing: media.FramingInBand},
+	origin:     source.Origin{Segmented: true, Framing: media.FramingInBand},
 	verdict:    watch.Dead,
 	readFailed: true,
 	tells:      []string{"403"},
-	within:     probeBudget + read.BackoffMax,
+	within:     probeBudget + read.BackoffMax + schedulingSlack,
 }, {
-	// The starving upstream, which is the failure the whole deliverability judgement was
-	// written for and the one it had never been exercised against: a link delivering media
-	// slower than it will be played, measured as ffmpeg's own speed against the pace the read
-	// was allowed. The field casts that died measured 0.0627, 0.109, 0.159 and 0.39 against a
-	// readrate of 2.0; this origin reproduces that ratio with a 24 KB/s pipe.
-	//
-	// Nothing is wrong with the media, nothing answers an error, and the read never fails: the
-	// only thing against this cast is arithmetic, which is why nothing before this judgement
-	// existed could see it at all.
-	//
-	// Bound: the probe budget (the probe reads the same trickle and answers nothing), plus one
-	// reconnect ceiling of continuous deficit before the pre-playback arm may act, plus the
-	// startup lag the confidence window covers, plus a margin.
+	// Starving source: delivers slower than playback rate; only arithmetic convicts it.
 	name:    "a source trickling under playback rate is refused before a renderer is pointed at it",
 	how:     tricklesSegments,
 	shape:   tsSegments,
-	origin:  media.Origin{Segmented: true, Framing: media.FramingInBand},
+	origin:  source.Origin{Segmented: true, Framing: media.FramingInBand},
 	verdict: watch.Undeliverable,
 	landed:  true,
 	starved: true,
-	within:  probeBudget + read.BackoffMax + 60*time.Second,
+	within:  probeBudget + read.BackoffMax + schedulingSlack,
 }, {
-	// The tarpit: the segment request accepted, headers sent, no body ever. Nothing is
-	// measured, because nothing was ever muxed, so no rate exists to convict and the only fact
-	// about this cast is that nothing has arrived. That is the stall row, and it is the row the
-	// fragile read policy's whole safety argument rests on: this source is fMP4, so the read
-	// carries no mid-read deadline at all, and withholding one is only sound because this
-	// window exists and is reached.
-	//
-	// Bound: the probe budget plus two reconnect ceilings and the margin (watch.StallWindow),
-	// which is the longest wait in castor and is derived rather than picked: one full backoff
-	// that fails, a second that succeeds, and time for its bytes to arrive.
+	// Tarpit: request accepted, no body; fMP4 has no mid-read deadline.
 	name:    "a tarpit that never sends a body is ended by castor's own stall window",
 	how:     acceptsAndSaysNothing,
 	shape:   fmp4Segments,
-	origin:  media.Origin{Segmented: true, Framing: media.FramingOutOfBand},
+	origin:  source.Origin{Segmented: true, Framing: media.FramingOutOfBand},
 	verdict: watch.Stalled,
 	silence: true,
-	within:  probeBudget + watch.StallWindow + 60*time.Second,
+	within:  probeBudget + watch.StallWindow + schedulingSlack,
 }, {
-	// The same tarpit on the row that KEEPS the configured mid-read deadline, and the answer is
-	// the same window, which is worth a case of its own because it is not what the deadline
-	// reads like it does.
-	//
-	// Measured against this origin: a whole-file read given -rw_timeout 30s with castor's
-	// reconnect terms does not fail at thirty seconds. Each timeout is followed by a reconnect
-	// that stalls again, at backoffs of 0, 1, 3, 7, 15 then 31 seconds ("Will reconnect at 0 in
-	// 15 second(s), error=Operation timed out"), and the read finally gave up after 268 seconds
-	// with "Error opening input: Input/output error". So the deadline NOTICES a tarpit and does
-	// not end one: on both read policies the bound that actually ends the cast is castor's own
-	// stall window, and the difference the deadline makes to a tarpit is a stderr tail that
-	// names it rather than the silence the fragile row leaves behind.
-	//
-	// Bound: as the fragile tarpit above, and deliberately shorter than the 268 seconds ffmpeg
-	// would have taken, because a case that let the reader die first would be asserting
-	// ffmpeg's behaviour instead of castor's.
+	// Same tarpit with mid-read deadline; deadline notices but doesn't end the tarpit.
 	name:    "the mid-read deadline notices a tarpit; castor's stall window is what ends it",
 	how:     acceptsAndSaysNothing,
 	shape:   wholeFile,
-	origin:  media.Origin{},
+	origin:  source.Origin{},
 	verdict: watch.Stalled,
 	silence: true,
 	tells:   []string{"Operation timed out"},
-	within:  probeBudget + watch.StallWindow + 60*time.Second,
+	within:  probeBudget + watch.StallWindow + schedulingSlack,
 }}
 
-// TestAHostileOriginIsRefusedRatherThanCast runs castor's real executor against each
-// pathology and asserts what castor concluded.
-//
-// The cases run in parallel, and so does this test itself, because their cost is waiting
-// rather than working: each holds one ffmpeg on a socket delivering a trickle or nothing at
-// all. Without t.Parallel here the whole group would run before the other parallel tests in
-// this package rather than alongside them, which turns the suite's added cost from the longest
-// case into the sum of two groups.
+// TestAHostileOriginIsRefusedRatherThanCast runs against each pathology in parallel.
 func TestAHostileOriginIsRefusedRatherThanCast(t *testing.T) {
 	t.Parallel()
 	for _, tt := range hostileCases {
@@ -199,27 +107,17 @@ func TestAHostileOriginIsRefusedRatherThanCast(t *testing.T) {
 
 			origin := startHostile(t, tl, tt.shape, tt.how)
 			if tt.how == tricklesSegments {
-				// The premise of the trickle, checked against the fixture actually encoded rather
-				// than assumed from the bitrate asked for: the origin has to deliver well under
-				// playback rate, because the floor the deliverability rule compares against is
-				// playback itself. A fixture that compressed smaller would be perfectly deliverable
-				// over the same pipe and this case would assert nothing.
-				//
-				// FOUR TIMES and not merely above it, because a segment fetch is not one connection:
-				// ffmpeg's HLS demuxer opens the next segment while it is still reading the current
-				// one, so the media arrives at twice the pipe (measured: a 24 KB/s trickle delivered
-				// 48 KB/s and the read reported 0.42x rather than the 0.21x the pipe alone predicts).
-				// The factor keeps the margin under playback rate with that doubling in it.
+				// 4x not 2x: HLS demuxer opens next segment while reading current, doubling rate.
 				if rate := origin.bytesPerMediaSecond(t); rate < 4*trickleBytesPerSecond {
 					t.Fatalf("the fixture publishes %d bytes per media second over a %d B/s pipe, which is not a starving link",
 						rate, trickleBytesPerSecond)
 				}
 			}
 
-			policy := read.For(read.ShapeOf(tt.origin), rwTimeout)
-			// The read policy is the case's premise, so the case states it: two of these rows differ
-			// only in whether ffmpeg was given a mid-read deadline, and a table that merely hoped
-			// for that would silently stop testing it the day the read table changed.
+			program := hostileProgram(t, origin, tt.origin)
+			readPlan := read.ForProgram(program, rwTimeout)
+			policy := readPlan.Primary(program)
+			// Assert deadline: two rows differ only in this, silent failures if table changes.
 			t.Logf("read policy %q: deadline=%s backoff=%s pace=%.4gx", policy.Name, policy.Deadline, policy.Backoff, policy.Pace.Realtime)
 			if tt.shape == fmp4Segments && policy.Deadline != 0 {
 				t.Fatalf("this case is about a read given no mid-read deadline, and the policy carries %s", policy.Deadline)
@@ -228,22 +126,19 @@ func TestAHostileOriginIsRefusedRatherThanCast(t *testing.T) {
 				t.Fatal("this case is about a read that keeps its mid-read deadline, and the policy carries none")
 			}
 
-			dev := &servedRenderer{}
+			dev := servedLocally()
 			ctx, cancel := context.WithTimeout(t.Context(), tt.within)
 			defer cancel()
 
 			started := time.Now()
-			out := pipeline.NewExecutor(hostileConfig(tl), connectTo(dev), noStage, "127.0.0.1").
-				Run(ctx, attempt.Attempt{Try: 1, Source: hostileStream(t, origin), Read: policy})
+			out := newExecutor(castConfig(tl), dev, noStage).
+				Run(ctx, attempt.Attempt{Try: 1, Program: program, Read: readPlan})
 			ruled := time.Since(started)
 
 			h := out.Evidence.Health
 			t.Logf("castor ruled %s after %s: %s", out.Evidence.Verdict, ruled.Round(time.Second), h)
 
-			// The bound is an assertion and not a convenience. Every window here is derived from the
-			// backoff castor hands the reader, so a case that outlives its bound means either a
-			// window has grown or the wiring never reached the rule at all, and both are the defect
-			// this suite exists to catch.
+			// Bound assertion: outliving it means window grew or wiring failed, both defects.
 			if out.Evidence.Cancelled {
 				t.Fatalf("castor never ruled on this origin within %s, so nothing bounds it but the test's own patience", tt.within)
 			}
@@ -253,8 +148,8 @@ func TestAHostileOriginIsRefusedRatherThanCast(t *testing.T) {
 			if played := dev.snapshot(); len(played) > 0 {
 				t.Errorf("a renderer was pointed at %q: a fault reached before playback is revisable, and pointing a renderer at it spends that", played)
 			}
-			if out.Reached() != attempt.PhaseReading {
-				t.Errorf("reached %s, want %s: no renderer was ever handed a URL", out.Reached(), attempt.PhaseReading)
+			if out.Evidence.Reached != attempt.PhaseReading {
+				t.Errorf("reached %s, want %s: no renderer was ever handed a URL", out.Evidence.Reached, attempt.PhaseReading)
 			}
 			if out.Evidence.Verdict != tt.verdict {
 				t.Errorf("verdict %s, want %s: %s", out.Evidence.Verdict, tt.verdict, h)
@@ -274,9 +169,7 @@ func TestAHostileOriginIsRefusedRatherThanCast(t *testing.T) {
 					h.SinceGrowth.Round(time.Second), watch.StallWindow)
 			}
 
-			// Which party ended the read, which is the whole of what separates a source that failed
-			// from a source castor gave up on. Both are real answers and each case is about exactly
-			// one of them.
+			// Which party ended read: distinguishes source failure from castor giving up.
 			switch {
 			case tt.readFailed:
 				if out.Evidence.ReadExit <= 0 {
@@ -306,10 +199,7 @@ func TestAHostileOriginIsRefusedRatherThanCast(t *testing.T) {
 	}
 }
 
-// assertStarving checks the arithmetic behind a deliverability verdict, because that verdict
-// is nothing but arithmetic: without these four numbers it is an accusation against an origin
-// with no measurement attached, and it is expensive (before playback it walks and re-touches
-// every other admitted link).
+// assertStarving verifies the arithmetic behind deliverability verdicts.
 func assertStarving(t *testing.T, h watch.Health) {
 	t.Helper()
 	if h.Headroom <= 1 {
@@ -327,88 +217,47 @@ func assertStarving(t *testing.T, h watch.Health) {
 	}
 }
 
-// TestAStallInFlightEndsTheCastRatherThanRestartingIt is the other side of the fragile read's
-// trade, and the only case in castor that reaches its in-flight window over a real origin.
-//
-// The origin serves ten media seconds and then holds one fragment half written, forever. By
-// then the read has stream info, a proven rate and a buffer, so the gate opens and a renderer
-// is pointed at the stream: this is not a source that can be refused, it is a cast someone is
-// watching that has stopped being fed. Nothing before the supervisor existed could see it at
-// all, because the executor touched the reader for the last time on its way to Play, so a read
-// that died after playback began ran to the end of the title and the cast reported success.
-//
-// The renderer is held to what the read table promises here: the source is fMP4, so the read
-// carries no mid-read deadline (the alternative manufactures a fragment nothing can
-// resynchronise, at "Invalid NAL unit size" and exit 183), which means no ffmpeg timer will
-// ever end this. Castor's stall window is the whole bound, and this is where it is spent with
-// a viewer in front of it.
-//
-// And it must not be cast again. A renderer holds the URL, so the fault is past the line a
-// recovery may cross, and a second attempt is a fresh work directory, a fresh connect and a
-// fresh Play: the film from the beginning at minute ten.
-//
-// WHAT THIS CASE FOUND, and now asserts: castor used to reach the verdict on time and then not
-// return. Measured here, with the stack captured while it was hung: the verdict landed 154 seconds
-// in ("cast abandoned ... window=playing verdict=stalled revisable=false") and Executor.Run stayed
-// inside the delivery's teardown for another 5 minutes 27 seconds, until the CALLER's context
-// expired. The teardown closed the server and then waited for an encoder nothing had killed, and
-// killing it would not have been enough either: os/exec's Wait also waits for the goroutine
-// copying the encoder's stdin, which was parked in a read of the buffer that had stopped growing.
-// The one thing that would have freed it, the cast's own context, is cancelled by a defer in
-// pipeline.run that cannot run until the leg returns. In production the cast context ends only on
-// Ctrl+C or SIGTERM (main.go), so a supervised cast that stalled printed its fault and hung.
-//
-// So the cast has to come back on its own, and the bound below is the assertion: everything past
-// the verdict is stopping an encoder, a server and a progress feed, which waits on nothing but the
-// process it has just killed.
+// TestAStallInFlightEndsTheCastRatherThanRestartingIt verifies stalled casts stop cleanly.
 func TestAStallInFlightEndsTheCastRatherThanRestartingIt(t *testing.T) {
 	t.Parallel()
 	tl := newTools(t)
 
 	origin := startHostile(t, tl, fmp4Segments, stallsMidSegment)
-	policy := read.For(read.ShapeOf(media.Origin{Segmented: true, Framing: media.FramingOutOfBand}), rwTimeout)
+	facts := source.Origin{Segmented: true, Framing: media.FramingOutOfBand}
+	program := hostileProgram(t, origin, facts)
+	readPlan := read.ForProgram(program, rwTimeout)
+	policy := readPlan.Primary(program)
 	if policy.Deadline != 0 {
 		t.Fatalf("this case is about a read given no mid-read deadline, and the policy carries %s", policy.Deadline)
 	}
 
-	// It fetches what it is served, and that is required rather than realistic dressing: a
-	// renderer that took nothing is convicted by its own rule (unfetched, at one reconnect
-	// ceiling) long before the stall window is reached, and the case would pass while asserting
-	// the wrong verdict entirely.
-	dev := &servedRenderer{drain: true, played: make(chan string, 1)}
+	// Renderer must fetch; without this, verdict wrong before stall window is reached.
+	dev := servedLocally()
+	dev.drain, dev.played = true, make(chan string, 1)
 
-	// A backstop and not a schedule: the cast comes back on its own, and this exists only so a
-	// case that fails leaves no reader running.
+	// Backstop timeout; cast returns on its own, timeout just prevents orphaned reader.
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	done := make(chan attempt.Outcome, 1)
 	go func() {
-		done <- pipeline.NewExecutor(hostileConfig(tl), connectTo(dev), noStage, "127.0.0.1").
-			Run(ctx, attempt.Attempt{Try: 1, Source: hostileStream(t, origin), Read: policy})
+		done <- newExecutor(castConfig(tl), dev, noStage).
+			Run(ctx, attempt.Attempt{Try: 1, Program: program, Read: readPlan})
 	}()
 
-	// Wait to be told rather than polling: the renderer signals on Play, so the stall window is
-	// measured from the instant the cast became one somebody is watching, which is the instant
-	// the origin's last fragment lands and growth stops.
+	// Renderer signals on Play; stall window measured from playback start.
 	select {
 	case <-dev.played:
 	case out := <-done:
 		t.Fatalf("the cast ended before any renderer was pointed at anything: %v (verdict %s, %s)",
 			out.Err, out.Evidence.Verdict, out.Evidence.Health)
-	// Bounded so that a cast which never gets as far as playback fails this case rather than
-	// the whole binary: the wait is the source probe's budget plus the margin, and a gate that
-	// opens at all opens within a few seconds of the first byte (it holds for a derived number
-	// of speed samples and nothing else).
+	// Bounded: cast failing before playback fails case, not whole binary.
 	case <-time.After(probeBudget + verdictMargin):
 		t.Fatal("no renderer was pointed at the buffer, so this case never reached the window it is about")
 	}
 	playing := time.Now()
 
-	// The verdict has to be reached within the window that licenses it, and the cast has to RETURN
-	// within it: the margin covers the watch's own polling cadence and the teardown behind the
-	// verdict, and both are bounded by castor rather than by the origin, which is still holding a
-	// fragment half written and will do so forever.
+	// Verdict and return must both occur within stall window.
 	var out attempt.Outcome
 	select {
 	case out = <-done:
@@ -428,8 +277,8 @@ func TestAStallInFlightEndsTheCastRatherThanRestartingIt(t *testing.T) {
 		t.Fatalf("the renderer was played %d times, want 1: this case is about a fault reached with a viewer watching, and no receiver recovers from being pointed somewhere else mid-title",
 			len(played))
 	}
-	if out.Reached() != attempt.PhasePlaying {
-		t.Errorf("reached %s, want %s: the renderer had accepted the URL when the source went quiet", out.Reached(), attempt.PhasePlaying)
+	if out.Evidence.Reached != attempt.PhasePlaying {
+		t.Errorf("reached %s, want %s: the renderer had accepted the URL when the source went quiet", out.Evidence.Reached, attempt.PhasePlaying)
 	}
 	if out.Evidence.Verdict != watch.Stalled {
 		t.Errorf("verdict %s, want %s: %s", out.Evidence.Verdict, watch.Stalled, out.Evidence.Health)
@@ -441,8 +290,7 @@ func TestAStallInFlightEndsTheCastRatherThanRestartingIt(t *testing.T) {
 		t.Errorf("the verdict was reached with %d bytes buffered and %d handed to the renderer, and this case is about a cast that WAS playing",
 			h.Landed, h.Handed)
 	}
-	// A fault reached with a renderer playing may only be attributed, never answered by casting
-	// again, and this is where that is decided rather than in the loop above (see watch.actions).
+	// Faults with renderer playing: attribute only, never re-cast (see watch.actions).
 	var fault *watch.Fault
 	if !errors.As(out.Err, &fault) {
 		t.Fatalf("the cast failed with %v, which carries no verdict, so nothing above it can tell an abandoned cast from a revisable one", out.Err)
@@ -452,33 +300,25 @@ func TestAStallInFlightEndsTheCastRatherThanRestartingIt(t *testing.T) {
 	}
 }
 
-// TestAHealthyOriginPointsTheRendererAtTheBuffer is the control, and it is what the four
-// cases above cannot do without: every one of them passes just as well over a fixture castor
-// could never have cast at all. This one takes the same fixture and the same renderer over an
-// origin that behaves, and requires that a renderer IS pointed at the buffer.
-//
-// It ends by cancelling rather than by running out of input: the point is reached the instant
-// the gate opens and a URL is handed over, and playing out a minute of media past that would
-// buy nothing but a minute.
+// TestAHealthyOriginPointsTheRendererAtTheBuffer is the control: tests healthy origin.
 func TestAHealthyOriginPointsTheRendererAtTheBuffer(t *testing.T) {
 	t.Parallel()
 	tl := newTools(t)
 
 	origin := startHostile(t, tl, tsSegments, servesEverything)
-	policy := read.For(read.ShapeOf(media.Origin{Segmented: true, Framing: media.FramingInBand}), rwTimeout)
+	program := hostileProgram(t, origin, source.Origin{Segmented: true, Framing: media.FramingInBand})
+	readPlan := read.ForProgram(program, rwTimeout)
 
-	dev := &servedRenderer{played: make(chan string, 1)}
-	// The gate's own hold is what this bound is about: it holds for the derived number of
-	// speed samples before it lets a healthy read through (decision 3's one user-visible
-	// latency change, costed at roughly 1.5s), so a bound of a minute is generous by more than
-	// an order of magnitude and still fails loudly if the hold ever became unbounded.
+	dev := servedLocally()
+	dev.played = make(chan string, 1)
+	// Gate holds ~1.5s for speed samples; 60s timeout catches unbounded holds loudly.
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 
 	done := make(chan attempt.Outcome, 1)
 	go func() {
-		done <- pipeline.NewExecutor(hostileConfig(tl), connectTo(dev), noStage, "127.0.0.1").
-			Run(ctx, attempt.Attempt{Try: 1, Source: hostileStream(t, origin), Read: policy})
+		done <- newExecutor(castConfig(tl), dev, noStage).
+			Run(ctx, attempt.Attempt{Try: 1, Program: program, Read: readPlan})
 	}()
 
 	select {
@@ -494,116 +334,33 @@ func TestAHealthyOriginPointsTheRendererAtTheBuffer(t *testing.T) {
 	<-done
 }
 
-// servedRenderer is a renderer that never fetches for itself, which is what puts every case
-// here on the read-once composition: the only one with a reader of castor's own behind a
-// buffer, and therefore the only one whose source a health rule can judge at all.
-//
-// It records what it was pointed at and never fetches it. Fetching would only matter to a
-// case that gets as far as being served, and the four hostile cases assert the opposite.
-type servedRenderer struct {
-	// played, when set, receives every URL handed over, so the control case can proceed the
-	// instant playback starts rather than polling for it.
-	played chan string
-
-	// drain makes it fetch what it is served, on a goroutine of its own so that Play returns
-	// the way a real renderer's does. A case about what happens WHILE a renderer is playing
-	// needs both halves: a Play that only returned at the end of the title would put every
-	// later fault after the cast rather than during it, and a renderer that took nothing is
-	// convicted by its own rule before any other window is reached.
-	drain bool
-
-	mu    sync.Mutex
-	plays []string
-}
-
-// Compile-time proof the stand-in is what the executor consumes.
-var _ device.Device = (*servedRenderer)(nil)
-
-func (d *servedRenderer) Play(ctx context.Context, streamURL *url.URL, _ string) error {
-	d.mu.Lock()
-	d.plays = append(d.plays, streamURL.String())
-	d.mu.Unlock()
-	if d.played != nil {
-		select {
-		case d.played <- streamURL.String():
-		default: // a case that has stopped listening must not wedge the cast
-		}
-	}
-	if d.drain {
-		go d.fetch(ctx, streamURL.String())
-	}
-	return nil
-}
-
-// fetch takes the served stream the way a renderer does, and throws it away. It is bounded by
-// the cast's own context, so a producer that wedges fails a case rather than hanging it.
-func (d *servedRenderer) fetch(ctx context.Context, streamURL string) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, streamURL, nil)
-	if err != nil {
-		return
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return
-	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-}
-
-func (d *servedRenderer) Capabilities() media.Renderer {
-	return media.Renderer{
+// servedLocally is renderer that never fetches; forces read-once, needed for health rules.
+func servedLocally() *servedRenderer {
+	return &servedRenderer{decodes: media.Capabilities{
+		SelfFetch:       false,
 		Video:           []media.VideoSupport{{Codec: media.CodecH264}},
 		Audio:           []media.AudioSupport{{Codec: media.CodecAAC, MaxChannels: 2}},
 		ServedContainer: media.MPEGTS,
-	}
+	}}
 }
 
-func (d *servedRenderer) StreamHeaders(string) map[string]string { return nil }
-func (d *servedRenderer) Close() error                           { return nil }
-
-func (d *servedRenderer) snapshot() []string {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return append([]string(nil), d.plays...)
-}
-
-// connectTo hands the executor a renderer instead of discovering one, which is what keeps
-// these cases about the source: discovery and device protocols are covered by their own
-// suites and neither changes a byte of what a hostile origin delivers.
-func connectTo(dev device.Device) pipeline.ConnectFunc {
-	return func(context.Context, core.Config) (device.Device, error) { return dev, nil }
-}
-
-// noStage is the optional work these casts run beside their read: none. Subtitles are opt-in
-// configuration and no case here asks for them, and the transcription is the one mechanism that
-// would put a cgo build between this suite and a hostile origin.
-func noStage(context.Context, core.Config, string) pipeline.Stage { return nil }
-
-// rwTimeout is the configured mid-read deadline, at the value castor ships. It is the one
-// term of a read an operator still owns, and one of these cases is about the row that keeps
-// it while another is about the row that refuses it, so it is production's number rather than
-// a convenient one.
-const rwTimeout = 30 * time.Second
-
-// hostileConfig is the configuration these casts run on: a renderer family that never
-// fetches for itself, the real media tools, and the shipped timeouts.
-func hostileConfig(tl tools) core.Config {
-	return core.Config{
-		Device:    core.DeviceConfig{Type: device.TypeDLNA},
-		Transcode: core.TranscodeConfig{FFmpegPath: tl.ffmpeg, FFprobePath: tl.ffprobe, RWTimeout: rwTimeout},
-		MaxHeight: 1080,
-	}
-}
-
-// hostileStream is the media.Stream a cast resolves to for a hostile origin.
-func hostileStream(t *testing.T, o hostileOrigin) *media.Stream {
+// hostileProgram creates the normalized program for a hostile origin.
+func hostileProgram(t *testing.T, o hostileOrigin, facts source.Origin) media.Program {
 	t.Helper()
-	return &media.Stream{URL: mustURL(t, o.URL), ContentType: o.ContentType}
+	program, err := media.NewProgram(media.Program{Inputs: []media.Input{{
+		ID: media.PrimaryInputID, URL: mustURL(t, o.URL), ContentType: o.ContentType,
+		Fetch: media.Fetch{Segmented: facts.Segmented, Framing: facts.Framing, Live: facts.Live},
+	}}, Tracks: []media.TrackRef{
+		{Input: media.PrimaryInputID, Kind: media.TrackVideo, Optional: true},
+		{Input: media.PrimaryInputID, Kind: media.TrackAudio, Optional: true},
+	}, ClockInput: media.PrimaryInputID, EndPolicy: media.EndAtLongest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return program
 }
 
-// mentions reports whether any retained line mentions want. The lines are prose, so a case
-// may only look for the number or the phrase a user would search for, and may never key a
-// decision on one (see attempt.Evidence.Lines).
+// mentions checks if retained lines contain want (prose only, not decision basis).
 func mentions(lines []string, want string) bool {
 	for _, line := range lines {
 		if strings.Contains(line, want) {

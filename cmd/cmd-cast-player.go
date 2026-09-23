@@ -18,8 +18,12 @@ func (a *app) castPlayerCommand() *cli.Command {
 				Destination: &pageURL,
 			},
 		},
-		Action: func(ctx context.Context, cmd *cli.Command) error {
-			return a.extractAndCast(ctx, cmd, []string{pageURL})
+		Action: func(ctx context.Context, _ *cli.Command) error {
+			cfg, err := a.config()
+			if err != nil {
+				return err
+			}
+			return a.extractAndCast(ctx, cfg, cfg.Target(), []string{pageURL})
 		},
 	}
 }

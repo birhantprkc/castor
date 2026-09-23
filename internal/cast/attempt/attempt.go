@@ -3,192 +3,124 @@ package attempt
 import (
 	"cmp"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
-	"github.com/stupside/castor/internal/cast/carriage"
-	"github.com/stupside/castor/internal/cast/read"
+	"github.com/stupside/castor/internal/cast/policy/compose"
+	"github.com/stupside/castor/internal/cast/policy/read"
 	"github.com/stupside/castor/internal/media"
+	"github.com/stupside/castor/internal/source"
 )
 
-// Intent is what a whole cast has to work with: the links the ranker admitted in the
-// order it ranked them, what the source published about the program behind the head of
-// that ordering, how a source of that shape is fetched, and the operator's say over the
-// delivery axis.
-//
-// Nothing in it changes while a cast runs. An Attempt is a projection of it, and what a
-// recovery walks through is this material, which is why how many attempts a cast can
-// make is a property of what it was given rather than of a limit inside the loop.
+// Intent is what a cast has; immutable during run, so attempt count is inherent.
 type Intent struct {
-	// Candidates is the ordering the ranker produced, head first: every link it admitted
-	// for this title, each already measured (see resolve.RankStreams). Its length is how
-	// many links a cast may still try, and advancing through it is the load-bearing
-	// recovery: the run this layer was written for reached for the tallest rendition of a
-	// candidate that delivered 0.159x while two other admitted playlists probed cleanly.
-	//
-	// Only the head has been resolved. What each of the others publishes is established
-	// when a cast moves onto it and not before (see SwitchCandidate and Program): a
-	// playlist GET per candidate, up front, is a burst of requests against exactly the
-	// hosts the ranker caps its probes per host to protect, spent on links most casts
-	// never read.
-	Candidates []*media.Stream
+	// Candidates: ranked by source.Ranker; each is resolved when an attempt first reaches it.
+	Candidates []*source.Candidate
 
-	// Origin is what the source published about the program behind the head candidate: the
-	// rendition ladder, how its segments are framed, whether it ends, how long it runs. A
-	// zero Origin is the honest answer for a source whose documents castor never read.
-	Origin media.Origin
-
-	// Rendition is which rung of that ladder the head candidate is, as the source declared
-	// it. Zero says the source layer did not state which rung it chose, which is what a
-	// recovery has to read as the absence of evidence rather than as a free rendition (see
-	// Attempt.Rendition).
-	Rendition media.Rendition
-
-	// Read is how that source is fetched, chosen from its shape before anything started
-	// (see read.For).
-	Read read.Policy
-
-	// Deadline is the configured mid-read deadline. It is carried beside the policy it has
-	// already gone into because a recovery that changes WHAT is read has to re-derive HOW:
-	// the read table takes the deadline as a term, and a row is free to apply or withhold
-	// it.
+	// Deadline is the mid-read stall bound every read plan is derived with.
 	Deadline time.Duration
 
-	// Delivery is the operator's answer on the delivery axis, and the only operator-facing
-	// axis a cast has. It seeds the first attempt, which a recovery may then change.
-	Delivery media.DeliveryPreference
+	// Delivery: operator's answer; seeds first attempt, may be changed by recovery.
+	Delivery compose.DeliveryPreference
 }
 
-// first is the attempt an intent starts from: the head of the ordering, read on the terms
-// its own program was measured for, delivered the way the operator asked.
-func (in Intent) first() Attempt {
-	return Attempt{
-		Try:       1,
-		Source:    in.Candidates[0],
-		Origin:    in.Origin,
-		Rendition: in.Rendition,
-		Read:      in.Read,
-		Delivery:  in.Delivery,
-	}
-}
-
-// Attempt is one fully decided try at a cast: which link is read, which rung of the
-// program that link is, how it is fetched, and how the renderer is asked to receive it.
-//
-// It is pure data with no I/O behind it, which is what lets a cast's whole shape be
-// printed on one line and driven by a scripted runner. It decides nothing either: every
-// field arrives from the intent or from the strategy that changed it, so the question
-// "what was castor trying when this failed" has one answer to read rather than a call
-// stack to reconstruct.
+// Attempt is one fully decided try: link, rung, fetch terms, delivery preference.
 type Attempt struct {
-	// Try counts this attempt within the cast, from 1. It is on the attempt rather than
-	// kept by the loop because it is what places a log line: two attempts of the same cast
-	// otherwise print the same fields and read as one confused run.
+	// Try counts within cast from 1; without it, different tries look identical.
 	Try int
 
-	// Candidate is which of the intent's links this attempt reads, as an index into
-	// Intent.Candidates, and Source is that link.
+	// Candidate is an index into Intent.Candidates. Program is the resolved graph read for it.
 	Candidate int
-	Source    *media.Stream
+	Program   media.Program
 
-	// Origin is what the source published about the program behind Source. It travels with
-	// the candidate, because what one link published about its program says nothing about
-	// another's.
-	Origin media.Origin
+	// Origin travels with candidate; one link's facts don't apply to another's.
+	Origin source.Origin
 
-	// Rendition is the rung of that ladder Source is, as the source declared it. It is
-	// zero where the source layer did not say which rung it chose, which is the ordinary
-	// case: resolution narrows a master to one URL and the variant it picked does not
-	// travel with it.
-	//
-	// A recovery reads a zero rung as the absence of evidence and not as a free rendition,
-	// for the same reason media.Origin.Lighter refuses an undeclared bitrate as a
-	// destination: 0 is arithmetically below every ceiling, and acting on that is how a
-	// degrade lands on a rung heavier than the one it was escaping.
-	Rendition media.Rendition
+	// Rendition: Program's selected rung; zero is absence of evidence, not free rendition.
+	Rendition source.Rendition
 
-	// Read is how the source is fetched, and it is a value the readers RENDER rather than
-	// a set of flags: both readers of one attempt open the upstream on identical terms
-	// because they are handed the same policy.
-	Read read.Policy
+	// Read: how inputs are fetched; value not flags, so both readers use identical terms.
+	Read read.Plan
 
-	// Decode is the axes this attempt must decode rather than copy, over and above
-	// whatever the containers it writes are known not to carry. It is empty on a first
-	// attempt and only ever gains axes within one link, which is what makes it a strict
-	// descent: a copy this cast has proved fatal is not reinstated.
-	//
-	// It is a term of the ATTEMPT and not of a leg because both readers of a cast are
-	// bound by it: the buffered read is the process that carries the auto-inserted
-	// bitstream filter into MPEG-TS and therefore the one that dies on a bitstream it
-	// cannot resynchronise, and the encode that tails the buffer must not then copy the
-	// same packets straight back out.
-	Decode carriage.Axes
+	// Decode: axes to decode not copy; only gains, never reinstates (strict descent).
+	Decode media.Axes
 
-	// Delivery is the operator's say over the delivery axis, carried here rather than read
-	// from configuration by whoever needs it. A recovery is allowed to change it, so a
-	// stage reading the configured value would be reading the answer to a question that
-	// has since been asked again.
-	Delivery media.DeliveryPreference
+	// Delivery: carried here not from config; recovery may change it.
+	Delivery compose.DeliveryPreference
 }
 
-// identity is what an attempt DOES, as opposed to which try of a cast it is: exactly the
-// fields a strategy can change, and nothing a strategy cannot.
-//
-// It exists because the two things that read it used to spell it out separately, in different
-// words, next to each other. One is the line a failed run is read in, the other is what the
-// ledger tells a revised attempt from a repeat by, and the second carries a requirement: a
-// strategy whose whole effect is invisible to it produces an attempt the ledger refuses as a
-// repeat, so its recovery never runs at all. They had already drifted, the ledger's half
-// having been written without the rung's height while the line beside it printed one, so a
-// degrade onto a shorter rung at the same bitrate was a recovery that could not run.
-//
-// Both are rendered from this value, so extending the identity in one and forgetting it in
-// the other is no longer something that can be done.
+// identity is exactly the fields a strategy can change; used by both log and ledger.
 type identity struct {
 	Candidate int
-	URL       string
+	Program   string
 	Bitrate   media.Bitrate
 	Height    int
 	Read      string
-	Delivery  media.DeliveryPreference
-	Decode    carriage.Axes
+	Delivery  compose.DeliveryPreference
+	Decode    media.Axes
 }
 
-// identify spells the link rather than dereferencing it, and fills in what an unset field
-// means wherever the answer is a default rather than an absence. A strategy that returns an
-// attempt with no source is a table bug to be refused like any other repeat, not a panic in
-// the middle of a cast.
-func (a Attempt) identify() identity {
-	url := "none"
-	if a.Source != nil && a.Source.URL != nil {
-		url = a.Source.URL.String()
-	}
+// identify fills defaults for unset fields; treats missing source as table bug.
+func (a Attempt) identify(redactURLSecrets bool) identity {
 	return identity{
 		Candidate: a.Candidate,
-		URL:       url,
+		Program:   programIdentity(a.Program, redactURLSecrets),
 		Bitrate:   a.Rendition.Bitrate,
 		Height:    a.Rendition.Height,
-		Read:      cmp.Or(a.Read.Name, "unset"),
-		Delivery:  cmp.Or(a.Delivery, media.DeliveryAuto),
+		Read:      cmp.Or(a.Read.String(), "unset"),
+		Delivery:  cmp.Or(a.Delivery, compose.DeliveryAuto),
 		Decode:    a.Decode,
 	}
 }
 
-// String is the one line that says what is being tried, in the vocabulary a failed run
-// has to be read in: which link of how many, which rung, on what read terms, copying
-// what.
-func (a Attempt) String() string {
-	id := a.identify()
-	return fmt.Sprintf("candidate=%d url=%s rung_bitrate=%d rung_height=%d read=%s delivery=%s decode=%s",
-		id.Candidate, id.URL, id.Bitrate, id.Height, id.Read, id.Delivery, id.Decode)
+// String is the only rendering; add fields above or they're missing from ledger.
+func (id identity) String() string {
+	return fmt.Sprintf("candidate=%d program=%s rung_bitrate=%d rung_height=%d read=%s delivery=%s decode=%s",
+		id.Candidate, id.Program, id.Bitrate, id.Height, id.Read, id.Delivery, id.Decode)
 }
 
-// key is that identity as one comparable string, so the ledger can tell a revised attempt
-// from one this cast has already run. Try is deliberately no part of it: two attempts that
-// read the same link the same way are the same attempt however many tries apart they are.
-//
-// It renders the whole struct rather than a list of its fields chosen here, which is the
-// point: a field added to the identity is in the ledger's answer the moment it exists, with
-// nothing for anybody to remember.
-func (a Attempt) key() string {
-	return fmt.Sprintf("%+v", a.identify())
+// String redacts the URL secrets, because a line a user reads is not a place to print a signed query.
+func (a Attempt) String() string { return a.identify(true).String() }
+
+// programIdentity includes all inputs/tracks; visible in ledger like primary URL changes.
+func programIdentity(program media.Program, redactURLSecrets bool) string {
+	parts := make([]string, 0, len(program.Inputs)+len(program.Tracks)+len(program.Offsets)+1)
+	for _, input := range program.Inputs {
+		inputURL := input.URL.String()
+		if redactURLSecrets {
+			u := *input.URL
+			u.User, u.RawQuery, u.Fragment = nil, "", ""
+			inputURL = u.String()
+		}
+		parts = append(parts, fmt.Sprintf("input:%s=%s:%s:%t",
+			input.ID, inputURL, input.ContentType, input.RequiresRelaxedInput))
+	}
+	for _, track := range program.Tracks {
+		parts = append(parts, fmt.Sprintf("track:%s=%s:%d:%t",
+			track.Kind, track.Input, track.Index, track.Optional))
+	}
+	offsets := make([]string, 0, len(program.Offsets))
+	for input, offset := range program.Offsets {
+		offsets = append(offsets, fmt.Sprintf("%s=%s", input, offset))
+	}
+	slices.Sort(offsets)
+	parts = append(parts, fmt.Sprintf("sync:%s:%s:%s",
+		program.ClockInput, program.EndPolicy, strings.Join(offsets, ",")))
+	return strings.Join(parts, "|")
+}
+
+// key is identity as string; Try omitted (same link/terms = same attempt).
+func (a Attempt) key() string { return a.identify(false).String() }
+
+// reading binds a resolution to the attempt with a read plan derived for its program.
+func (a Attempt) reading(r source.Resolution, deadline time.Duration) Attempt {
+	a.Program, a.Origin, a.Rendition = r.Program, r.Origin, r.Rendition
+	a.Read = read.ForProgram(a.Program, deadline)
+	return a
+}
+
+// SelfFetchHeight is the tallest picture a renderer fetching this attempt's link could pull.
+func (a Attempt) SelfFetchHeight() int {
+	return source.SelfFetchHeight(a.Program, a.Origin, a.Rendition)
 }

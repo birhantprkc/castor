@@ -1,156 +1,103 @@
 package tmdb
 
 import (
-	"slices"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"sync"
 	"testing"
-	"time"
 )
 
-func TestSortBy(t *testing.T) {
-	cases := []struct {
-		sort      Sort
-		mediaType string
-		want      string
-	}{
-		{SortPopularity, MediaMovie, "popularity.desc"},
-		{SortPopularity, MediaTV, "popularity.desc"},
-		{SortRating, MediaMovie, "vote_average.desc"},
-		{SortNewest, MediaMovie, "primary_release_date.desc"},
-		{SortNewest, MediaTV, "first_air_date.desc"},
+// Search uses one url.Values for two requests; get must not mutate caller's map.
+func TestGetTreatsCallerValuesAsReadOnly(t *testing.T) {
+	var mu sync.Mutex
+	var keys []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		keys = append(keys, r.URL.Query().Get("api_key"))
+		mu.Unlock()
+		_, _ = w.Write([]byte(`{"results":[{"id":1,"title":"Dune"}]}`))
+	}))
+	defer srv.Close()
+	c := &Client{apiKey: "secret", base: srv.URL, http: srv.Client()}
+
+	q := url.Values{"query": {"dune"}}
+	var out struct{}
+	if err := c.get(t.Context(), "/search/movie", q, &out); err != nil {
+		t.Fatal(err)
 	}
-	for _, c := range cases {
-		if got := sortBy(c.sort, c.mediaType); got != c.want {
-			t.Errorf("sortBy(%v,%q) = %q, want %q", c.sort, c.mediaType, got, c.want)
+	if _, mutated := q["api_key"]; mutated {
+		t.Fatal("get wrote api_key into the caller's values")
+	}
+
+	// Race detector proves Search goroutines don't collide on shared map.
+	res, err := c.Search(t.Context(), "dune")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 2 {
+		t.Fatalf("Search returned %d rows, want one per media type", len(res))
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for i, k := range keys {
+		if k != "secret" {
+			t.Fatalf("request %d carried api_key %q", i, k)
 		}
 	}
 }
 
-func TestSortLabel(t *testing.T) {
-	for _, s := range Sorts {
-		if s.Label() == "" {
-			t.Errorf("sort %d has empty label", s)
+type failingTransport struct{}
+
+func (failingTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("connection refused")
+}
+
+// Errors reach the TUI status line, so none may quote the keyed request URL.
+func TestErrorsNeverCarryTheAPIKey(t *testing.T) {
+	const key = "s3cr3t-api-key"
+	c := New(key)
+	c.http.Transport = failingTransport{}
+
+	_, searchErr := c.Search(t.Context(), "dune")
+	_, detailsErr := c.Details(t.Context(), MediaMovie, 42)
+	_, posterErr := c.Poster(t.Context(), "/p.jpg", "w500")
+	for name, err := range map[string]error{"search": searchErr, "details": detailsErr, "poster": posterErr} {
+		if err == nil {
+			t.Fatalf("%s: want an error from a failing transport", name)
+		}
+		if strings.Contains(err.Error(), key) {
+			t.Errorf("%s error leaks the api key: %v", name, err)
 		}
 	}
-	if SortRating.Label() != "Rating" {
-		t.Errorf("SortRating label = %q", SortRating.Label())
-	}
 }
 
-func TestGenreCatalogFor(t *testing.T) {
-	cat := GenreCatalog{
-		Movie: []Genre{{ID: 28, Name: "Action"}},
-		TV:    []Genre{{ID: 10759, Name: "Action & Adventure"}},
-	}
-	if got := cat.For(MediaMovie); len(got) != 1 || got[0].ID != 28 {
-		t.Errorf("For(movie) = %+v", got)
-	}
-	if got := cat.For(MediaTV); len(got) != 1 || got[0].ID != 10759 {
-		t.Errorf("For(tv) = %+v", got)
-	}
-}
+func TestPosterStreamsTheImageAndRejectsMissingOnes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/w500/p.jpg" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte("jpeg bytes"))
+	}))
+	defer srv.Close()
+	c := New("secret")
+	c.images = srv.URL + "/"
 
-func TestDetailsRuntimeMinutes(t *testing.T) {
-	if got := (&Details{Runtime: 128}).RuntimeMinutes(); got != 128 {
-		t.Errorf("movie runtime = %d", got)
+	body, err := c.Poster(t.Context(), "/p.jpg", "w500")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := (&Details{EpisodeRunTime: []int{42, 45}}).RuntimeMinutes(); got != 42 {
-		t.Errorf("tv runtime = %d", got)
+	got, err := io.ReadAll(body)
+	_ = body.Close()
+	if err != nil || string(got) != "jpeg bytes" {
+		t.Fatalf("poster body = %q, %v", got, err)
 	}
-	if got := (&Details{}).RuntimeMinutes(); got != 0 {
-		t.Errorf("empty runtime = %d", got)
-	}
-}
 
-func TestDetailsGenreNames(t *testing.T) {
-	d := &Details{Genres: []Genre{{ID: 28, Name: "Action"}, {ID: 878, Name: "Science Fiction"}}}
-	if got := d.GenreNames(); !slices.Equal(got, []string{"Action", "Science Fiction"}) {
-		t.Errorf("GenreNames = %v", got)
-	}
-}
-
-func TestDetailsTopCast(t *testing.T) {
-	var d Details
-	d.Credits.Cast = []struct {
-		Name string `json:"name"`
-	}{
-		{Name: "A"}, {Name: ""}, {Name: "B"}, {Name: "C"}, {Name: "D"},
-	}
-	got := d.TopCast(3)
-	if !slices.Equal(got, []string{"A", "B", "C"}) {
-		t.Errorf("TopCast(3) = %v, want [A B C] (empties skipped)", got)
-	}
-}
-
-func TestSearchResultTitleAndYear(t *testing.T) {
-	movie := SearchResult{Title: "Dune", ReleaseDate: "2021-10-22"}
-	if movie.DisplayTitle() != "Dune" || movie.Year() != "2021" {
-		t.Errorf("movie = %q %q", movie.DisplayTitle(), movie.Year())
-	}
-	tv := SearchResult{Name: "Severance", FirstAirDate: "2022-02-18"}
-	if tv.DisplayTitle() != "Severance" || tv.Year() != "2022" {
-		t.Errorf("tv = %q %q", tv.DisplayTitle(), tv.Year())
-	}
-	if got := (SearchResult{}).Year(); got != "" {
-		t.Errorf("empty year = %q", got)
-	}
-}
-
-// yesterday and tomorrow bracket today, so a row's air state is stated relative
-// to the run rather than pinned to a date that goes stale.
-func yesterday() string { return time.Now().UTC().AddDate(0, 0, -1).Format(time.DateOnly) }
-func tomorrow() string  { return time.Now().UTC().AddDate(0, 0, 1).Format(time.DateOnly) }
-
-// TestInterleaveKeepsEachRankingIntact is what replaced the old people filter.
-// Search and trending now ask two type-scoped endpoints instead of one mixed one,
-// so the merge is what decides the order the user reads, and each half must keep
-// the rank TMDB gave it.
-func TestInterleaveKeepsEachRankingIntact(t *testing.T) {
-	movies := []SearchResult{{ID: 1}, {ID: 3}, {ID: 5}}
-	shows := []SearchResult{{ID: 2}, {ID: 4}}
-	for _, tt := range []struct {
-		name          string
-		movies, shows []SearchResult
-		want          []int
-	}{
-		{"equal-length halves alternate", movies[:2], shows, []int{1, 2, 3, 4}},
-		{"the longer half runs on at the end", movies, shows, []int{1, 2, 3, 4, 5}},
-		{"a search that only matched shows", nil, shows, []int{2, 4}},
-		{"a search that only matched movies", movies, nil, []int{1, 3, 5}},
-		{"a search that matched nothing", nil, nil, nil},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			got := interleave(tt.movies, tt.shows)
-			ids := make([]int, len(got))
-			for i, r := range got {
-				ids[i] = r.ID
-			}
-			if !slices.Equal(ids, tt.want) {
-				t.Errorf("interleave = %v, want %v", ids, tt.want)
-			}
-		})
-	}
-}
-
-// TestUnairedKeepsUndatedRows pins the deliberate asymmetry with showable. A
-// season or episode reached by drilling into a show is not an announcement the
-// way a browse row is, so only what is positively dated ahead is hidden.
-func TestUnairedKeepsUndatedRows(t *testing.T) {
-	for _, tt := range []struct {
-		name    string
-		date    string
-		unaired bool
-	}{
-		{"dated in the future", tomorrow(), true},
-		{"dated in the past", yesterday(), false},
-		{"no date, which TMDB leaves off often enough to matter", "", false},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := (Season{AirDate: tt.date}).Unaired(); got != tt.unaired {
-				t.Errorf("Season.Unaired() = %v, want %v", got, tt.unaired)
-			}
-			if got := (Episode{AirDate: tt.date}).Unaired(); got != tt.unaired {
-				t.Errorf("Episode.Unaired() = %v, want %v", got, tt.unaired)
-			}
-		})
+	if _, err := c.Poster(t.Context(), "/gone.jpg", "w500"); err == nil {
+		t.Fatal("a 404 poster should be an error, not an empty image")
 	}
 }

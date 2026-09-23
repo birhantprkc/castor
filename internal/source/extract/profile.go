@@ -1,20 +1,16 @@
-// Castor is a proof of concept provided for lawful, personal, and educational
-// use. This file is part of its stream-extraction pipeline and is intended only
-// for accessing content you are authorized to view. Do not use it to infringe
-// copyright or to circumvent access controls. The author does not endorse or
-// condone piracy. See the "Purpose and disclaimer" section of the README.
-
 package extract
 
 import (
 	"fmt"
 	"math/rand/v2"
+	"strconv"
+	"strings"
 )
 
-// Profile holds a coherent set of browser fingerprint values for a single
-// extraction session. Every field is internally consistent: UA, platform,
-// WebGL, locale, Client Hints, etc. all match the same virtual identity.
-type Profile struct {
+// profile holds a coherent set of browser fingerprint values for a single extraction session.
+type profile struct {
+	uaOS                string
+	grease              string
 	UserAgent           string
 	Brands              [][2]string // [brand, majorVersion]
 	FullVersionList     [][2]string // [brand, fullVersion]
@@ -94,6 +90,16 @@ var platformPresets = []platformPreset{
 		bitness:           "64",
 		webGLRenderers: []webGLPreset{
 			{"Google Inc. (Apple)", "ANGLE (Apple, Apple M1, OpenGL 4.1)"},
+		},
+	},
+	{
+		uaOS:              "Macintosh; Intel Mac OS X 10_15_7",
+		navigatorPlatform: "MacIntel",
+		chPlatform:        "macOS",
+		chPlatformVersion: "14.5.0",
+		architecture:      "x86",
+		bitness:           "64",
+		webGLRenderers: []webGLPreset{
 			{"Google Inc. (Intel Inc.)", "ANGLE (Intel Inc., Intel Iris Plus Graphics, OpenGL 4.1)"},
 		},
 	},
@@ -125,47 +131,24 @@ var localePresets = []localePreset{
 	{"Europe/London", "en-GB,en;q=0.9,en-US;q=0.8", []string{"en-GB", "en", "en-US"}},
 }
 
-type chromeVersion struct {
-	major string
-	full  string
-}
-
-var chromeVersions = []chromeVersion{
-	{"131", "131.0.0.0"},
-	{"132", "132.0.0.0"},
-	{"133", "133.0.0.0"},
-}
-
 var hardwareConcurrencies = []int64{4, 8, 12, 16}
-var deviceMemories = []int{4, 8, 16}
+
+var deviceMemories = []int{4, 8}
 var greaseBrands = []string{`Not A(Brand`, `Not/A)Brand`, `Not_A Brand`}
 
-// NewProfile builds a randomized but internally-consistent browser fingerprint.
-func NewProfile() *Profile {
+// newProfile draws everything but the version, which only the running browser can state.
+func newProfile() *profile {
 	plat := platformPresets[rand.IntN(len(platformPresets))]
 	webgl := plat.webGLRenderers[rand.IntN(len(plat.webGLRenderers))]
 	scr := screenPresets[rand.IntN(len(screenPresets))]
 	loc := localePresets[rand.IntN(len(localePresets))]
-	ver := chromeVersions[rand.IntN(len(chromeVersions))]
 	grease := greaseBrands[rand.IntN(len(greaseBrands))]
 	hwConc := hardwareConcurrencies[rand.IntN(len(hardwareConcurrencies))]
 	devMem := deviceMemories[rand.IntN(len(deviceMemories))]
 
-	return &Profile{
-		UserAgent: fmt.Sprintf(
-			"Mozilla/5.0 (%s) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Safari/537.36",
-			plat.uaOS, ver.full,
-		),
-		Brands: [][2]string{
-			{grease, "8"},
-			{"Chromium", ver.major},
-			{"Google Chrome", ver.major},
-		},
-		FullVersionList: [][2]string{
-			{grease, "8.0.0.0"},
-			{"Chromium", ver.full},
-			{"Google Chrome", ver.full},
-		},
+	return &profile{
+		uaOS:                plat.uaOS,
+		grease:              grease,
 		Platform:            plat.chPlatform,
 		PlatformVersion:     plat.chPlatformVersion,
 		Architecture:        plat.architecture,
@@ -188,4 +171,21 @@ func NewProfile() *Profile {
 		RectNoisePx:         0.001 + rand.Float64()*0.098,
 		AudioNoiseMag:       0.00001 + rand.Float64()*0.00009,
 	}
+}
+
+// identify pins the user agent and client hints to the version a browser reports as its product.
+func (p *profile) identify(product string) error {
+	_, full, _ := strings.Cut(product, "/")
+	major, _, _ := strings.Cut(full, ".")
+	if _, err := strconv.Atoi(major); err != nil || full == "" {
+		return fmt.Errorf("browser product %q states no version", product)
+	}
+	// A real Chrome reports only its major version in the user agent.
+	p.UserAgent = fmt.Sprintf(
+		"Mozilla/5.0 (%s) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s.0.0.0 Safari/537.36",
+		p.uaOS, major,
+	)
+	p.Brands = [][2]string{{p.grease, "8"}, {"Chromium", major}, {"Google Chrome", major}}
+	p.FullVersionList = [][2]string{{p.grease, "8.0.0.0"}, {"Chromium", full}, {"Google Chrome", full}}
+	return nil
 }

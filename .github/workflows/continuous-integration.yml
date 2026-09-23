@@ -23,7 +23,7 @@ jobs:
         with:
           submodules: true
       - uses: ./.github/actions/setup
-      - run: eval "$(make env)" && go test ./...
+      - run: eval "$(make env)" && ./scripts/tested.sh
 
   lint:
     runs-on: ubuntu-latest
@@ -33,6 +33,28 @@ jobs:
           submodules: true
       - uses: ./.github/actions/setup
       - run: eval "$(make env)" && go vet ./...
+      # Pinned, not @latest: a lint gate that changes under CI turns an unrelated
+      # push red and teaches everyone to ignore it. It runs under make env because
+      # the repo is cgo and staticcheck type-checks the whole graph.
+      - run: eval "$(make env)" && go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 ./internal/... ./cmd/...
+      # -test is load-bearing: without it every function only a test reaches reads
+      # as dead. deadcode exits 0 whether or not it found anything, so the gate is
+      # its output and not its status. One line is allowed through: castorNativeLog
+      # carries //export and nativelog.c installs it as whisper.cpp's global log
+      # callback, so its only caller is C and no Go callgraph can see it.
       - run: |
-          unformatted=$(gofmt -s -l cmd internal main.go)
+          eval "$(make env)"
+          dead=$(go run golang.org/x/tools/cmd/deadcode@v0.48.0 -test ./... 2>&1 | grep -v '^internal/subtitle/whisper/nativelog.go:[0-9]*:[0-9]*: unreachable func: castorNativeLog$' || true)
+          [ -z "$dead" ] || { printf 'unreachable:\n%s\n' "$dead"; exit 1; }
+      # Only findings inside the checkout count. The whisper bindings are cgo, so
+      # the package modernize is handed carries cmd/cgo's generated _cgo_gotypes.go,
+      # which lives in the build cache and declares its own interface{} parameters.
+      # It is regenerated on a clean checkout too (measured with an empty GOCACHE),
+      # and nobody can edit it, so a gate that read it could never go green.
+      - run: |
+          eval "$(make env)"
+          findings=$(go run golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize@v0.22.0 ./internal/... ./cmd/... 2>&1 | grep "^$PWD/" || true)
+          [ -z "$findings" ] || { printf 'modernize:\n%s\n' "$findings"; exit 1; }
+      - run: |
+          unformatted=$(gofmt -s -l cmd internal e2e main.go)
           [ -z "$unformatted" ] || { printf 'unformatted:\n%s\n' "$unformatted"; exit 1; }

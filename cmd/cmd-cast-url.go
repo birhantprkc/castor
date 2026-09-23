@@ -8,7 +8,8 @@ import (
 	"github.com/urfave/cli/v3"
 
 	"github.com/stupside/castor/internal/cast"
-	"github.com/stupside/castor/internal/media"
+	"github.com/stupside/castor/internal/config"
+	"github.com/stupside/castor/internal/source"
 )
 
 func (a *app) castURLCommand() *cli.Command {
@@ -23,13 +24,13 @@ func (a *app) castURLCommand() *cli.Command {
 				Destination: &urlArg,
 			},
 		},
-		Action: func(ctx context.Context, cmd *cli.Command) error {
+		Action: func(ctx context.Context, _ *cli.Command) error {
 			urlObj, err := url.Parse(urlArg)
 			if err != nil {
 				return fmt.Errorf("invalid URL %q: %w", urlArg, err)
 			}
 
-			if cmd.Bool("dry-run") {
+			if a.dryRun {
 				fmt.Println(urlObj.String())
 				return nil
 			}
@@ -39,11 +40,13 @@ func (a *app) castURLCommand() *cli.Command {
 				return err
 			}
 
-			// One link, because a URL a user typed is the whole ordering: nothing ranked it
-			// against anything and there is no next candidate to fall to. A cast of it can still
-			// degrade a rung or stop copying an axis, which are recoveries within the link.
-			stream := &media.Stream{URL: urlObj, ContentType: media.DetectFromExtension(urlObj)}
-			return cast.Play(ctx, cfg.Playback(), []*media.Stream{stream})
+			// Measure direct URL (not rank) to extract envelope for pass-through.
+			stream := &source.Candidate{URL: urlObj, ContentType: config.Formats.ContentTypeOf(urlObj, "")}
+			measured, err := cfg.Ranker().Measure(ctx, stream)
+			if err != nil {
+				return fmt.Errorf("measuring direct URL: %w", err)
+			}
+			return cast.Play(ctx, playback(cfg, cfg.Target()), []*source.Candidate{measured})
 		},
 	}
 }

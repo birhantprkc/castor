@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -15,27 +14,31 @@ import (
 	"github.com/stupside/castor/internal/device"
 )
 
-func PickDevice(timeout time.Duration, defaultName string) (device.Info, error) {
-	m := newPickerModel(timeout, defaultName)
-	final, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
+// PickDevice blocks until device selected or quit; context cancellation doesn't interrupt raw terminal input.
+func PickDevice(ctx context.Context, discover Discover, defaultName string) (device.Info, error) {
+	m := newPickerModel(ctx, discover, defaultName)
+	final, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx)).Run()
 	if err != nil {
 		return device.Info{}, err
 	}
-	if fm, ok := final.(pickerModel); ok {
-		return fm.selected, fm.err
+	// Zero Info without error looks like success; require explicit selection.
+	fm, ok := final.(pickerModel)
+	if !ok || (fm.err == nil && fm.selected == (device.Info{})) {
+		return device.Info{}, fmt.Errorf("cancelled")
 	}
-	return device.Info{}, nil
+	return fm.selected, fm.err
 }
 
 type devicesDoneMsg struct {
 	devices []device.Info
-	err     error
 }
 
 var pDim = lipgloss.AdaptiveColor{Light: "#D4D4D8", Dark: "#3F3F46"}
 
 type pickerModel struct {
-	timeout     time.Duration
+	// tea.Cmd is parameterless closure; context accessible only via model.
+	ctx         context.Context
+	discover    Discover
 	defaultName string
 	list        list.Model
 	spin        spinner.Model
@@ -56,7 +59,7 @@ func (i pickerItem) Description() string {
 }
 func (i pickerItem) FilterValue() string { return i.Name }
 
-func newPickerModel(timeout time.Duration, defaultName string) pickerModel {
+func newPickerModel(ctx context.Context, discover Discover, defaultName string) pickerModel {
 	sp := spinner.New()
 	sp.Spinner = spinner.MiniDot
 	sp.Style = lipgloss.NewStyle().Foreground(accent)
@@ -77,10 +80,13 @@ func newPickerModel(timeout time.Duration, defaultName string) pickerModel {
 	l.SetShowStatusBar(false)
 	l.SetShowHelp(false)
 	l.SetFilteringEnabled(false)
+	// Disable list quit binding; quit modal owns program exit.
+	l.DisableQuitKeybindings()
 	l.Styles.NoItems = lipgloss.NewStyle().Foreground(fgMuted).Padding(0, 2)
 
 	return pickerModel{
-		timeout:     timeout,
+		ctx:         ctx,
+		discover:    discover,
 		defaultName: defaultName,
 		spin:        sp,
 		list:        l,
@@ -89,7 +95,7 @@ func newPickerModel(timeout time.Duration, defaultName string) pickerModel {
 }
 
 func (m pickerModel) Init() tea.Cmd {
-	return tea.Batch(m.spin.Tick, discoverDevicesCmd(m.timeout))
+	return tea.Batch(m.spin.Tick, discoverDevicesCmd(m.ctx, m.discover))
 }
 
 func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -106,10 +112,6 @@ func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case devicesDoneMsg:
 		m.loading = false
-		if msg.err != nil {
-			m.err = msg.err
-			return m, nil
-		}
 		items := make([]list.Item, len(msg.devices))
 		for i, d := range msg.devices {
 			items[i] = pickerItem(d)
@@ -228,9 +230,12 @@ var pickKeys = pickerKeyMap{
 	Back:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 }
 
-func discoverDevicesCmd(timeout time.Duration) tea.Cmd {
+// discoverDevicesCmd prevents discovery sweeps from outliving app shutdown.
+func discoverDevicesCmd(ctx context.Context, discover Discover) tea.Cmd {
 	return func() tea.Msg {
-		devices, err := device.Discover(context.Background(), timeout)
-		return devicesDoneMsg{devices: devices, err: err}
+		return devicesDoneMsg{devices: discover(ctx)}
 	}
 }
+
+// Discover performs one device discovery sweep; family/registry bound at root.
+type Discover func(ctx context.Context) []device.Info
