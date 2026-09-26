@@ -381,7 +381,7 @@ func (d *dlnaDevice) Play(ctx context.Context, streamURL *url.URL, contentType s
 		CurrentURI         string
 		CurrentURIMetaData string
 	}{"0", streamURL.String(), metadata}
-	if err := retryTransportLocked(ctx, transportLockedRetries, transportLockedDelay, func() error {
+	if err := retryTransportLocked(ctx, func() error {
 		return d.action(ctx, "SetAVTransportURI", setURI)
 	}); err != nil {
 		return fmt.Errorf("setting transport URI: %w", err)
@@ -391,7 +391,7 @@ func (d *dlnaDevice) Play(ctx context.Context, streamURL *url.URL, contentType s
 		InstanceID string
 		Speed      string
 	}{"0", "1"}
-	if err := retryTransportLocked(ctx, transportLockedRetries, transportLockedDelay, func() error {
+	if err := retryTransportLocked(ctx, func() error {
 		return d.action(ctx, "Play", play)
 	}); err != nil {
 		return fmt.Errorf("starting playback: %w", err)
@@ -399,9 +399,9 @@ func (d *dlnaDevice) Play(ctx context.Context, streamURL *url.URL, contentType s
 	return nil
 }
 
-func retryTransportLocked(ctx context.Context, retries int, delay time.Duration, do func() error) error {
+func retryTransportLocked(ctx context.Context, do func() error) error {
 	var err error
-	for attempt := range retries {
+	for attempt := range transportLockedRetries {
 		err = do()
 		if !isTransportLocked(err) {
 			return err
@@ -410,7 +410,7 @@ func retryTransportLocked(ctx context.Context, retries int, delay time.Duration,
 		select {
 		case <-ctx.Done():
 			return err
-		case <-time.After(delay):
+		case <-time.After(transportLockedDelay):
 		}
 	}
 	return err
@@ -448,13 +448,13 @@ func (w *transportWatch) observe(state string) bool {
 
 // AwaitEnd polls AVTransport because UPnP families share no dependable event subscription.
 func (d *dlnaDevice) AwaitEnd(ctx context.Context) error {
-	return awaitTransportEnd(ctx, d.name(), device.UnreachableWindow, device.PollInterval, d.transportState)
+	return awaitTransportEnd(ctx, d.name(), d.transportState)
 }
 
 // awaitTransportEnd folds the AVTransport state machine over the shared poll loop.
-func awaitTransportEnd(ctx context.Context, name string, unreachableFor, interval time.Duration, poll func(context.Context) (string, error)) error {
+func awaitTransportEnd(ctx context.Context, name string, poll func(context.Context) (string, error)) error {
 	var watch transportWatch
-	return device.AwaitPolledEnd(ctx, name, transportQuery, unreachableFor, interval,
+	return device.AwaitPolledEnd(ctx, name, transportQuery, device.UnreachableWindow, device.PollInterval,
 		func(ctx context.Context) (bool, error) {
 			state, err := poll(ctx)
 			if err != nil {
@@ -500,19 +500,15 @@ const (
 	dlnaFlagsFile = "01300000000000000000000000000000"
 )
 
-// dlnaProfileFor returns the DLNA PN and FLAGS for a content type.
-func dlnaProfileFor(contentType string) (name, flags string) {
+// contentFeatures is the DLNA PN and FLAGS a content type is announced with.
+func contentFeatures(contentType string) string {
+	name, flags := "", dlnaFlagsLive
 	switch contentType {
 	case media.MPEGTS:
-		return "MPEG_TS_HD_NA_ISO", dlnaFlagsLive
+		name = "MPEG_TS_HD_NA_ISO"
 	case media.MP4:
-		return "AVC_MP4_HP_HD_AAC", dlnaFlagsFile
+		name, flags = "AVC_MP4_HP_HD_AAC", dlnaFlagsFile
 	}
-	return "", dlnaFlagsLive
-}
-
-func contentFeatures(contentType string) string {
-	name, flags := dlnaProfileFor(contentType)
 	return fmt.Sprintf("DLNA.ORG_PN=%s;DLNA.ORG_OP=00;DLNA.ORG_CI=1;DLNA.ORG_FLAGS=%s", name, flags)
 }
 

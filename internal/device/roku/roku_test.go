@@ -73,7 +73,7 @@ func TestInstallChannelDigestUpload(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	if err := installChannel(t.Context(), ts.URL+"/plugin_install", "rokudev", "secret", []byte("PK\x03\x04fake-zip-bytes")); err != nil {
+	if err := installChannel(t.Context(), ts.URL+"/plugin_install", "secret", []byte("PK\x03\x04fake-zip-bytes")); err != nil {
 		t.Fatalf("installChannel() error = %v", err)
 	}
 	if !challenged || archiveLen == 0 {

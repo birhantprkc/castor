@@ -108,7 +108,7 @@ func TestAnUnbrokenRunOfFailedPollsIsNeededToEndTheCast(t *testing.T) {
 			calls++
 			return a.state, a.err
 		}
-		if err := awaitTransportEnd(t.Context(), "Living Room TV", device.UnreachableWindow, device.PollInterval, poll); err != nil {
+		if err := awaitTransportEnd(t.Context(), "Living Room TV", poll); err != nil {
 			t.Fatalf("awaitTransportEnd() = %v, want nil: the renderer answered between the failures", err)
 		}
 		if calls != len(script) {

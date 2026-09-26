@@ -213,7 +213,7 @@ func (r *rokuDevice) ensureChannel(ctx context.Context, cfg Config) error {
 		return fmt.Errorf("roku channel not installed and no developer password set: enable Developer Mode on the Roku, set a web-server password, and put it in device.roku.password")
 	}
 	slog.InfoContext(ctx, "sideloading roku channel", "host", r.ecp.Hostname())
-	return r.sideloadChannel(ctx, rokuDefaultDevUser, cfg.Password)
+	return r.sideloadChannel(ctx, cfg.Password)
 }
 
 func (r *rokuDevice) queryApps(ctx context.Context) ([]byte, error) {

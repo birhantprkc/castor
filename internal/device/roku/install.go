@@ -15,16 +15,16 @@ import (
 
 const rokuInstallTimeout = 60 * time.Second
 
-func (r *rokuDevice) sideloadChannel(ctx context.Context, user, password string) error {
+func (r *rokuDevice) sideloadChannel(ctx context.Context, password string) error {
 	zipBytes, err := rokuChannelZip()
 	if err != nil {
 		return fmt.Errorf("packing channel: %w", err)
 	}
-	return installChannel(ctx, "http://"+r.ecp.Hostname()+"/plugin_install", user, password, zipBytes)
+	return installChannel(ctx, "http://"+r.ecp.Hostname()+"/plugin_install", password, zipBytes)
 }
 
 // installChannel uploads channel to Roku dev web server (Digest auth, multipart, result in HTML body).
-func installChannel(ctx context.Context, installURL, user, password string, zipBytes []byte) error {
+func installChannel(ctx context.Context, installURL, password string, zipBytes []byte) error {
 	ctx, cancel := context.WithTimeout(ctx, rokuInstallTimeout)
 	defer cancel()
 
@@ -38,7 +38,7 @@ func installChannel(ctx context.Context, installURL, user, password string, zipB
 	}
 	req.Header.Set("Content-Type", contentType)
 
-	client := &http.Client{Transport: &digest.Transport{Username: user, Password: password}}
+	client := &http.Client{Transport: &digest.Transport{Username: rokuDefaultDevUser, Password: password}}
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("plugin_install: %w", err)
@@ -46,7 +46,7 @@ func installChannel(ctx context.Context, installURL, user, password string, zipB
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("developer password rejected for user %q", user)
+		return fmt.Errorf("developer password rejected for user %q", rokuDefaultDevUser)
 	}
 	if resp.StatusCode >= http.StatusBadRequest {
 		return fmt.Errorf("plugin_install: %s", resp.Status)
