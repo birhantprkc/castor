@@ -53,7 +53,7 @@ func TestEveryCaseCastsWhatItsReceiverCanPlay(t *testing.T) {
 			got, handed := session.Received(t, handOff)
 			e := judge.Evidence{
 				Origin: src, Endpoint: endpoint, Viewer: p.viewer, Received: got, Handed: handed,
-				CastErr: castErr, Exited: exited, Ceiling: p.ceiling,
+				CastErr: castErr, Exited: exited, Killed: ctx.Err() != nil, Ceiling: p.ceiling,
 			}
 			played := got.Played
 			t.Logf("castor exited %v; handed %q (%s): %s %dp %d-bit %s, %s %dch, %v",

@@ -14,6 +14,7 @@ func (Aborted) Name() string { return "aborted" }
 func (Aborted) Judge(e judge.Evidence) []string {
 	return slices.Concat(
 		judge.FailIf(e.CastErr == nil, "castor exited cleanly, want it to fail the cast"),
+		judge.FailIf(e.Killed, "castor never gave up and was killed at the suite's deadline, want it to fail the cast on its own"),
 		judge.FailIf(!e.Handed, "castor never handed the receiver anything, want it to fail after the hand-off"),
 	)
 }

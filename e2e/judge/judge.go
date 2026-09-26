@@ -22,6 +22,8 @@ type Evidence struct {
 	// CastErr is how castor's process exited, and Exited when.
 	CastErr error
 	Exited  time.Time
+	// Killed is a castor that never ended on its own, stopped by the suite's deadline.
+	Killed bool
 	// Ceiling is the tallest picture castor was allowed to deliver.
 	Ceiling int
 }

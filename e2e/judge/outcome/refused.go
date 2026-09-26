@@ -16,6 +16,7 @@ func (Refused) Name() string { return "refused" }
 func (Refused) Judge(e judge.Evidence) []string {
 	return slices.Concat(
 		judge.FailIf(e.CastErr == nil, "castor exited cleanly, want it to refuse the source"),
+		judge.FailIf(e.Killed, "castor never gave up and was killed at the suite's deadline, want it to refuse on its own"),
 		judge.FailIf(e.Handed, fmt.Sprintf("castor handed over %s, want it to refuse before any hand-off", e.Received.URL)),
 	)
 }
