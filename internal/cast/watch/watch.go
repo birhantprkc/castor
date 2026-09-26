@@ -115,10 +115,12 @@ type tracker struct {
 	m     Monitor
 	start time.Time
 
-	// landed, position and grew: artifact size, media position, and when media last arrived.
-	landed   int64
-	position time.Duration
-	grew     time.Time
+	// landed and grew: artifact size, and when the producer last grew.
+	landed int64
+	grew   time.Time
+
+	// trail is the media position over the last paceSpan, oldest first.
+	trail []mark
 
 	// sample is last progress; samples counts stated speeds (not blocks/N/A noise).
 	sample  media.Progress
@@ -154,13 +156,13 @@ func (t *tracker) read() Health {
 		h.Position, h.Speed, h.Samples = sample.Position, sample.Speed, t.samples
 	}
 
-	// Growth is new media: a muxer keeps writing tables with no media behind them, so bytes decide only without a position.
+	// Growth is media at a pace: a muxer pads bytes with no media behind them, and a trickle never goes silent.
 	grew := h.Landed != t.landed
 	if t.m.Telemetry != nil {
-		grew = h.Position != t.position
+		grew = t.keepsPace(time.Now(), h.Position)
 	}
 	if grew {
-		t.landed, t.position, t.grew = h.Landed, h.Position, time.Now()
+		t.landed, t.grew = h.Landed, time.Now()
 	}
 	h.SinceGrowth = time.Since(t.grew)
 
@@ -199,6 +201,21 @@ func (t *tracker) read() Health {
 	}
 
 	return h
+}
+
+// mark is the media position read at one instant.
+type mark struct {
+	at       time.Time
+	position time.Duration
+}
+
+// keepsPace records position and reports whether it moved minPace of paceSpan since the last mark paceSpan old.
+func (t *tracker) keepsPace(now time.Time, position time.Duration) bool {
+	t.trail = append(t.trail, mark{at: now, position: position})
+	for len(t.trail) > 1 && now.Sub(t.trail[1].at) >= paceSpan {
+		t.trail = t.trail[1:]
+	}
+	return position-t.trail[0].position >= time.Duration(minPace*float64(paceSpan))
 }
 
 // fault ends the watch with producer's own words (stderr dumped only while NOT ended).

@@ -91,7 +91,7 @@ var rules = []rule{{
 }, {
 	// Producer stopped, renderer exhausted buffer (likely expired playlist).
 	Name:    "stalled",
-	Why:     "the producer stopped delivering entirely and the renderer has played everything that reached it; the likeliest cause is a signed playlist whose segments have expired (they answer 404), and re-extracting the link is what gets a fresh token",
+	Why:     "the producer stopped delivering, or delivers under half of playback pace, and the renderer has played everything that reached it; the likeliest cause is a signed playlist whose segments have expired (they answer 404), and re-extracting the link is what gets a fresh token",
 	Windows: []Window{BeforePlay, Playing},
 	When:    func(h Health) bool { return !h.Ended && h.SinceGrowth > StallWindow && !h.buffered() },
 	Kind:    Stalled,
@@ -115,13 +115,6 @@ var rules = []rule{{
 	Why:     "the source has been delivering less than playback consumes for longer than the stall window, so the renderer's buffer cannot be refilled",
 	Windows: []Window{Playing},
 	When:    func(h Health) bool { return h.starving() && h.SinceDeficit > StallWindow },
-	Kind:    Undeliverable,
-}, {
-	// A trickle never goes silent long enough to stall, and a paced-down read states no deficit.
-	Name:    "starved-in-flight",
-	Why:     "the renderer has had nothing left to play for longer than the stall window: what reaches it arrives far slower than it is played",
-	Windows: []Window{Playing},
-	When:    func(h Health) bool { return !h.Ended && h.starved() > StallWindow },
 	Kind:    Undeliverable,
 }, {
 	// Renderer accepted stream but never fetched bytes.

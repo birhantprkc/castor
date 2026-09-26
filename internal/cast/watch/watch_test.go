@@ -72,3 +72,43 @@ func (f *frozenProducer) Progress() media.Progress {
 func (f *frozenProducer) Done() <-chan struct{} { return f.done }
 func (f *frozenProducer) Err() error            { return nil }
 func (f *frozenProducer) Evidence() []string    { return nil }
+
+// A trickle never goes silent, so only growth judged against playback pace sees it stop.
+func TestATrickleUnderHalfOfPlaybackIsAStall(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		producer := &pacedProducer{done: make(chan struct{}), start: time.Now(), made: func(d time.Duration) time.Duration { return d / time.Minute * time.Second }}
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Minute)
+		defer cancel()
+		err := Watch(ctx, Monitor{Subject: "the playing cast", Window: Playing, Producer: producer, Telemetry: producer})
+		if fault, ok := errors.AsType[*Fault](err); !ok || fault.Kind != Stalled {
+			t.Fatalf("Watch = %v, want a stall from a producer making a second of media a minute", err)
+		}
+	})
+}
+
+// A producer slower than playback but past half of it is still delivering, whatever it lost before.
+func TestAProducerKeepingHalfOfPlaybackIsNotAStall(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		producer := &pacedProducer{done: make(chan struct{}), start: time.Now(), made: func(d time.Duration) time.Duration { return d * 6 / 10 }}
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Minute)
+		defer cancel()
+		err := Watch(ctx, Monitor{Subject: "the playing cast", Window: Playing, Producer: producer, Telemetry: producer})
+		if _, judged := errors.AsType[*Fault](err); judged {
+			t.Fatalf("Watch = %v, want no verdict against a producer at 0.6x", err)
+		}
+	})
+}
+
+// pacedProducer makes media as a function of the time since it started.
+type pacedProducer struct {
+	done  chan struct{}
+	start time.Time
+	made  func(time.Duration) time.Duration
+}
+
+func (p *pacedProducer) Progress() media.Progress {
+	return media.Progress{Position: p.made(time.Since(p.start)), Speed: 1}
+}
+func (p *pacedProducer) Done() <-chan struct{} { return p.done }
+func (p *pacedProducer) Err() error            { return nil }
+func (p *pacedProducer) Evidence() []string    { return nil }

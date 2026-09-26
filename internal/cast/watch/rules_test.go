@@ -37,8 +37,6 @@ func TestVerdicts(t *testing.T) {
 		{"a renderer that fetched and went quiet is not a verdict", Playing, Health{Landed: 8 << 20, Handed: 4 << 20, SinceFetch: past}, Healthy},
 		{"a silent producer while the renderer has media is not stalled", Playing, Health{Landed: 8 << 20, Handed: 4 << 20, SinceGrowth: past, Delivered: 45 * time.Minute, SincePlay: 15 * time.Minute}, Healthy},
 		{"a silent producer once the renderer played it out is stalled", Playing, Health{Landed: 8 << 20, Handed: 4 << 20, SinceGrowth: past, Delivered: 15 * time.Minute, SincePlay: 16 * time.Minute}, Stalled},
-		{"a trickle the renderer outplayed by the stall window is undeliverable", Playing, Health{Landed: 8 << 20, Handed: 4 << 20, SinceGrowth: time.Second, Delivered: 25 * time.Second, SincePlay: 25*time.Second + past}, Undeliverable},
-		{"a renderer briefly ahead of a live producer is still healthy", Playing, Health{Landed: 8 << 20, Handed: 4 << 20, SinceGrowth: time.Second, Delivered: 10 * time.Minute, SincePlay: 11 * time.Minute}, Healthy},
 		{"an in-flight deficit past the stall window is undeliverable", Playing, Health{Landed: 8 << 20, Handed: 1 << 20, Speed: 0.3, Headroom: 2, Samples: 100, SinceDeficit: past}, Undeliverable},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
