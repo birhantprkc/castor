@@ -1,9 +1,11 @@
+// Package chromecast casts to Google Cast receivers.
 package chromecast
 
 import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -12,19 +14,21 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/vishen/go-chromecast/application"
 	castmedia "github.com/vishen/go-chromecast/cast"
-	pb "github.com/vishen/go-chromecast/cast/proto"
 	castdns "github.com/vishen/go-chromecast/dns"
 
 	"github.com/stupside/castor/internal/device"
 	"github.com/stupside/castor/internal/media"
 )
 
-const chromecastPort = 8009
+const (
+	chromecastPort = 8009
+
+	defaultMediaReceiver = "CC1AD845"
+)
 
 type chromecastDevice struct {
-	app *application.Application
+	ch *channel
 
 	watchMu     sync.Mutex
 	watch       chromecastPlayback
@@ -47,33 +51,32 @@ var _ device.Family = Family{}
 
 func (Family) SelfFetches() bool { return true }
 
-// Connect ignores ctx: the library's Start has no context support, so cancellation cannot interrupt the dial.
-func (Family) Connect(_ context.Context, info device.Info) (device.Device, error) {
-	host, port := chromecastEndpoint(info.Address)
-
-	app := application.NewApplication(
-		application.WithCacheDisabled(true),
-	)
-	if err := app.Start(host, port); err != nil {
+func (Family) Connect(ctx context.Context, info device.Info) (device.Device, error) {
+	dev := &chromecastDevice{done: make(chan struct{})}
+	dialCtx, cancel := context.WithTimeout(ctx, answerWithin)
+	defer cancel()
+	ch, err := dial(dialCtx, chromecastAddress(info.Address), dev.watchMessage)
+	if err != nil {
 		return nil, fmt.Errorf("connecting to chromecast: %w", err)
 	}
-	dev := &chromecastDevice{app: app, done: make(chan struct{})}
-	app.AddMessageFunc(dev.watchMessage)
+	dev.ch = ch
+	if err := ch.send(receiverID, nsConnection, &castmedia.PayloadHeader{Type: msgConnect}); err != nil {
+		_ = ch.Close()
+		return nil, fmt.Errorf("connecting to chromecast: %w", err)
+	}
+	if _, err := dev.receiverStatus(ctx, &castmedia.PayloadHeader{Type: msgGetStatus}); err != nil {
+		_ = ch.Close()
+		return nil, fmt.Errorf("connecting to chromecast: %w", err)
+	}
 	return dev, nil
 }
 
-// chromecastEndpoint splits a bare host or host:port into the pair the library dials.
-func chromecastEndpoint(address string) (string, int) {
-	host, port := address, chromecastPort
-	if h, p, err := net.SplitHostPort(address); err == nil {
-		if n, err := strconv.Atoi(p); err == nil {
-			host, port = h, n
-		}
+// chromecastAddress completes a bare host with the Cast port.
+func chromecastAddress(address string) string {
+	if _, _, err := net.SplitHostPort(address); err == nil {
+		return address
 	}
-	if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
-		host = "[" + host + "]"
-	}
-	return host, port
+	return net.JoinHostPort(strings.Trim(address, "[]"), strconv.Itoa(chromecastPort))
 }
 
 // Locate passes the address straight through, Connect already accepting both of its forms.
@@ -133,17 +136,93 @@ func chromecastInfo(entry castdns.CastEntry) (device.Info, bool) {
 	}, true
 }
 
-func (c *chromecastDevice) Play(_ context.Context, streamURL *url.URL, contentType string) error {
+// Play returns the receiver's own verdict on the LOAD, so a refused URL fails the hand-off.
+func (c *chromecastDevice) Play(ctx context.Context, streamURL *url.URL, contentType string) error {
+	transport, err := c.mediaReceiver(ctx)
+	if err != nil {
+		return fmt.Errorf("starting the chromecast's media receiver: %w", err)
+	}
+	if err := c.ch.send(transport, nsConnection, &castmedia.PayloadHeader{Type: msgConnect}); err != nil {
+		return fmt.Errorf("starting chromecast playback: %w", err)
+	}
 	c.watchMu.Lock()
 	c.watch.begin(streamURL.String())
 	c.watchMu.Unlock()
-	if err := c.app.Load(streamURL.String(), 0, contentType, false, true, true); err != nil {
+	reply, err := c.ch.request(ctx, transport, nsMedia, &castmedia.LoadMediaCommand{
+		PayloadHeader: castmedia.PayloadHeader{Type: msgLoad},
+		Media:         castmedia.MediaItem{ContentId: streamURL.String(), ContentType: contentType, StreamType: "BUFFERED"},
+		Autoplay:      true,
+	})
+	if err == nil {
+		err = loadVerdict(reply)
+	}
+	if err != nil {
 		c.watchMu.Lock()
 		c.watch.disarm()
 		c.watchMu.Unlock()
 		return fmt.Errorf("starting chromecast playback: %w", err)
 	}
 	return nil
+}
+
+// loadVerdict reads the answer to LOAD: a media status accepts it unless the player already failed.
+func loadVerdict(reply []byte) error {
+	var response castmedia.MediaStatusResponse
+	if err := json.Unmarshal(reply, &response); err != nil {
+		return fmt.Errorf("undecodable answer to LOAD: %w", err)
+	}
+	if response.Type != msgMediaStatus {
+		return fmt.Errorf("chromecast refused the media (%s)", response.Type)
+	}
+	for _, status := range response.Status {
+		if status.PlayerState == stateIdle && status.IdleReason == idleError {
+			return errors.New("chromecast refused the media: the receiver went idle with an error")
+		}
+	}
+	return nil
+}
+
+// mediaReceiver returns the Default Media Receiver's transport, launching it unless it already runs.
+func (c *chromecastDevice) mediaReceiver(ctx context.Context) (string, error) {
+	status, err := c.receiverStatus(ctx, &castmedia.PayloadHeader{Type: msgGetStatus})
+	if err != nil {
+		return "", err
+	}
+	if transport, ok := defaultMediaTransport(status); ok {
+		return transport, nil
+	}
+	status, err = c.receiverStatus(ctx, &castmedia.LaunchRequest{PayloadHeader: castmedia.PayloadHeader{Type: "LAUNCH"}, AppId: defaultMediaReceiver})
+	if err != nil {
+		return "", err
+	}
+	if transport, ok := defaultMediaTransport(status); ok {
+		return transport, nil
+	}
+	return "", errors.New("the chromecast answered the launch without the Default Media Receiver running")
+}
+
+func (c *chromecastDevice) receiverStatus(ctx context.Context, payload castmedia.Payload) (castmedia.ReceiverStatusResponse, error) {
+	var status castmedia.ReceiverStatusResponse
+	reply, err := c.ch.request(ctx, receiverID, nsReceiver, payload)
+	if err != nil {
+		return status, err
+	}
+	if err := json.Unmarshal(reply, &status); err != nil {
+		return status, fmt.Errorf("undecodable receiver status: %w", err)
+	}
+	if status.Type != "RECEIVER_STATUS" {
+		return status, fmt.Errorf("the chromecast answered %s", status.Type)
+	}
+	return status, nil
+}
+
+func defaultMediaTransport(status castmedia.ReceiverStatusResponse) (string, bool) {
+	for _, app := range status.Status.Applications {
+		if app.AppId == defaultMediaReceiver && app.TransportId != "" {
+			return app.TransportId, true
+		}
+	}
+	return "", false
 }
 
 // AwaitEnd observes the Cast channel rather than polling it.
@@ -156,12 +235,9 @@ func (c *chromecastDevice) AwaitEnd(ctx context.Context) error {
 	}
 }
 
-func (c *chromecastDevice) watchMessage(msg *pb.CastMessage) {
-	if msg.GetPayloadUtf8() == "" {
-		return
-	}
+func (c *chromecastDevice) watchMessage(payload []byte) {
 	var response castmedia.MediaStatusResponse
-	if err := json.Unmarshal([]byte(msg.GetPayloadUtf8()), &response); err != nil {
+	if err := json.Unmarshal(payload, &response); err != nil {
 		return
 	}
 	c.watchMu.Lock()
@@ -212,9 +288,9 @@ func (w *chromecastPlayback) observe(status castmedia.Media) (bool, error) {
 	switch status.PlayerState {
 	case "BUFFERING", "PLAYING", "PAUSED":
 		w.active = true
-	case "IDLE":
+	case stateIdle:
 		switch status.IdleReason {
-		case "ERROR":
+		case idleError:
 			if w.active {
 				return true, fmt.Errorf("chromecast playback ended with receiver error")
 			}
@@ -231,11 +307,11 @@ func playbackOutcome(w *chromecastPlayback, response *castmedia.MediaStatusRespo
 		return false, nil
 	}
 	switch response.Type {
-	case "CLOSE":
+	case msgClose:
 		return w.active, nil
 	case "LOAD_FAILED", "LOAD_CANCELLED":
 		return true, fmt.Errorf("chromecast refused the media (%s)", response.Type)
-	case "MEDIA_STATUS":
+	case msgMediaStatus:
 		for _, status := range response.Status {
 			if over, err := w.observe(status); over {
 				return true, err
@@ -248,7 +324,7 @@ func playbackOutcome(w *chromecastPlayback, response *castmedia.MediaStatusRespo
 }
 
 func (c *chromecastDevice) Close() error {
-	return c.app.Close(false)
+	return c.ch.Close()
 }
 
 var chromecastCapabilities = media.Capabilities{

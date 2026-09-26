@@ -1,0 +1,20 @@
+# A DASH film with an ad Period from another host, a 720p creative on its own init: every Period decodes and the picture never freezes at a boundary.
+stream:
+  packaging: dash
+  video: {codec: h264, height: 360}
+  audio: {codec: aac, channels: 2, carriage: separate}
+  seconds: 12
+origin:
+  dash-ad-period: {after: 4, segments: 2, height: 720}
+receiver:
+  device:
+    dlna:
+      sink: "http-get:*:video/mp2t:DLNA.ORG_PN=AVC_TS_HD_NA_ISO,http-get:*:audio/mp4:DLNA.ORG_PN=AAC_ISO"
+      decodes:
+        video: {h264: 8}
+        audio: {aac: 2}
+castor:
+  resolver:
+    max_height: 480
+expect:
+  delivery: served

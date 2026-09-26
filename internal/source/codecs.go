@@ -15,6 +15,9 @@ var videoCodecEntries = map[string]media.Codec{
 	"av01": media.CodecAV1,
 	"vp08": media.CodecVP8,
 	"vp09": media.CodecVP9,
+	// WebM's DASH profile names its codecs plainly rather than by sample entry.
+	"vp8":  media.CodecVP8,
+	"vp9":  media.CodecVP9,
 	"mp4v": media.CodecMPEG4,
 	"dvh1": "",
 	"dvhe": "",
@@ -31,6 +34,8 @@ var declaredAudioEntries = map[string]media.Codec{
 	"mp4a.6b":    media.CodecMP3,
 	"ac-3":       media.CodecAC3,
 	"ec-3":       media.CodecEAC3,
+	"opus":       media.CodecOpus,
+	"vorbis":     media.CodecVorbis,
 }
 
 var h264Profiles = map[uint64]media.Profile{
@@ -88,18 +93,15 @@ func declaredVideo(entry string) (media.Codec, media.Profile, bool) {
 	}
 	switch codec {
 	case media.CodecH264:
-		if len(params) != 6 {
+		profileIDC, constrained, ok := h264Params(params)
+		if !ok {
 			return "", "", false
 		}
-		value, err := strconv.ParseUint(params, 16, 32)
-		if err != nil {
-			return "", "", false
-		}
-		profile, named := h264Profiles[value>>16]
+		profile, named := h264Profiles[profileIDC]
 		if !named {
 			return "", "", false
 		}
-		if profile == media.ProfileBaseline && value&0x004000 != 0 {
+		if profile == media.ProfileBaseline && constrained {
 			profile = media.ProfileConstrainedBaseline
 		}
 		return codec, profile, true
@@ -110,6 +112,20 @@ func declaredVideo(entry string) (media.Codec, media.Profile, bool) {
 		return codec, media.ProfileMain, true
 	}
 	return "", "", false
+}
+
+// h264Params reads RFC 6381's hex PPCCLL, or the decimal PP.LL early Apple tools and Wowza still write, which states no constraints.
+func h264Params(params string) (profileIDC uint64, constrained, ok bool) {
+	if profile, level, legacy := strings.Cut(params, "."); legacy {
+		p, perr := strconv.ParseUint(profile, 10, 8)
+		_, lerr := strconv.ParseUint(level, 10, 8)
+		return p, false, perr == nil && lerr == nil
+	}
+	if len(params) != 6 {
+		return 0, false, false
+	}
+	value, err := strconv.ParseUint(params, 16, 32)
+	return value >> 16, value&0x004000 != 0, err == nil
 }
 
 func sampleEntryName(entry string) string {

@@ -5,9 +5,10 @@ import (
 	"io"
 	"net/url"
 
-	"github.com/stupside/castor/internal/cast/engine/deliver"
-	"github.com/stupside/castor/internal/cast/policy/watch"
+	"github.com/stupside/castor/internal/cast/deliver"
+	"github.com/stupside/castor/internal/cast/watch"
 	"github.com/stupside/castor/internal/device"
+	"github.com/stupside/castor/internal/ffmpeg"
 	"github.com/stupside/castor/internal/media"
 )
 
@@ -28,6 +29,9 @@ type Burn interface {
 	// Run transcribes the PCM feed until it ends, and closes it.
 	Run(ctx context.Context, pcm io.ReadCloser)
 
+	// SampleRate is the rate of the mono PCM feed Run reads.
+	SampleRate() int
+
 	Inputs() (burnIn string, err error)
 
 	Follow(ctx context.Context) func(media.Progress)
@@ -35,7 +39,7 @@ type Burn interface {
 
 // Probes measures what an attempt reads: its source program, or its local buffer.
 type Probes interface {
-	Source(program media.Program, inputs []media.ProbeInput) media.Prober
+	Source(program media.Program, inputs []ffmpeg.ProbeInput) media.Prober
 	File(path string) media.Prober
 }
 
@@ -44,7 +48,7 @@ type Addresses interface {
 	LocalIPv4(ctx context.Context) (string, error)
 }
 
-type Sink interface {
+type sink interface {
 	URL() *url.URL
 
 	Wait(ctx context.Context) error
@@ -58,4 +62,9 @@ type Sink interface {
 	Settled() error
 
 	Close() error
+}
+
+// Timelines republishes a program's followed inputs for one read; the func stops serving them.
+type Timelines interface {
+	Republish(ctx context.Context, program media.Program) (media.Program, func() error, error)
 }

@@ -119,8 +119,8 @@ func TestWrap(t *testing.T) {
 		{"an accented line gets the full width", "\u00e9t\u00e9 \u00e9t\u00e9 \u00e9t\u00e9", 8, "\u00e9t\u00e9 \u00e9t\u00e9\n\u00e9t\u00e9"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := Wrap(tt.in, tt.width); got != tt.want {
-				t.Errorf("Wrap(%q, %d) = %q, want %q", tt.in, tt.width, got, tt.want)
+			if got := wrap(tt.in, tt.width); got != tt.want {
+				t.Errorf("wrap(%q, %d) = %q, want %q", tt.in, tt.width, got, tt.want)
 			}
 		})
 	}

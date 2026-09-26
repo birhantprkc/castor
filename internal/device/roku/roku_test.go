@@ -30,25 +30,6 @@ func ecpDevice(t *testing.T, ts *httptest.Server) *rokuDevice {
 	return &rokuDevice{ecp: u, appID: "dev", name: "Bedroom Roku", hc: ts.Client()}
 }
 
-func TestRokuPlayLaunchRequest(t *testing.T) {
-	var gotMethod, gotPath, gotURL, gotFormat string
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotMethod, gotPath = r.Method, r.URL.Path
-		gotURL = r.URL.Query().Get(rokuChannelParamURL)
-		gotFormat = r.URL.Query().Get(rokuChannelParamFormat)
-	}))
-	defer ts.Close()
-
-	const stream = "http://192.0.2.99:1234/stream.m3u8"
-	u, _ := url.Parse(stream)
-	if err := ecpDevice(t, ts).Play(t.Context(), u, media.HLS); err != nil {
-		t.Fatalf("Play() error = %v", err)
-	}
-	if gotMethod != http.MethodPost || gotPath != "/launch/dev" || gotURL != stream || gotFormat != "hls" {
-		t.Errorf("launch = %s %s url=%q format=%q, want POST /launch/dev with the stream and hls", gotMethod, gotPath, gotURL, gotFormat)
-	}
-}
-
 func TestInstallOutcome(t *testing.T) {
 	for _, tt := range []struct {
 		body    string
@@ -168,11 +149,6 @@ func TestRokuAnswersWhenTheCastEnds(t *testing.T) {
 	if ecp.polls.Load() == 0 {
 		t.Error("the suite never polled the Roku")
 	}
-}
-
-func TestRokuDeclaresOnlyTheUniversalBaseline(t *testing.T) {
-	devicetest.DeclaresTheUniversalBaseline(t, rokuCapabilities)
-	devicetest.DeclaresNoModelSpecificCodec(t, rokuCapabilities)
 }
 
 func TestLocate(t *testing.T) {

@@ -1,175 +1,172 @@
 package dash
 
 import (
-	"context"
-	"encoding/xml"
-	"log/slog"
+	"cmp"
+	"net/url"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Eyevinn/dash-mpd/mpd"
+
 	"github.com/stupside/castor/internal/media"
-	"github.com/stupside/castor/internal/source"
 )
 
-// DASH parser: reads presentation only; doesn't expand SegmentTemplate.
+// presentation is a DASH presentation as dash-mpd reads it.
+type presentation struct{ *mpd.MPD }
 
-// mpdDocument is the DASH presentation as castor reads it.
-type mpdDocument struct {
-	// Video representations in document order (matches ffmpeg stream order).
-	Renditions []source.Rendition
-
-	// Live declaration from manifest, not inference.
-	Live bool
-
-	// Manifest runtime; zero if live or absent.
-	Duration time.Duration
-
-	// ContentProtection present; property of read, not refusal.
-	Encrypted bool
+// parse reads a presentation; a document that is not one reads as nothing.
+func parse(body string) (presentation, bool) {
+	m, err := mpd.ReadFromString(calendar.ReplaceAllStringFunc(body, fixedLength))
+	if err != nil || len(m.Periods) == 0 {
+		return presentation{}, false
+	}
+	return presentation{m}, true
 }
 
-// Minimal MPD structure; deliberate omissions avoid accidental dependencies.
-type mpdRoot struct {
-	Type     string `xml:"type,attr"`
-	Duration string `xml:"mediaPresentationDuration,attr"`
-	Periods  []struct {
-		Sets []struct {
-			ContentType     string     `xml:"contentType,attr"`
-			MimeType        string     `xml:"mimeType,attr"`
-			Protection      []struct{} `xml:"ContentProtection"`
-			Representations []struct {
-				MimeType  string `xml:"mimeType,attr"`
-				Codecs    string `xml:"codecs,attr"`
-				Bandwidth int64  `xml:"bandwidth,attr"`
-				Height    int    `xml:"height,attr"`
-			} `xml:"Representation"`
-		} `xml:"AdaptationSet"`
-	} `xml:"Period"`
+// calendar is an xs:duration in years or months, which dash-mpd refuses though packagers write them as zeros.
+var calendar = regexp.MustCompile(`="P((?:\d+[YM])+)(\d+D)?(T[\d.HMS]+)?"`)
+
+// fixedLength restates a calendar duration in days and time; a stated year or month has no fixed length, so it reads as nothing.
+func fixedLength(attr string) string {
+	parts := calendar.FindStringSubmatch(attr)
+	if strings.Trim(parts[1], "0YM") != "" || parts[2]+parts[3] == "" {
+		return `="PT0S"`
+	}
+	return `="P` + parts[2] + parts[3] + `"`
 }
 
-// mpdFrom decodes presentation; malformed body is not an error.
-func mpdFrom(body string) (mpdDocument, bool) {
-	var root mpdRoot
-	if err := xml.Unmarshal([]byte(body), &root); err != nil {
-		return mpdDocument{}, false
-	}
-	doc := mpdDocument{
-		// Only dynamic means live; missing type defaults to static.
-		Live:     strings.EqualFold(root.Type, "dynamic"),
-		Duration: parseISODuration(root.Duration),
-	}
-	for _, period := range root.Periods {
-		for _, set := range period.Sets {
-			if len(set.Protection) > 0 {
-				doc.Encrypted = true
-			}
-			for _, rep := range set.Representations {
-				// Video ID by manifest pair, not codec; height implies picture.
-				if !carriesPicture(set.ContentType, set.MimeType, rep.MimeType, rep.Height) {
-					continue
-				}
-				// Codecs: RFC 6381; HLS same rule; declaration for all rungs behind one URL.
-				doc.Renditions = append(doc.Renditions, source.Rendition{
-					Index:    len(doc.Renditions),
-					Height:   rep.Height,
-					Bitrate:  media.Bitrate(rep.Bandwidth),
-					Declared: source.DeclaredEnvelope(rep.Codecs, rep.Height),
-				})
-			}
-		}
-	}
-	// No video representations = not a valid presentation.
-	return doc, len(doc.Renditions) > 0
-}
+func (m presentation) live() bool { return strings.EqualFold(m.GetType(), mpd.DYNAMIC_TYPE) }
 
-// carriesPicture checks if representation carries video.
-func carriesPicture(setType, setMIME, repMIME string, height int) bool {
-	if height > 0 {
-		return true
-	}
-	for _, s := range []string{setType, setMIME, repMIME} {
-		if strings.HasPrefix(strings.ToLower(s), "video") {
-			return true
-		}
-	}
-	return false
-}
-
-// Parses ISO 8601 duration; hand-implemented for media subset only.
-func parseISODuration(s string) time.Duration {
-	rest, ok := strings.CutPrefix(strings.TrimSpace(s), "PT")
-	if !ok || rest == "" {
+// span is a duration the document states, zero when it states none.
+func span(d *mpd.Duration) time.Duration {
+	if d == nil {
 		return 0
 	}
-	var total time.Duration
-	var number strings.Builder
-	units := map[byte]time.Duration{'H': time.Hour, 'M': time.Minute, 'S': time.Second}
-	for i := range len(rest) {
-		c := rest[i]
-		if (c >= '0' && c <= '9') || c == '.' {
-			number.WriteByte(c)
-			continue
-		}
-		unit, known := units[c&^0x20]
-		if !known || number.Len() == 0 {
-			return 0
-		}
-		value, err := strconv.ParseFloat(number.String(), 64)
-		if err != nil {
-			return 0
-		}
-		total += time.Duration(value * float64(unit))
-		number.Reset()
-	}
-	// A trailing number with no designator is a malformed duration, not a count of seconds.
-	if number.Len() > 0 {
-		return 0
-	}
-	return total
+	return time.Duration(*d)
 }
 
-// readPresentation fetches and reads manifest; best-effort; facts unknown on failure.
-func readPresentation(ctx context.Context, playlists source.Playlists, stream source.Candidate) (mpdDocument, bool) {
-	// mpdFrom reads no URIs out of the manifest, so where it was served from is not a term here.
-	body, _, status, err := playlists.Fetch(ctx, stream.URL, stream.Headers)
-	if err != nil {
-		// 403=expired link; 0=transient; log both for opposite responses.
-		slog.WarnContext(ctx, "the DASH manifest could not be read; its ladder, runtime and liveness stay unknown",
-			"error", err, "status", status, "url", stream.URL.String())
-		return mpdDocument{}, false
+// instants are the xs:dateTime spellings packagers write; one with no zone is UTC, as DASH-IF requires.
+var instants = []string{mpd.RFC3339MS, "2006-01-02T15:04:05.999999999Z0700", "2006-01-02T15:04:05.999999999"}
+
+// instant reads an xs:dateTime, the zero time when it is absent or unreadable.
+func instant(d mpd.DateTime) time.Time {
+	for _, layout := range instants {
+		if t, err := time.Parse(layout, strings.TrimSpace(string(d))); err == nil {
+			return t
+		}
 	}
-	doc, ok := mpdFrom(body)
-	if !ok {
-		slog.WarnContext(ctx, "the document at this URL is not a DASH presentation castor can read; its facts stay unknown",
-			"url", stream.URL.String())
-	}
-	return doc, ok
+	return time.Time{}
 }
 
-// Pairs manifest declaration with probe measurement by position.
-func mergeDeclared(measured, declared []source.Rendition) []source.Rendition {
-	if len(declared) == 0 {
-		return measured
-	}
-	if len(measured) == 0 {
-		return declared
-	}
-	if len(measured) != len(declared) {
-		return measured
-	}
-	out := make([]source.Rendition, len(measured))
-	for i := range measured {
-		out[i] = measured[i]
-		out[i].Bitrate = declared[i].Bitrate
-		if out[i].Height == 0 {
-			out[i].Height = declared[i].Height
+// placed is a Period with its start and length settled from its own attributes, its neighbours, or the presentation's.
+type placed struct {
+	*mpd.Period
+	index    int
+	start    time.Duration
+	duration time.Duration
+}
+
+// key names a Period the same way across refreshes of a live presentation.
+func (p placed) key() string { return cmp.Or(p.Id, "@"+p.start.String()) }
+
+func (m presentation) placed() []placed {
+	out := make([]placed, len(m.Periods))
+	var next time.Duration
+	for i, p := range m.Periods {
+		start := next
+		if p.Start != nil {
+			start = span(p.Start)
 		}
-		if envelope := declared[i].Declared; envelope != nil {
-			stated := envelope.Clone()
-			stated.VideoHeight = out[i].Height
-			out[i].Declared = &stated
+		out[i] = placed{Period: p, index: i, start: start, duration: span(p.Duration)}
+		if i > 0 && out[i-1].duration == 0 {
+			out[i-1].duration = start - out[i-1].start
+		}
+		next = start + out[i].duration
+	}
+	if last := &out[len(out)-1]; last.duration == 0 {
+		if total := span(m.MediaPresentationDuration); total > last.start {
+			last.duration = total - last.start
 		}
 	}
 	return out
+}
+
+// resolveBase walks a BaseURL chain from where the presentation was served, each level relative to the one above.
+func resolveBase(from *url.URL, levels ...[]*mpd.BaseURLType) *url.URL {
+	base := from
+	for _, level := range levels {
+		if len(level) == 0 {
+			continue
+		}
+		if next, err := base.Parse(strings.TrimSpace(string(level[0].Value))); err == nil {
+			base = next
+		}
+	}
+	return base
+}
+
+// kindText is subtitles, which castor never casts.
+const kindText media.TrackKind = "text"
+
+// kind is what a representation carries, as its set or itself declares it; only an undeclared one is judged by its picture.
+func kind(s *mpd.AdaptationSetType, r *mpd.RepresentationType) media.TrackKind {
+	for _, declared := range []string{string(s.ContentType), r.MimeType, s.MimeType} {
+		if k, _, _ := strings.Cut(strings.ToLower(declared), "/"); k != "" {
+			// Subtitles packaged as fMP4 declare application/mp4, and only their codecs say what they carry.
+			if k == "application" && slices.ContainsFunc([]string{"stpp", "wvtt"}, func(c string) bool { return strings.Contains(codecs(s, r), c) }) {
+				return kindText
+			}
+			return media.TrackKind(k)
+		}
+	}
+	if r.Height > 0 || s.Height > 0 || s.MaxHeight > 0 {
+		return media.TrackVideo
+	}
+	return ""
+}
+
+// height is a representation's picture, its set's when it states none.
+func height(s *mpd.AdaptationSetType, r *mpd.RepresentationType) int {
+	return int(cmp.Or(r.Height, s.Height, s.MaxHeight))
+}
+
+func codecs(s *mpd.AdaptationSetType, r *mpd.RepresentationType) string {
+	return cmp.Or(r.Codecs, s.Codecs)
+}
+
+// trickMode is a set of keyframes only, for scrubbing, never something to cast (DASH-IF writes it as .../guidelines/trickmode).
+func trickMode(s *mpd.AdaptationSetType) bool {
+	return slices.ContainsFunc(s.EssentialProperties, func(e *mpd.DescriptorType) bool { return strings.HasSuffix(string(e.SchemeIdUri), "trickmode") })
+}
+
+func channels(s *mpd.AdaptationSetType, r *mpd.RepresentationType) int {
+	for _, d := range slices.Concat(r.AudioChannelConfigurations, s.AudioChannelConfigurations) {
+		if n, err := strconv.Atoi(d.Value); err == nil {
+			return n
+		}
+	}
+	return 0
+}
+
+func mainRole(s *mpd.AdaptationSetType) bool {
+	return slices.ContainsFunc(s.Roles, func(r *mpd.DescriptorType) bool { return r.Value == "main" })
+}
+
+// protection is the first content protection a set or representation states, by its value or else its scheme.
+func protection(periods []placed) string {
+	for _, p := range periods {
+		for _, s := range p.AdaptationSets {
+			declared := slices.Clone(s.ContentProtections)
+			for _, r := range s.Representations {
+				declared = append(declared, r.ContentProtections...)
+			}
+			if len(declared) > 0 {
+				return cmp.Or(declared[0].Value, string(declared[0].SchemeIdUri))
+			}
+		}
+	}
+	return ""
 }

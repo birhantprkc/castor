@@ -1,0 +1,20 @@
+# A server-side ad pod spliced mid-stream (EXT-X-DISCONTINUITY, a 720p cross-host creative whose timestamps restart, 48 kHz audio) must keep the programme's length and never exceed max_height.
+stream:
+  packaging: hls-ts
+  video: {codec: h264, height: 360}
+  audio: {codec: aac, channels: 2}
+  seconds: 12
+origin:
+  splices-ad: {after: 4, segments: 3, height: 720}
+receiver:
+  device:
+    dlna:
+      sink: "http-get:*:video/mp2t:DLNA.ORG_PN=AVC_TS_HD_NA_ISO,http-get:*:audio/mp4:DLNA.ORG_PN=AAC_ISO"
+      decodes:
+        video: {h264: 8}
+        audio: {aac: 2}
+castor:
+  resolver:
+    max_height: 480
+expect:
+  delivery: served

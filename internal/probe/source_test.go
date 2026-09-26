@@ -4,33 +4,29 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/stupside/castor/internal/cast/engine/ffmpeg"
-	"github.com/stupside/castor/internal/cast/policy/read"
+	"github.com/stupside/castor/internal/ffmpeg"
 	"github.com/stupside/castor/internal/media"
 )
 
-// sourceProbe binds program to the probe exactly as a cast hands it over.
-func sourceProbe(t *testing.T, ffprobePath string, program media.Program, policies read.Plan) media.Prober {
+// sourceProbe binds program to the probe, each input opened with its headers and the terms given for it.
+func sourceProbe(t *testing.T, ffprobePath string, program media.Program, terms map[media.InputID][]string) media.Prober {
 	t.Helper()
 	program, err := media.NewProgram(program)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if policies == nil {
-		policies = make(read.Plan, len(program.Inputs))
-		for _, input := range program.Inputs {
-			policies[input.ID] = read.Policy{}
-		}
+	inputs := make([]ffmpeg.ProbeInput, 0, len(program.Inputs))
+	for _, in := range program.Inputs {
+		args := append(slices.Clone(terms[in.ID]), ffmpeg.HeaderArgs(in.Headers)...)
+		args = append(args, ffmpeg.AdaptiveInputArgs(in.ContentType, 0)...)
+		inputs = append(inputs, ffmpeg.ProbeInput{ID: in.ID, URL: in.URL.String(), Args: args})
 	}
-	source, err := ffmpeg.NewProgramSource(program, policies)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return FFprobe(ffprobePath).Source(program, source.ProbeInputs())
+	return FFprobe(ffprobePath).Source(program, inputs)
 }
 
 // fakeFFprobe logs its argv to a file and answers per the shell case body.
@@ -79,7 +75,7 @@ func TestSourceProbeOpensAMuxedSelectionOnce(t *testing.T) {
 	}
 }
 
-// Each input is opened with its own headers and read deadline; the clock input states the program facts.
+// Each input is opened on its own terms; the clock input states the program facts.
 func TestSourceProbeOpensEachInputAsTheReaderWill(t *testing.T) {
 	ffprobe, log := fakeFFprobe(t, `  *'https://audio.test/sound.m4a'*) printf '%s\n' '{"streams":[{"codec_type":"audio","codec_name":"aac","channels":2},{"codec_type":"audio","codec_name":"ac3","channels":6}],"format":{"format_name":"mov,mp4,m4a,3gp,3g2,mj2","bit_rate":"111","duration":"11"}}' ;;
   *) printf '%s\n' '{"streams":[{"codec_type":"video","codec_name":"h264","width":1280,"height":720}],"format":{"format_name":"hls","bit_rate":"222","duration":"22"}}' ;;
@@ -91,9 +87,9 @@ func TestSourceProbeOpensEachInputAsTheReaderWill(t *testing.T) {
 		{Input: "video", Kind: media.TrackVideo},
 		{Input: "audio", Kind: media.TrackAudio, Index: 1},
 	}, ClockInput: "video", EndPolicy: media.EndAtLongest}
-	info, _, err := sourceProbe(t, ffprobe, program, read.Plan{
-		"video": {Deadline: time.Second},
-		"audio": {Deadline: 2 * time.Second},
+	info, _, err := sourceProbe(t, ffprobe, program, map[media.InputID][]string{
+		"video": {"-rw_timeout", "1000000"},
+		"audio": {"-rw_timeout", "2000000"},
 	}).Probe(t.Context())
 	if err != nil {
 		t.Fatal(err)

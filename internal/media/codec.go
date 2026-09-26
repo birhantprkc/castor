@@ -22,6 +22,7 @@ const (
 	CodecTrueHD  Codec = "truehd"
 	CodecFLAC    Codec = "flac"
 	CodecVorbis  Codec = "vorbis"
+	CodecOpus    Codec = "opus"
 	CodecMP3     Codec = "mp3"
 	CodecWMAv2   Codec = "wmav2"
 

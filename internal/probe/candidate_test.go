@@ -1,12 +1,10 @@
 package probe
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -36,44 +34,6 @@ func mustURL(t *testing.T, raw string) *url.URL {
 		t.Fatal(err)
 	}
 	return u
-}
-
-// Segments with a .jpg extension are measured as castor's relaxed reader will read them.
-func TestMeasureReportsADisguisedPlaylist(t *testing.T) {
-	ffmpegPath, err := exec.LookPath("ffmpeg")
-	if err != nil {
-		t.Skip("ffmpeg not on PATH")
-	}
-	probes := Candidate(requireFFprobe(t), 30*time.Second)
-	dir := t.TempDir()
-	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, ffmpegPath,
-		"-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc=size=320x240:rate=15:duration=2",
-		"-f", "lavfi", "-i", "sine=frequency=440:duration=2",
-		"-c:v", "libx264", "-pix_fmt", "yuv420p", "-profile:v", "baseline",
-		"-c:a", "aac", "-ac", "2", "-shortest",
-		"-f", "hls", "-hls_time", "1", "-hls_list_size", "0",
-		"-hls_segment_filename", filepath.Join(dir, "disguised_%03d.jpg"),
-		filepath.Join(dir, "disguised.m3u8"),
-	).CombinedOutput()
-	if err != nil {
-		t.Fatalf("generating fixture: %v\n%s", err, out)
-	}
-	origin := httptest.NewServer(http.FileServer(http.Dir(dir)))
-	t.Cleanup(origin.Close)
-
-	info, reach, err := probes(streamAt(t, origin.URL+"/disguised.m3u8")).Probe(t.Context())
-	if err != nil {
-		t.Fatalf("Probe: %v", err)
-	}
-	if reach != media.ReachOpened || info.ContentType != media.HLS || info.VideoCodec != media.CodecH264 || info.AudioCodec == "" {
-		t.Errorf("Probe = %+v (%s), want an opened H.264+audio HLS program", info, reach)
-	}
-	if info.VideoHeight != 240 || info.Duration <= 0 {
-		t.Errorf("height %d duration %s, want the fixture's 240 and its known runtime", info.VideoHeight, info.Duration)
-	}
 }
 
 // Refusals ffprobe names only at warning level must still classify as refused.

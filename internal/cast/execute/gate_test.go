@@ -8,11 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stupside/castor/internal/cast/engine/deliver"
-	"github.com/stupside/castor/internal/cast/policy/compose"
-	"github.com/stupside/castor/internal/cast/policy/plan"
-	"github.com/stupside/castor/internal/cast/policy/read"
-	"github.com/stupside/castor/internal/cast/policy/watch"
+	"github.com/stupside/castor/internal/cast/deliver"
+	"github.com/stupside/castor/internal/cast/plan"
+	"github.com/stupside/castor/internal/cast/read"
+	"github.com/stupside/castor/internal/cast/watch"
 	"github.com/stupside/castor/internal/media"
 )
 
@@ -86,7 +85,7 @@ func TestBothWindowsJudgeTheSameReadAgainstTheSamePace(t *testing.T) {
 
 			never := stoppedRenderer{last: time.Now().Add(-watch.StallWindow - time.Second)}
 			inFlight := paceBehindTheVerdict(t, func(ctx context.Context) error {
-				return watch.Watch(ctx, c.playingMonitor(never))
+				return watch.Watch(ctx, c.playingMonitor(c.fromBuffer(), never))
 			})
 
 			if gate != inFlight {
@@ -130,7 +129,6 @@ func gateFixture(t *testing.T, pace float64) *cast {
 	t.Cleanup(func() { sp.CloseWrite(nil) })
 
 	return &cast{
-		row:   compose.Row{Kind: compose.ReadOnce},
 		spool: sp,
 		reader: &pull{
 			spool:  sp,

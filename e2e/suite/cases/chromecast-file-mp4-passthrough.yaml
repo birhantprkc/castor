@@ -1,0 +1,10 @@
+# A plain MP4 link the Chromecast decodes is handed over as it is.
+stream:
+  packaging: file-mp4
+  video: {codec: h264, height: 360}
+  audio: {codec: aac, channels: 2}
+receiver:
+  device: chromecast
+expect:
+  delivery: passthrough
+  video: copied

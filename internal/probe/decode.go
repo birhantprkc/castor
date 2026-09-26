@@ -1,22 +1,28 @@
 package probe
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/stupside/castor/internal/ffmpeg"
 	"github.com/stupside/castor/internal/media"
 )
 
-const probeEntries = "format=format_name,bit_rate,duration:" +
-	"stream=codec_type,codec_name,profile,width,height,pix_fmt,color_transfer,channels:" +
-	"stream_disposition=attached_pic"
+const probeEntries = "format=format_name,bit_rate,duration,start_time:" +
+	"stream=index,codec_type,codec_name,profile,level,width,height,pix_fmt,color_transfer,field_order,r_frame_rate,channels,sample_rate:" +
+	"stream_disposition=attached_pic:stream_side_data=rotation:" +
+	"program=program_id:program_stream_disposition=attached_pic:" +
+	"frame=stream_index,interlaced_frame"
 
 func decodeProbeTracks(out []byte, videoIndex, audioIndex int) (media.ProbeInfo, error) {
 	var result struct {
 		Streams []struct {
+			Index         int    `json:"index"`
 			CodecType     string `json:"codec_type"`
 			CodecName     string `json:"codec_name"`
 			Profile       string `json:"profile"`
@@ -24,15 +30,34 @@ func decodeProbeTracks(out []byte, videoIndex, audioIndex int) (media.ProbeInfo,
 			Height        int    `json:"height"`
 			PixFmt        string `json:"pix_fmt"`
 			ColorTransfer string `json:"color_transfer"`
+			Level         int    `json:"level"`
+			FieldOrder    string `json:"field_order"`
+			FrameRate     string `json:"r_frame_rate"`
 			Channels      int    `json:"channels"`
+			SampleRate    string `json:"sample_rate"`
 			Disposition   struct {
 				AttachedPic int `json:"attached_pic"`
 			} `json:"disposition"`
+			SideData []struct {
+				Rotation int `json:"rotation"`
+			} `json:"side_data_list"`
 		} `json:"streams"`
+		Programs []struct {
+			ProgramID int `json:"program_id"`
+			Streams   []struct {
+				CodecType   string `json:"codec_type"`
+				Height      int    `json:"height"`
+				Disposition struct {
+					AttachedPic int `json:"attached_pic"`
+				} `json:"disposition"`
+			} `json:"streams"`
+		} `json:"programs"`
+		Frames []probedFrame `json:"frames"`
 		Format struct {
 			FormatName string `json:"format_name"`
 			BitRate    string `json:"bit_rate"`
 			Duration   string `json:"duration"`
+			StartTime  string `json:"start_time"`
 		} `json:"format"`
 	}
 	if err := json.Unmarshal(out, &result); err != nil {
@@ -47,6 +72,9 @@ func decodeProbeTracks(out []byte, videoIndex, audioIndex int) (media.ProbeInfo,
 	info.BitRate, _ = strconv.ParseInt(result.Format.BitRate, 10, 64)
 	if secs, err := strconv.ParseFloat(result.Format.Duration, 64); err == nil && secs > 0 {
 		info.Duration = time.Duration(secs * float64(time.Second))
+	}
+	if secs, err := strconv.ParseFloat(result.Format.StartTime, 64); err == nil {
+		info.Start = time.Duration(secs * float64(time.Second))
 	}
 
 	videoSeen, audioSeen := 0, 0
@@ -65,6 +93,14 @@ func decodeProbeTracks(out []byte, videoIndex, audioIndex int) (media.ProbeInfo,
 					info.VideoHeight = s.Height
 					info.VideoBitDepth = pixFmtBitDepth(s.PixFmt)
 					info.VideoHDR = isHDRTransfer(s.ColorTransfer)
+					info.VideoLevel = s.Level
+					info.VideoFrameRate = frameRate(s.FrameRate)
+					info.VideoInterlaced = interlaced[s.FieldOrder] || slices.ContainsFunc(result.Frames, func(f probedFrame) bool {
+						return f.StreamIndex == s.Index && f.InterlacedFrame == 1
+					})
+					for _, d := range s.SideData {
+						info.VideoRotation = cmp.Or(info.VideoRotation, d.Rotation)
+					}
 				}
 			}
 			videoSeen++
@@ -72,9 +108,22 @@ func decodeProbeTracks(out []byte, videoIndex, audioIndex int) (media.ProbeInfo,
 			if audioSeen == audioIndex {
 				info.AudioCodec = media.Codec(s.CodecName)
 				info.AudioChannels = s.Channels
+				info.AudioSampleRate, _ = strconv.Atoi(s.SampleRate)
 			}
 			audioSeen++
 		}
+	}
+	if len(result.Programs) > 0 {
+		info.ProgramHeights = make(map[int]int, len(result.Programs))
+	}
+	for _, program := range result.Programs {
+		tallest := 0
+		for _, s := range program.Streams {
+			if s.CodecType == "video" && s.Disposition.AttachedPic == 0 {
+				tallest = max(tallest, s.Height)
+			}
+		}
+		info.ProgramHeights[program.ProgramID] = tallest
 	}
 	return info, nil
 }
@@ -93,6 +142,32 @@ func pixFmtBitDepth(pixFmt string) int {
 	}
 }
 
+// probedFrame is one decoded frame: whether it was coded as fields is only known once one decodes.
+type probedFrame struct {
+	StreamIndex     int `json:"stream_index"`
+	InterlacedFrame int `json:"interlaced_frame"`
+}
+
+// interlaced is every field order ffprobe reports for a picture coded as fields.
+var interlaced = map[string]bool{"tt": true, "bb": true, "tb": true, "bt": true}
+
+// frameRate reads ffprobe's rational frame rate, 0 when it states none.
+func frameRate(rational string) float64 {
+	num, den, ok := strings.Cut(rational, "/")
+	n, err := strconv.ParseFloat(num, 64)
+	if err != nil {
+		return 0
+	}
+	if !ok {
+		return n
+	}
+	d, err := strconv.ParseFloat(den, 64)
+	if err != nil || d == 0 {
+		return 0
+	}
+	return n / d
+}
+
 func isHDRTransfer(transfer string) bool {
 	switch transfer {
 	case "smpte2084", "arib-std-b67":
@@ -106,12 +181,12 @@ func isHDRTransfer(transfer string) bool {
 func formatToContentType(format string) string {
 	for f := range strings.SplitSeq(format, ",") {
 		switch strings.TrimSpace(f) {
-		case "hls", "applehttp":
+		case ffmpeg.FormatHLS, "applehttp":
 			return media.HLS
-		case "dash":
+		case ffmpeg.FormatDASH:
 			return media.DASH
 		// "mp4" is checked but "mov" deliberately is not: ffprobe reports the same joined list for both.
-		case "mp4":
+		case ffmpeg.FormatMP4:
 			return media.MP4
 		case "matroska":
 			return media.MKV
@@ -119,7 +194,7 @@ func formatToContentType(format string) string {
 			return media.WebM
 		case "avi":
 			return media.AVI
-		case "mpegts":
+		case ffmpeg.FormatMPEGTS:
 			return media.MPEGTS
 		case "flv":
 			return media.FLV

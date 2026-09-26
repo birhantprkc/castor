@@ -1,6 +1,10 @@
 package source
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stupside/castor/internal/media"
+)
 
 func TestDeclaresVideoReadsTheSampleEntry(t *testing.T) {
 	for _, tc := range []struct {
@@ -14,6 +18,28 @@ func TestDeclaresVideoReadsTheSampleEntry(t *testing.T) {
 	} {
 		if got := DeclaresVideo(tc.codecs); got != tc.want {
 			t.Errorf("DeclaresVideo(%q) = %v, want %v", tc.codecs, got, tc.want)
+		}
+	}
+}
+
+func TestDeclaredEnvelopeReadsBothH264Spellings(t *testing.T) {
+	for _, tc := range []struct {
+		codecs string
+		want   media.Profile
+	}{
+		{"avc1.640028,mp4a.40.2", media.ProfileHigh},
+		{"avc1.42c01e,mp4a.40.2", media.ProfileConstrainedBaseline},
+		{"avc1.100.30,mp4a.40.2", media.ProfileHigh},
+		{"avc1.66.30,mp4a.40.2", media.ProfileBaseline},
+	} {
+		got := DeclaredEnvelope(tc.codecs, 360)
+		if got == nil || got.VideoCodec != media.CodecH264 || got.VideoProfile != tc.want {
+			t.Errorf("DeclaredEnvelope(%q) = %+v, want h264 %s", tc.codecs, got, tc.want)
+		}
+	}
+	for _, codecs := range []string{"avc1.100.x1", "avc1.1000.30", "avc1.64002"} {
+		if got := DeclaredEnvelope(codecs, 360); got != nil {
+			t.Errorf("DeclaredEnvelope(%q) = %+v, want nil for a malformed entry", codecs, got)
 		}
 	}
 }

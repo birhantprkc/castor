@@ -1,7 +1,6 @@
 package media
 
 import (
-	"fmt"
 	"slices"
 )
 
@@ -15,13 +14,18 @@ type Capabilities struct {
 
 	// ServedContainer is what castor muxes on a served cast that remuxes.
 	ServedContainer string
+
+	// Deinterlaces is whether the renderer shows a picture coded as fields without combing.
+	Deinterlaces bool
 }
 
-// VideoSupport is one video envelope a renderer decodes natively (codec, profile, bit depth only).
+// VideoSupport is one video envelope a renderer decodes natively (codec, profile, bit depth, level).
 type VideoSupport struct {
 	Codec     Codec
 	Profiles  []Profile // nil or empty = any profile
 	BitDepths []int     // nil or empty = {8}
+	// MaxLevel is the highest level decoded, in ffprobe's units (H.264 x10); 0 = no advertised ceiling.
+	MaxLevel int
 }
 
 // AudioSupport is one audio codec a renderer decodes natively, up to MaxChannels channels.
@@ -36,7 +40,13 @@ func (r Capabilities) AcceptsContainer(contentType string) bool {
 	return slices.Contains(r.Containers, contentType)
 }
 
+// PlaybackSampleRate is the highest audio sample rate any renderer castor serves plays.
+const PlaybackSampleRate = 48000
+
 func (r Capabilities) CanCopyVideo(v ProbeInfo) bool {
+	if v.VideoInterlaced && !r.Deinterlaces {
+		return false
+	}
 	return slices.ContainsFunc(r.Video, func(s VideoSupport) bool { return s.accepts(v) })
 }
 
@@ -46,6 +56,9 @@ func (r Capabilities) SupportsCodec(c Codec) bool {
 }
 
 func (r Capabilities) CanCopyAudio(p ProbeInfo) bool {
+	if p.AudioSampleRate > PlaybackSampleRate {
+		return false
+	}
 	return slices.ContainsFunc(r.Audio, func(s AudioSupport) bool { return s.accepts(p) })
 }
 
@@ -72,33 +85,13 @@ func (s VideoSupport) accepts(v ProbeInfo) bool {
 	if len(s.Profiles) > 0 && !slices.Contains(s.Profiles, v.VideoProfile) {
 		return false
 	}
+	// Unknown source level (0) is trusted, as an unknown channel count is.
+	if s.MaxLevel > 0 && v.VideoLevel > s.MaxLevel {
+		return false
+	}
 	depths := s.BitDepths
 	if len(depths) == 0 {
 		depths = []int{8}
 	}
 	return slices.Contains(depths, v.VideoBitDepth)
 }
-
-type Gone struct {
-	// Renderer is the set's name (or where castor reached it if it has none).
-	Renderer string
-
-	// Observed is the family's account of how it established this (for humans to read).
-	Observed string
-
-	// Err is the last failure the family saw (the only account of HOW).
-	Err error
-}
-
-func (g *Gone) Error() string {
-	msg := fmt.Sprintf("renderer %q is unreachable", g.Renderer)
-	if g.Observed != "" {
-		msg += ": " + g.Observed
-	}
-	if g.Err != nil {
-		msg += ": " + g.Err.Error()
-	}
-	return msg
-}
-
-func (g *Gone) Unwrap() error { return g.Err }

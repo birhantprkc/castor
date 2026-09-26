@@ -1,0 +1,12 @@
+# An episode is resolved through the source's episode template and cast to a Chromecast.
+command: {episode: {id: '1399', season: 1, episode: 2}}
+stream:
+  packaging: hls-ts
+  video: {codec: h264, height: 240}
+  audio: {codec: aac, channels: 2}
+  seconds: 300
+receiver:
+  device: chromecast
+expect:
+  delivery: served
+  video: copied

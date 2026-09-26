@@ -11,7 +11,7 @@ import (
 
 // pick is the rung resolution chooses from a document under a cap.
 func pick(doc hlsDocument, ceiling media.HeightCap) source.Rendition {
-	return source.Origin{Renditions: ladder(doc)}.Choose(ceiling, byBitrate)
+	return source.Origin{Renditions: ladder(doc, nil)}.Choose(ceiling, byBitrate)
 }
 
 func TestPickVariant(t *testing.T) {
@@ -39,11 +39,12 @@ func TestParsePlaylistPairsEachVariantWithItsAudioGroup(t *testing.T) {
 		`#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud-high",NAME="High",DEFAULT=YES,URI="audio/high.m3u8"` + "\n" +
 		`#EXT-X-STREAM-INF:BANDWIDTH=1000000,RESOLUTION=854x480,CODECS="avc1.4d401f,mp4a.40.2",AUDIO="aud-low"` + "\n480.m3u8\n" +
 		`#EXT-X-STREAM-INF:BANDWIDTH=6000000,RESOLUTION=1920x1080,CODECS="avc1.640028,mp4a.40.2",AUDIO="aud-high"` + "\n1080.m3u8\n"
-	master, err := parsePlaylist(body, sourcetest.URL(t, "http://example.com/master.m3u8"))
+	base := sourcetest.URL(t, "http://example.com/master.m3u8")
+	master, err := parsePlaylist(body, base, base)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rungs := ladder(master)
+	rungs := ladder(master, nil)
 	if len(rungs) != 2 || rungs[0].AudioURL == nil || rungs[1].AudioURL == nil {
 		t.Fatalf("ladder = %+v, want two rungs each paired with companion audio", rungs)
 	}

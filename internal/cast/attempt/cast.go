@@ -94,7 +94,6 @@ func announce(ctx context.Context, in Intent, a Attempt) {
 		"segmented", a.Origin.Segmented,
 		"segment_framing", a.Origin.Framing,
 		"live", a.Origin.Live,
-		"encrypted", a.Origin.Encrypted,
 		"duration", a.Origin.Duration,
 	)
 	primaryRead := a.Read.Primary(a.Program)

@@ -1,24 +1,22 @@
 package source
 
-import "net/url"
+import (
+	"net/url"
+	"time"
+)
 
-// Parse reads a body in the first grammar that recognises it: its ladder, and what it names resolved against base.
-func (fs Formats) Parse(body string, base *url.URL) (Ladder, []*url.URL) {
-	for _, f := range fs {
-		ladder, refs := f.Recognize(body)
-		if ladder == LadderUnknown {
-			continue
-		}
-		if base == nil {
-			return ladder, nil
-		}
-		var names []*url.URL
-		for _, ref := range refs {
-			if resolved, err := base.Parse(ref); err == nil {
-				names = append(names, resolved)
-			}
-		}
-		return ladder, names
-	}
-	return LadderUnknown, nil
+// Reading is what a body says of itself in the grammar that recognised it.
+type Reading struct {
+	Ladder Ladder
+	// Refs is every resource the body names, as written.
+	Refs []string
+	// Runtime is how long a document that ended plays; zero when it may still grow or never says.
+	Runtime time.Duration
+}
+
+// Document is a Reading whose names are resolved against where the body came from.
+type Document struct {
+	Ladder  Ladder
+	Names   []*url.URL
+	Runtime time.Duration
 }

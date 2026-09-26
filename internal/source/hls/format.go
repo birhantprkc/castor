@@ -12,6 +12,7 @@ import (
 
 	"github.com/stupside/castor/internal/media"
 	"github.com/stupside/castor/internal/source"
+	"github.com/stupside/castor/internal/source/timeline"
 )
 
 // Format is HLS as a source.Format (publishes additional graph structure: video/audio rendition pairs).
@@ -49,12 +50,13 @@ func (Format) Resolve(ctx context.Context, env source.Env, s source.Subject) (so
 		Segmented: origin.Segmented,
 		Framing:   origin.Framing,
 		Live:      origin.Live,
+		Spliced:   origin.Spliced,
 	}
 
 	inputs := []media.Input{{
 		ID:                   media.PrimaryInputID,
 		URL:                  read,
-		Headers:              stream.Headers,
+		Headers:              source.WithSession(stream.Headers, env.Client.Session(read)),
 		ContentType:          stream.ContentType,
 		RequiresRelaxedInput: primaryRelaxed,
 		Fetch:                primaryFetch,
@@ -67,11 +69,12 @@ func (Format) Resolve(ctx context.Context, env source.Env, s source.Subject) (so
 	end := media.EndAtLongest
 	if audioURL != nil {
 		end = media.EndAtShortest
-		audioFetch, audioRelaxed := inspectCompanion(ctx, env.Playlists, audioURL, stream.Headers)
+		audioHeaders := source.WithSession(stream.Headers, env.Client.Session(audioURL))
+		audioFetch, audioRelaxed := inspectCompanion(ctx, env.Client, audioURL, audioHeaders)
 		inputs = append(inputs, media.Input{
 			ID:                   media.AudioInputID,
 			URL:                  audioURL,
-			Headers:              stream.Headers,
+			Headers:              audioHeaders,
 			ContentType:          media.HLS,
 			RequiresRelaxedInput: audioRelaxed,
 			Fetch:                audioFetch,
@@ -89,7 +92,7 @@ func (Format) Resolve(ctx context.Context, env source.Env, s source.Subject) (so
 	if err != nil {
 		return source.Resolution{Origin: origin, Rendition: chosen}, fmt.Errorf("normalizing HLS program: %w", err)
 	}
-	program, err = source.Narrow(program, chosen, published)
+	program, err = source.Described(program, chosen, published)
 	if err != nil {
 		return source.Resolution{Origin: origin, Rendition: chosen}, fmt.Errorf("narrowing the HLS program to the chosen rendition: %w", err)
 	}
@@ -97,7 +100,7 @@ func (Format) Resolve(ctx context.Context, env source.Env, s source.Subject) (so
 }
 
 // inspectCompanion reads the audio rendition's media playlist.
-func inspectCompanion(ctx context.Context, playlists source.Playlists, audioURL *url.URL, headers http.Header) (media.Fetch, bool) {
+func inspectCompanion(ctx context.Context, playlists source.Client, audioURL *url.URL, headers http.Header) (media.Fetch, bool) {
 	unknown := media.Fetch{Segmented: true}
 	doc, status, err := readPlaylist(ctx, playlists, audioURL, headers)
 	if err != nil {
@@ -114,26 +117,31 @@ func inspectCompanion(ctx context.Context, playlists source.Playlists, audioURL 
 		Segmented: true,
 		Framing:   doc.Framing,
 		Live:      doc.Live,
+		Spliced:   doc.Spliced,
 	}, doc.RequiresRelaxedInput
 }
 
 // Tokens the grammar is recognised by (matched literally and case-sensitively per format definition).
 const (
 	// signature is the required first line of every playlist.
-	signature = "#EXTM3U"
+	signature = timeline.TagHeader
 	// renditionDeclaration declares a rendition with its own attributes (multivariant only).
 	renditionDeclaration = "#EXT-X-STREAM-INF"
 )
 
 // Recognize reads a line-oriented playlist and identifies it by signature and rendition declaration.
-func (Format) Recognize(body string) (source.Ladder, []string) {
+func (Format) Recognize(body string) source.Reading {
 	switch {
 	case !strings.Contains(body, signature):
-		return source.LadderUnknown, nil
+		return source.Reading{}
 	case strings.Contains(body, renditionDeclaration):
-		return source.LadderMultivariant, references(body)
+		return source.Reading{Ladder: source.LadderMultivariant, Refs: references(body)}
 	}
-	return source.LadderSole, references(body)
+	read := source.Reading{Ladder: source.LadderSole, Refs: references(body)}
+	if doc, err := parsePlaylist(body, &url.URL{}, &url.URL{}); err == nil {
+		read.Runtime = doc.Duration
+	}
+	return read
 }
 
 var reference = regexp.MustCompile(`URI="([^"]*)"`)

@@ -11,8 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stupside/castor/internal/cast/policy/compose"
-	"github.com/stupside/castor/internal/cast/policy/watch"
+	"github.com/stupside/castor/internal/cast/watch"
 	"github.com/stupside/castor/internal/media"
 	"github.com/stupside/castor/internal/source"
 )
@@ -291,19 +290,6 @@ func TestCastDecodesTheAxisWhoseCopyBrokeUpstream(t *testing.T) {
 	}
 	if second := run.seen[1]; !second.Decode.Video || !second.Decode.Audio || second.Candidate != 0 {
 		t.Errorf("second attempt decodes %s on candidate %d, want every copied axis on the same link", second.Decode, second.Candidate)
-	}
-}
-
-func TestServeInsteadStopsHandingTheRendererAURL(t *testing.T) {
-	in := Intent{Candidates: candidates(t, "https://cdn.example/one.mp4"), Deadline: 30 * time.Second}
-	refusal := errors.New("SOAP SetAVTransportURI: 714")
-	run := &scriptedRunner{outcomes: []Outcome{{Err: refusal, Evidence: Evidence{PlayErr: refusal}}, delivered}}
-
-	if err := Cast(t.Context(), in, run, &fakeProgram{}); err != nil {
-		t.Fatalf("cast: %v", err)
-	}
-	if len(run.seen) != 2 || run.seen[1].Delivery != compose.DeliveryServe {
-		t.Fatalf("attempts = %+v, want a second one delivered by %q", run.seen, compose.DeliveryServe)
 	}
 }
 

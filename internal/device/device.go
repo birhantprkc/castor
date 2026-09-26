@@ -1,3 +1,4 @@
+// Package device is the port every renderer family implements, and the registry castor discovers and connects renderers through.
 package device
 
 import (
@@ -20,10 +21,12 @@ type Type string
 type codecEnvelope struct {
 	profiles  []media.Profile
 	bitDepths []int // nil == 8-bit only
+	maxLevel  int
 }
 
 var codecEnvelopes = map[media.Codec]codecEnvelope{
-	media.CodecH264: {profiles: []media.Profile{media.ProfileConstrainedBaseline, media.ProfileBaseline, media.ProfileMain, media.ProfileHigh}},
+	// Level 4.2 (1080p60) is what every HD H.264 decoder castor targets is built to.
+	media.CodecH264: {profiles: []media.Profile{media.ProfileConstrainedBaseline, media.ProfileBaseline, media.ProfileMain, media.ProfileHigh}, maxLevel: 42},
 	media.CodecHEVC: {profiles: []media.Profile{media.ProfileMain, media.ProfileMain10}, bitDepths: []int{8, 10}},
 	media.CodecVP8:  {}, // VP8 has no profile split in Castor's probe model; 8-bit is the default.
 }
@@ -35,6 +38,7 @@ func VideoSupport(codec media.Codec) media.VideoSupport {
 		Codec:     codec,
 		Profiles:  env.profiles,
 		BitDepths: env.bitDepths,
+		MaxLevel:  env.maxLevel,
 	}
 }
 

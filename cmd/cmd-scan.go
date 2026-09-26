@@ -4,15 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/urfave/cli/v3"
 
 	"github.com/stupside/castor/internal/config"
 )
-
-// scanTimeout is the discovery window used when no config is available.
-const scanTimeout = 5 * time.Second
 
 // scanCommand discovers config values without requiring valid config.
 func (a *app) scanCommand() *cli.Command {
@@ -23,7 +19,7 @@ func (a *app) scanCommand() *cli.Command {
 			cfg, err := a.config()
 			if err != nil {
 				slog.DebugContext(ctx, "scanning without config", "error", err)
-				cfg = &config.Config{Network: config.NetworkConfig{Timeout: scanTimeout}}
+				cfg = config.Defaults()
 			}
 
 			devices := cfg.Devices().Discover(ctx, cfg.Network.Timeout)

@@ -6,11 +6,13 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/stupside/castor/internal/ffmpeg"
 	"github.com/stupside/castor/internal/media"
 	"github.com/stupside/castor/internal/source"
+	"github.com/stupside/castor/internal/source/rank"
 )
 
-func Candidate(ffprobePath string, timeout time.Duration) source.Probes {
+func Candidate(ffprobePath string, timeout time.Duration) rank.Probes {
 	return func(s *source.Candidate) media.Prober {
 		return candidateProber{ffprobePath: ffprobePath, timeout: timeout, candidate: s}
 	}
@@ -28,7 +30,7 @@ func (p candidateProber) Probe(ctx context.Context) (media.ProbeInfo, media.Reac
 		return media.ProbeInfo{}, media.ReachUnproven, fmt.Errorf("probing source: no URL")
 	}
 
-	args := media.HeaderArgs(s.Headers)
+	args := ffmpeg.HeaderArgs(s.Headers)
 	args = append(args, probeInputArgs(s.ContentType)...)
 
 	slog.DebugContext(ctx, "running ffprobe", "url", s.URL.String(), "header_count", len(s.Headers))
@@ -50,8 +52,8 @@ func (p candidateProber) Probe(ctx context.Context) (media.ProbeInfo, media.Reac
 }
 
 func probeInputArgs(contentType string) []string {
-	if args := media.AdaptiveInputArgs(contentType, 0); args != nil {
+	if args := ffmpeg.AdaptiveInputArgs(contentType, 0); args != nil {
 		return args
 	}
-	return media.AdaptiveInputArgs(media.HLS, 0)
+	return ffmpeg.LenientInputArgs()
 }

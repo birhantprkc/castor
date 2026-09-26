@@ -1,0 +1,10 @@
+# AV1 reaches a Chromecast as H.264: castor never hands over a codec the receiver did not advertise.
+stream:
+  packaging: file-mp4
+  video: {codec: av1, height: 360}
+  audio: {codec: aac, channels: 2}
+receiver:
+  device: chromecast
+expect:
+  delivery: served
+  video: encoded

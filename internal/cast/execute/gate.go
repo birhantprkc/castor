@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/stupside/castor/internal/cast/policy/watch"
+	"github.com/stupside/castor/internal/cast/watch"
 )
 
 func (c *cast) readMonitor(m watch.Monitor) watch.Monitor {
@@ -31,21 +31,22 @@ func (c *cast) playable(ctx context.Context) error {
 	}))
 }
 
-func (c *cast) playingMonitor(aud watch.Audience) watch.Monitor {
-	m := watch.Monitor{
-		Subject:  "the playing cast",
-		Window:   watch.Playing,
-		Audience: aud,
-	}
-	if c.row.Kind.Buffers() {
-		return c.readMonitor(m)
-	}
-	m.Producer = encoderOutput{proc: c.proc, ended: c.sink.Drained()}
+func (c *cast) encoderMonitor(m watch.Monitor) watch.Monitor {
+	m.Producer = c.output
 	m.Landed = c.sink.Artifact().Landed
 	return m
 }
 
-func (c *cast) supervising(ctx context.Context) error {
+func (c *cast) playingMonitor(f feed, aud watch.Audience) watch.Monitor {
+	return f.playing(watch.Monitor{
+		Subject:  "the playing cast",
+		Window:   watch.Playing,
+		Audience: aud,
+	})
+}
+
+// supervising also reports whether the delivery ran its course, which alone earns the question serve asks next.
+func (c *cast) supervising(ctx context.Context, f feed) (bool, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -58,27 +59,24 @@ func (c *cast) supervising(ctx context.Context) error {
 	var judged chan error
 	if aud := c.sink.Audience(); aud != nil {
 		judged = make(chan error, 1)
-		go func() { judged <- watch.Watch(ctx, c.playingMonitor(aud)) }()
+		go func() { judged <- watch.Watch(ctx, c.playingMonitor(f, aud)) }()
 	}
 
 	select {
 	case err := <-delivered:
-		// A Wait that ended cleanly is asked one more question once this returns (see settled).
-		c.ran = err == nil
 		cancel()
-		return errors.Join(err, unlessTeardown(<-playback))
+		return err == nil, errors.Join(err, unlessTeardown(<-playback))
 	case err := <-judged:
 		cancel()
-		return errors.Join(err, unlessTeardown(<-playback))
+		return false, errors.Join(err, unlessTeardown(<-playback))
 	case err := <-playback:
 		cancel()
-		var local error
 		select {
-		case local = <-delivered:
-			c.ran = local == nil
-		case local = <-judged:
+		case local := <-delivered:
+			return local == nil, errors.Join(err, unlessTeardown(local))
+		case local := <-judged:
+			return false, errors.Join(err, unlessTeardown(local))
 		}
-		return errors.Join(err, unlessTeardown(local))
 	}
 }
 

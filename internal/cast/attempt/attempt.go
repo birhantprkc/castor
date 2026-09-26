@@ -7,15 +7,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stupside/castor/internal/cast/policy/compose"
-	"github.com/stupside/castor/internal/cast/policy/read"
+	"github.com/stupside/castor/internal/cast/compose"
+	"github.com/stupside/castor/internal/cast/read"
 	"github.com/stupside/castor/internal/media"
 	"github.com/stupside/castor/internal/source"
 )
 
 // Intent is what a cast has; immutable during run, so attempt count is inherent.
 type Intent struct {
-	// Candidates: ranked by source.Ranker; each is resolved when an attempt first reaches it.
+	// Candidates: ranked by rank.Ranker; each is resolved when an attempt first reaches it.
 	Candidates []*source.Candidate
 
 	// Deadline is the mid-read stall bound every read plan is derived with.
@@ -93,8 +93,8 @@ func programIdentity(program media.Program, redactURLSecrets bool) string {
 			u.User, u.RawQuery, u.Fragment = nil, "", ""
 			inputURL = u.String()
 		}
-		parts = append(parts, fmt.Sprintf("input:%s=%s:%s:%t",
-			input.ID, inputURL, input.ContentType, input.RequiresRelaxedInput))
+		parts = append(parts, fmt.Sprintf("input:%s=%s#%s:%s:%t",
+			input.ID, inputURL, input.Representation, input.ContentType, input.RequiresRelaxedInput))
 	}
 	for _, track := range program.Tracks {
 		parts = append(parts, fmt.Sprintf("track:%s=%s:%d:%t",

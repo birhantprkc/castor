@@ -1,0 +1,16 @@
+# A live HLS channel with a stitched splice (DISCONTINUITY plus a timestamp reset) relays to the Roku as one continuous fMP4 stream.
+stream:
+  packaging: hls-ts
+  video: {codec: h264, height: 360}
+  audio: {codec: aac, channels: 2}
+  seconds: 20
+origin:
+  restarts-at: {segment: 10, sequence: continue}
+  live: {start: 4, every: 1s, end: endlist}
+receiver:
+  device: roku
+castor:
+  cast:
+    delivery: serve
+expect:
+  delivery: served

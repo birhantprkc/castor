@@ -1,0 +1,11 @@
+# An IPTV restream of a 576i broadcast channel is interlaced H.264; a Chromecast does not deinterlace, so handing it over shows combing.
+stream:
+  packaging: hls-ts
+  video: {codec: h264, height: 576}
+  audio: {codec: aac, channels: 2}
+  quirks:
+    interlaced: tff
+receiver:
+  device: chromecast
+expect:
+  delivery: served

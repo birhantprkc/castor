@@ -1,0 +1,12 @@
+# A CDN director's redirect chain must not cost a Chromecast the hand-off of a link castor measured.
+stream:
+  packaging: hls-ts
+  video: {codec: h264, height: 360}
+  audio: {codec: aac, channels: 2}
+origin:
+  redirects: {hops: 2}
+receiver:
+  device: chromecast
+expect:
+  delivery: passthrough
+  video: copied

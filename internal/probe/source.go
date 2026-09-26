@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 
+	"github.com/stupside/castor/internal/ffmpeg"
 	"github.com/stupside/castor/internal/media"
 )
 
@@ -12,14 +14,14 @@ import (
 type FFprobe string
 
 // Source binds an upstream to this ffprobe (opens exactly as reader will).
-func (bin FFprobe) Source(program media.Program, inputs []media.ProbeInput) media.Prober {
+func (bin FFprobe) Source(program media.Program, inputs []ffmpeg.ProbeInput) media.Prober {
 	return sourceProber{ffprobePath: string(bin), program: program, inputs: inputs}
 }
 
 type sourceProber struct {
 	ffprobePath string
 	program     media.Program
-	inputs      []media.ProbeInput
+	inputs      []ffmpeg.ProbeInput
 }
 
 // Probe measures a demuxed program (audio in companion rendition; silence if audio can't be probed).
@@ -28,7 +30,7 @@ func (p sourceProber) Probe(ctx context.Context) (media.ProbeInfo, media.Reach, 
 	var info media.ProbeInfo
 	video, hasVideo := selected(program, inputs, media.TrackVideo)
 	audio, hasAudio := selected(program, inputs, media.TrackAudio)
-	clockInput := slices.IndexFunc(inputs, func(in media.ProbeInput) bool {
+	clockInput := slices.IndexFunc(inputs, func(in ffmpeg.ProbeInput) bool {
 		return in.ID == program.ClockInput
 	})
 
@@ -62,22 +64,22 @@ func (p sourceProber) Probe(ctx context.Context) (media.ProbeInfo, media.Reach, 
 				return info, reach, fmt.Errorf("probing program clock input: %w", err)
 			}
 		}
+		if info.InputStarts == nil {
+			info.InputStarts = map[media.InputID]time.Duration{}
+		}
+		info.InputStarts[input.ID] = measured.Start
 		if inputIndex == clockInput {
+			info.Start = measured.Start
 			info.ContentType = measured.ContentType
 			info.BitRate = measured.BitRate
 			info.Duration = measured.Duration
 		}
+		// The ladder travels with the video half (worth most where alternatives are measured).
 		if videoIndex >= 0 {
-			info.VideoCodec = measured.VideoCodec
-			info.VideoProfile = measured.VideoProfile
-			info.VideoHeight = measured.VideoHeight
-			info.VideoBitDepth = measured.VideoBitDepth
-			info.VideoHDR = measured.VideoHDR
-			// Ladder with video half (worth most where alternatives are measured).
-			info.VideoHeights = measured.VideoHeights
+			info = info.TakeVideo(measured)
 		}
 		if audioIndex >= 0 {
-			info.AudioCodec, info.AudioChannels = measured.AudioCodec, measured.AudioChannels
+			info = info.TakeAudio(measured)
 		}
 	}
 
@@ -97,12 +99,12 @@ type selection struct {
 	optional bool
 }
 
-func selected(program media.Program, inputs []media.ProbeInput, kind media.TrackKind) (selection, bool) {
+func selected(program media.Program, inputs []ffmpeg.ProbeInput, kind media.TrackKind) (selection, bool) {
 	ref, ok := program.Track(kind)
 	if !ok {
 		return selection{}, false
 	}
-	index := slices.IndexFunc(inputs, func(in media.ProbeInput) bool { return in.ID == ref.Input })
+	index := slices.IndexFunc(inputs, func(in ffmpeg.ProbeInput) bool { return in.ID == ref.Input })
 	if index < 0 {
 		// NewProgramSource validated this; unreachable without ProgramSource bug.
 		return selection{}, false

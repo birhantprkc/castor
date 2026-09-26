@@ -3,7 +3,7 @@ package attempt
 import (
 	"errors"
 
-	"github.com/stupside/castor/internal/cast/policy/watch"
+	"github.com/stupside/castor/internal/cast/watch"
 	"github.com/stupside/castor/internal/media"
 )
 
@@ -72,6 +72,9 @@ type Evidence struct {
 
 	// ReadExit is the exit status that error came with.
 	ReadExit int
+
+	// ReadIncomplete is a read that ended short of what the source declared, whatever its exit status.
+	ReadIncomplete bool
 
 	Copied media.Axes
 

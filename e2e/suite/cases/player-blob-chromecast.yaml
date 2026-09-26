@@ -1,0 +1,14 @@
+# A page's in-memory blob: URL is never handed to a Chromecast, which cannot read it (#49).
+command:
+  player:
+    decoys: [blob, ad-clip]
+stream:
+  packaging: hls-ts
+  video: {codec: h264, height: 240}
+  audio: {codec: aac, channels: 2}
+  seconds: 300
+receiver:
+  device: chromecast
+expect:
+  delivery: served
+  video: copied

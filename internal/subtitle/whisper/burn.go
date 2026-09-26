@@ -11,7 +11,7 @@ import (
 
 // Burn is the running transcription: model, committed cues, and the file the encoder reads.
 type Burn struct {
-	tr   *Transcriber
+	tr   *transcriber
 	cues *subtitle.Builder
 	file *subtitle.CueFile
 }
@@ -46,3 +46,5 @@ func (b *Burn) Follow(ctx context.Context) func(media.Progress) { return b.file.
 func (b *Burn) LatestEnd() float64 { return b.tr.LatestEnd() }
 
 func (b *Burn) Done() bool { return b.tr.Done() }
+
+func (*Burn) SampleRate() int { return subtitle.SampleRate }

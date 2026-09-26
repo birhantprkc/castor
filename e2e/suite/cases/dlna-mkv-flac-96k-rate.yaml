@@ -1,0 +1,18 @@
+# A concert remux keeps 96 kHz FLAC; castor should hand a TV AAC at 48 kHz as its direct encode does, not carry 96 kHz through the floor.
+stream:
+  packaging: file-mkv
+  video: {codec: h264, height: 360}
+  audio: {codec: flac, channels: 2}
+  quirks:
+    sample-rate: 96000
+receiver:
+  device:
+    dlna:
+      sink: "http-get:*:video/mp2t:DLNA.ORG_PN=AVC_TS_HD_NA_ISO,http-get:*:audio/mp4:DLNA.ORG_PN=AAC_ISO"
+      decodes:
+        video: {h264: 8}
+        audio: {aac: 2}
+        max_sample_rate: 48000
+expect:
+  delivery: served
+  video: copied

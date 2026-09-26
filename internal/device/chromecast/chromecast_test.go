@@ -1,6 +1,9 @@
 package chromecast
 
 import (
+	"encoding/json"
+	"net"
+	"net/url"
 	"testing"
 
 	castmedia "github.com/vishen/go-chromecast/cast"
@@ -59,7 +62,96 @@ func TestChromecastAnswersWhenTheCastEnds(t *testing.T) {
 	devicetest.AwaitsTheCastsEnd(t, func() device.Device { return &chromecastDevice{done: make(chan struct{})} })
 }
 
-func TestChromecastDeclaresOnlyTheUniversalBaseline(t *testing.T) {
-	devicetest.DeclaresTheUniversalBaseline(t, chromecastCapabilities)
-	devicetest.DeclaresNoModelSpecificCodec(t, chromecastCapabilities)
+// receiverAnswering is a Cast receiver on the other end of a pipe; loadAnswers says what it sends once LOAD arrives.
+func receiverAnswering(t *testing.T, loadAnswers func(requestID int, content string) []any) *chromecastDevice {
+	t.Helper()
+	near, far := net.Pipe()
+	dev := &chromecastDevice{done: make(chan struct{})}
+	dev.ch = newChannel(near, dev.watchMessage)
+	var receiver *channel
+	receiver = newChannel(far, func(payload []byte) {
+		var req struct {
+			Type      string              `json:"type"`
+			RequestID int                 `json:"requestId"`
+			Media     castmedia.MediaItem `json:"media"`
+		}
+		if json.Unmarshal(payload, &req) != nil {
+			return
+		}
+		var answers []any
+		switch req.Type {
+		case "GET_STATUS":
+			status := castmedia.ReceiverStatusResponse{PayloadHeader: castmedia.PayloadHeader{Type: "RECEIVER_STATUS", RequestId: req.RequestID}}
+			status.Status.Applications = []castmedia.Application{{AppId: defaultMediaReceiver, TransportId: "transport-1"}}
+			answers = []any{status}
+		case "LOAD":
+			answers = loadAnswers(req.RequestID, req.Media.ContentId)
+		}
+		for _, a := range answers {
+			if receiver.send(senderID, nsMedia, a) != nil {
+				return
+			}
+		}
+	})
+	t.Cleanup(func() {
+		_ = dev.Close()
+		_ = receiver.Close()
+	})
+	return dev
+}
+
+func mediaStatus(requestID int, content, playerState, idleReason string) castmedia.MediaStatusResponse {
+	return castmedia.MediaStatusResponse{
+		PayloadHeader: castmedia.PayloadHeader{Type: "MEDIA_STATUS", RequestId: requestID},
+		Status:        []castmedia.Media{{MediaSessionId: 1, PlayerState: playerState, IdleReason: idleReason, Media: castmedia.MediaItem{ContentId: content}}},
+	}
+}
+
+func TestChromecastPlayReturnsTheReceiversVerdictOnTheLoad(t *testing.T) {
+	stream := &url.URL{Scheme: "http", Host: "origin.test", Path: "/stream.m3u8"}
+	for _, tt := range []struct {
+		name    string
+		answer  func(id int, content string) []any
+		wantErr bool
+	}{
+		{"a buffering load is accepted", func(id int, content string) []any {
+			return []any{mediaStatus(id, content, "BUFFERING", "")}
+		}, false},
+		{"a load failure fails the hand-off", func(id int, content string) []any {
+			return []any{mediaStatus(0, content, "IDLE", "ERROR"), castmedia.PayloadHeader{Type: "LOAD_FAILED", RequestId: id}}
+		}, true},
+		{"an invalid request fails the hand-off", func(id int, _ string) []any {
+			return []any{castmedia.PayloadHeader{Type: "INVALID_REQUEST", RequestId: id}}
+		}, true},
+		{"a status already idle on an error fails the hand-off", func(id int, content string) []any {
+			return []any{mediaStatus(id, content, "IDLE", "ERROR")}
+		}, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dev := receiverAnswering(t, tt.answer)
+			err := dev.Play(t.Context(), stream, "application/x-mpegURL")
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Play = %v, want error %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestChromecastClosesWhileTheReceiverKeepsTalking(t *testing.T) {
+	stream := &url.URL{Scheme: "http", Host: "origin.test", Path: "/stream.mp4"}
+	for range 50 {
+		dev := receiverAnswering(t, func(id int, content string) []any {
+			answers := []any{mediaStatus(id, content, "BUFFERING", "")}
+			for range 20 {
+				answers = append(answers, mediaStatus(0, content, "PLAYING", ""))
+			}
+			return answers
+		})
+		if err := dev.Play(t.Context(), stream, "video/mp4"); err != nil {
+			t.Fatalf("Play = %v", err)
+		}
+		if err := dev.Close(); err != nil {
+			t.Fatalf("Close = %v", err)
+		}
+	}
 }

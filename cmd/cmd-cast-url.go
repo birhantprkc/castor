@@ -8,7 +8,6 @@ import (
 	"github.com/urfave/cli/v3"
 
 	"github.com/stupside/castor/internal/cast"
-	"github.com/stupside/castor/internal/config"
 	"github.com/stupside/castor/internal/source"
 )
 
@@ -41,7 +40,7 @@ func (a *app) castURLCommand() *cli.Command {
 			}
 
 			// Measure direct URL (not rank) to extract envelope for pass-through.
-			stream := &source.Candidate{URL: urlObj, ContentType: config.Formats.ContentTypeOf(urlObj, "")}
+			stream := &source.Candidate{URL: urlObj, ContentType: cfg.Identify(ctx, urlObj)}
 			measured, err := cfg.Ranker().Measure(ctx, stream)
 			if err != nil {
 				return fmt.Errorf("measuring direct URL: %w", err)

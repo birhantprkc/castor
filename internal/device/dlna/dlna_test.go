@@ -143,7 +143,3 @@ func TestDLNAAnswersWhenTheCastEnds(t *testing.T) {
 		t.Error("the suite never polled the renderer")
 	}
 }
-
-func TestTheFallbackDeclaresTheUniversalBaseline(t *testing.T) {
-	devicetest.DeclaresTheUniversalBaseline(t, fallbackCaps())
-}

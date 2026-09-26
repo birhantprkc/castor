@@ -1,12 +1,15 @@
-// Package source: Ranker (which candidates worth attempting, measures); Resolver (what source publishes).
+// Package source turns a link into the program a cast reads: what the origin publishes, and the formats that read it.
 package source
 
 import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/url"
 
 	"github.com/stupside/castor/internal/media"
+	"github.com/stupside/castor/internal/source/timeline"
 )
 
 // Resolution is what source resolution established about one link.
@@ -27,10 +30,30 @@ type Resolver struct {
 	formats Formats
 }
 
-// NewResolver binds resolution to the playlists fetcher and the formats it reads.
-func NewResolver(cfg Config, playlists Playlists, formats Formats) *Resolver {
+// sniffBytes is enough of a body to read a playlist's or manifest's grammar, and far less than a film.
+const sniffBytes = 64 << 10
+
+// Identify names what a link carries: its name first, else the grammar of its body, since a script serves a playlist under any name.
+func (r *Resolver) Identify(ctx context.Context, u *url.URL, h http.Header) string {
+	if ct := r.formats.ContentTypeOf(u, ""); ct != "" {
+		return ct
+	}
+	head := h.Clone()
+	if head == nil {
+		head = http.Header{}
+	}
+	head.Set("Range", timeline.Range{Length: sniffBytes}.Header())
+	body, _, _, err := r.env.Client.Fetch(ctx, u, head)
+	if err != nil {
+		return ""
+	}
+	return r.formats.Sniff(body)
+}
+
+// NewResolver binds resolution to the client that reads origins, the tallest picture a cast shows and the formats it reads.
+func NewResolver(client Client, maxHeight media.HeightCap, formats Formats) *Resolver {
 	return &Resolver{
-		env:     Env{Playlists: playlists, MaxHeight: cfg.MaxHeight},
+		env:     Env{Client: client, MaxHeight: maxHeight},
 		formats: formats,
 	}
 }
@@ -47,10 +70,13 @@ func (r *Resolver) RefetchProgram(ctx context.Context, stream *Candidate, chosen
 	}
 	// Adaptive manifests are segmented even without format-specific parser.
 	origin.Segmented = media.IsSegmented(stream.ContentType)
-	format := r.formats.claiming(stream)
+	format := r.formats.Claiming(stream.ContentType)
 	resolved, err := format.Resolve(ctx, r.env, Subject{Stream: *stream, Origin: origin, Chosen: chosen})
 	if err != nil {
 		return resolved, err
+	}
+	if drm := resolved.Origin.Protection; drm != "" {
+		return resolved, fmt.Errorf("the source is protected by DRM (%s), which castor cannot decrypt", drm)
 	}
 	slog.InfoContext(ctx, "source shape resolved", "shape", format.Name())
 	return resolved, nil

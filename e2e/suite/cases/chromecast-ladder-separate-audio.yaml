@@ -1,0 +1,10 @@
+# A ladder whose audio is its own rendition is two inputs, which no receiver can fetch as one: castor relays it.
+stream:
+  packaging: hls-ts
+  video: {codec: h264, ladder: [240, 360]}
+  audio: {codec: aac, channels: 2, carriage: separate}
+receiver:
+  device: chromecast
+expect:
+  delivery: served
+  video: copied

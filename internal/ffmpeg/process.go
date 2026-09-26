@@ -1,0 +1,287 @@
+// Package ffmpeg runs the ffmpeg tools: their processes, what they report, and the flags every reader opens a source with.
+package ffmpeg
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"slices"
+	"strconv"
+	"sync/atomic"
+	"syscall"
+
+	"github.com/stupside/castor/internal/media"
+)
+
+// Extra output fd constants: -progress fd 3 is the one output every invocation has.
+const (
+	firstExtraFD = 3
+	progressFD   = 3
+	pcmFD        = 4
+)
+
+// pipeURL spells an fd the way ffmpeg's pipe protocol takes it.
+func pipeURL(fd int) string { return "pipe:" + strconv.Itoa(fd) }
+
+// The pipes a command reads its input from and routes its outputs to; Start carries the -progress feed and the PCM tee over loopback.
+var (
+	StdinPipe    = pipeURL(0)
+	StdoutPipe   = pipeURL(1)
+	ProgressPipe = pipeURL(progressFD)
+	PCMPipe      = pipeURL(pcmFD)
+)
+
+// noExitStatus = no status yet (not waited) or castor's kill ended it (stall: ffmpeg's error path never ran).
+const noExitStatus = -1
+
+// signalExitBase is added to signal numbers per shell convention (driver segfault or OOM killer).
+const signalExitBase = 128
+
+type Process struct {
+	// Stdout is the primary output (pipe:1).
+	Stdout io.ReadCloser
+
+	cmd *exec.Cmd
+
+	// extra are the side outputs in pipe order, starting at firstExtraFD.
+	extra []*loopback
+
+	// lines fans stderr to tail + markers (marker needs post-deadline lines tail drops).
+	lines   *fanout
+	tail    *ringTail
+	markers *markerWatch
+
+	// status is the exit code; atomics avoid racing ProcessState.
+	status atomic.Int64
+
+	// stopped records that castor sent its kill signal (see exitStatus).
+	stopped *atomic.Bool
+
+	// sample is the latest -progress block, stored by the progress drain goroutine.
+	sample atomic.Pointer[media.Progress]
+
+	// drained is closed once the progress feed is read to EOF.
+	drained chan struct{}
+
+	// scanned is closed once stderr is read to EOF.
+	scanned chan struct{}
+
+	// teed is closed once the PCM feed is copied to EOF (at once when there is none).
+	teed chan struct{}
+}
+
+type startConfig struct {
+	stdin    io.Reader
+	workDir  string
+	progress func(media.Progress)
+	pcm      io.Writer
+}
+
+type StartOption func(*startConfig)
+
+func WithStdin(r io.Reader) StartOption {
+	return func(c *startConfig) { c.stdin = r }
+}
+
+// WithWorkDir runs ffmpeg with dir as its working directory for relative output files (HLS).
+func WithWorkDir(dir string) StartOption {
+	return func(c *startConfig) { c.workDir = dir }
+}
+
+// WithProgress calls step once per -progress sample (the feed has exactly one reader).
+func WithProgress(step func(media.Progress)) StartOption {
+	return func(c *startConfig) { c.progress = step }
+}
+
+// WithPCM copies the command's PCM tee into w until ffmpeg closes it; Wait joins the copy, w stays the caller's.
+func WithPCM(w io.Writer) StartOption {
+	return func(c *startConfig) { c.pcm = w }
+}
+
+// Start launches the command at path. The process is killed when ctx is cancelled.
+func Start(ctx context.Context, path string, command Command, opts ...StartOption) (*Process, error) {
+	var cfg startConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	// An unread tee blocks ffmpeg once the pipe fills, and a writer with no tee waits forever.
+	if tees := command.ExtraPipes > pcmFD-firstExtraFD; tees != (cfg.pcm != nil) {
+		return nil, fmt.Errorf("a PCM tee routed (%t) and a PCM consumer given (%t) disagree", tees, cfg.pcm != nil)
+	}
+
+	var (
+		extra       []*loopback
+		stderrRead  *os.File
+		stderrWrite *os.File
+	)
+	closeExtra := func() {
+		for _, l := range extra {
+			_ = l.Close()
+		}
+		for _, f := range []*os.File{stderrRead, stderrWrite} {
+			if f != nil {
+				_ = f.Close()
+			}
+		}
+	}
+	args := slices.Clone(command.Args)
+	for i := range command.ExtraPipes {
+		l, err := newLoopback()
+		if err != nil {
+			closeExtra()
+			return nil, err
+		}
+		extra = append(extra, l)
+		// A side output is routed to its pipe number in the argv, and travels over the loopback instead.
+		for j, arg := range args {
+			if arg == pipeURL(firstExtraFD+i) {
+				args[j] = l.url
+			}
+		}
+	}
+
+	cmd := exec.CommandContext(ctx, path, args...)
+	stopped := new(atomic.Bool)
+	cmd.Cancel = func() error {
+		stopped.Store(true)
+		return cmd.Process.Kill()
+	}
+	cmd.Stdin = cfg.stdin
+	cmd.Dir = cfg.workDir
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		closeExtra()
+		return nil, fmt.Errorf("stdout pipe: %w", err)
+	}
+	// Our own pipe: os/exec closes it at Wait, losing buffered tail (ffmpeg's error path).
+	stderrRead, stderrWrite, err = os.Pipe()
+	if err != nil {
+		closeExtra()
+		return nil, fmt.Errorf("stderr pipe: %w", err)
+	}
+	cmd.Stderr = stderrWrite
+	if err := cmd.Start(); err != nil {
+		closeExtra()
+		return nil, fmt.Errorf("starting ffmpeg: %w", err)
+	}
+	_ = stderrWrite.Close()
+
+	p := &Process{
+		Stdout:  stdout,
+		cmd:     cmd,
+		extra:   extra,
+		lines:   &fanout{},
+		tail:    newTail(stderrTailCapacity),
+		markers: &markerWatch{},
+		scanned: make(chan struct{}),
+		stopped: stopped,
+	}
+	p.status.Store(noExitStatus)
+	p.lines.add(p.tail)
+	p.lines.add(p.markers)
+	go func() {
+		defer close(p.scanned)
+		defer func() { _ = stderrRead.Close() }()
+		drainStderr(ctx, stderrRead, p.lines)
+	}()
+	p.followProgress(cfg.progress)
+	p.tee(cfg.pcm)
+
+	return p, nil
+}
+
+func (p *Process) tee(w io.Writer) {
+	p.teed = make(chan struct{})
+	feed := p.extraAt(pcmFD)
+	if feed == nil {
+		close(p.teed)
+		return
+	}
+	go func() {
+		defer close(p.teed)
+		defer func() { _ = feed.Close() }()
+		if _, err := io.Copy(w, feed); err != nil {
+			// A consumer that quit must not stall ffmpeg on a full pipe.
+			_, _ = io.Copy(io.Discard, feed)
+		}
+	}()
+}
+
+func (p *Process) followProgress(step func(media.Progress)) {
+	p.drained = make(chan struct{})
+	feed := p.progressFeed()
+	if feed == nil {
+		close(p.drained)
+		return
+	}
+	go func() {
+		defer close(p.drained)
+		defer func() { _ = feed.Close() }()
+		watchProgress(feed, func(sample media.Progress) {
+			p.sample.Store(&sample)
+			if step != nil {
+				step(sample)
+			}
+		})
+	}()
+}
+
+func (p *Process) extraAt(fd int) io.ReadCloser {
+	i := fd - firstExtraFD
+	if i < 0 || i >= len(p.extra) {
+		return nil
+	}
+	return p.extra[i]
+}
+
+// progressFeed is ffmpeg's -progress feed (has exactly one reader for its life).
+func (p *Process) progressFeed() io.ReadCloser { return p.extraAt(progressFD) }
+
+// Progress returns the latest sample. Zero value = not yet muxed; whole pair is comparable.
+func (p *Process) Progress() media.Progress {
+	if s := p.sample.Load(); s != nil {
+		return *s
+	}
+	return media.Progress{}
+}
+
+func (p *Process) Wait() error {
+	err := p.cmd.Wait()
+	// Publish exit status for Evidence reads from other goroutines.
+	p.status.Store(int64(p.exitStatus()))
+	// An ffmpeg that died before opening a side output never will, so its reader is released to EOF.
+	for _, l := range p.extra {
+		l.stopAccepting()
+	}
+	// Then join progress (last sample still in pipe); step writes to work dir caller will remove.
+	<-p.drained
+	// And join stderr drain (ffmpeg's error path is still in the pipe).
+	<-p.scanned
+	<-p.teed
+	return err
+}
+
+// Kill signals the process to stop. It is idempotent and safe after exit.
+func (p *Process) Kill() {
+	if p.cmd.Process != nil {
+		p.stopped.Store(true)
+		_ = p.cmd.Process.Kill()
+	}
+}
+
+// exitStatus reads the reaped process status; only castor's own SIGKILL leaves none.
+func (p *Process) exitStatus() int {
+	state := p.cmd.ProcessState
+	ws, ok := state.Sys().(syscall.WaitStatus)
+	if !ok || !ws.Signaled() {
+		return state.ExitCode()
+	}
+	// Teardown kills before it waits, so a crash already reaped still names its own signal.
+	if ws.Signal() == syscall.SIGKILL && p.stopped.Load() {
+		return noExitStatus
+	}
+	return signalExitBase + int(ws.Signal())
+}

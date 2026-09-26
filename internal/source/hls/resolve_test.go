@@ -13,13 +13,13 @@ import (
 )
 
 // newTestResolver wires resolution to this format alone, under a 1080 cap.
-func newTestResolver(playlists source.Playlists) *source.Resolver {
-	return source.NewResolver(source.Config{MaxHeight: 1080}, playlists, source.Formats{Format{}})
+func newTestResolver(playlists source.Client) *source.Resolver {
+	return source.NewResolver(playlists, 1080, source.Formats{Format{}})
 }
 
 const mediaPlaylist = "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4.0,\nseg0.ts\n#EXT-X-ENDLIST\n"
 
-func resolve(t *testing.T, playlists source.Playlists, stream *source.Candidate) source.Resolution {
+func resolve(t *testing.T, playlists source.Client, stream *source.Candidate) source.Resolution {
 	t.Helper()
 	resolved, err := newTestResolver(playlists).RefetchProgram(t.Context(), stream, source.Rendition{})
 	if err != nil {
@@ -47,18 +47,11 @@ func TestResolveNarrowsAMasterToTheRungUnderTheCap(t *testing.T) {
 	if len(origin.Renditions) != 3 || origin.Sole() {
 		t.Errorf("renditions = %v, want the whole three-rung ladder", origin.Renditions)
 	}
-	if origin.Framing != media.FramingOutOfBand || origin.Duration != 18*time.Second || origin.Live || origin.Encrypted {
+	if origin.Framing != media.FramingOutOfBand || origin.Duration != 18*time.Second || origin.Live || origin.Protection != "" {
 		t.Errorf("origin = %+v, want the chosen rendition's facts: out-of-band, 18s, VOD, clear", origin)
 	}
 	if got := playlists.Asked(); !slices.Equal(got, []string{"/master_ladder.m3u8", "/ladder_1080.m3u8"}) {
 		t.Errorf("fetched %v, want the master then the chosen rendition alone", got)
-	}
-}
-
-func TestAnEncryptedPlaylistSaysSo(t *testing.T) {
-	resolved := resolve(t, sourcetest.Testdata(t, "testdata"), hlsAt(t, "http://a.example/media_encrypted.m3u8"))
-	if !resolved.Origin.Encrypted {
-		t.Error("Encrypted = false for a document declaring EXT-X-KEY METHOD=AES-128")
 	}
 }
 
@@ -150,5 +143,22 @@ func TestResolveDescribesTheChosenRungFromWhatTheMasterDeclared(t *testing.T) {
 				t.Errorf("measurement = %+v, want the rung's declaration %+v", got, *tt.want)
 			}
 		})
+	}
+}
+
+// A key only a DRM licence server applies refuses the link; a clear AES-128 key is castor's to decrypt.
+func TestAPlaylistUnderDRMIsRefusedAndAClearKeyIsNot(t *testing.T) {
+	for _, tt := range []struct {
+		key     string
+		refused bool
+	}{
+		{`#EXT-X-KEY:METHOD=SAMPLE-AES,URI="skd://key",KEYFORMAT="com.apple.streamingkeydelivery",KEYFORMATVERSIONS="1"`, true},
+		{`#EXT-X-KEY:METHOD=AES-128,URI="key.bin"`, false},
+	} {
+		body := "#EXTM3U\n#EXT-X-TARGETDURATION:4\n" + tt.key + "\n#EXTINF:4.0,\nseg0.ts\n#EXT-X-ENDLIST\n"
+		_, err := newTestResolver(&sourcetest.Playlist{Body: body, Status: http.StatusOK}).RefetchProgram(t.Context(), hlsAt(t, "http://a.example/media.m3u8"), source.Rendition{})
+		if refused := err != nil; refused != tt.refused {
+			t.Errorf("%s: RefetchProgram = %v, want refused %v", tt.key, err, tt.refused)
+		}
 	}
 }

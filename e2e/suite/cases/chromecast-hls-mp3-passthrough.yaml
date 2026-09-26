@@ -1,0 +1,10 @@
+# MP3 audio is in a Chromecast's envelope, so the source is handed over.
+stream:
+  packaging: hls-ts
+  video: {codec: h264, height: 360}
+  audio: {codec: mp3, channels: 2}
+receiver:
+  device: chromecast
+expect:
+  delivery: passthrough
+  video: copied

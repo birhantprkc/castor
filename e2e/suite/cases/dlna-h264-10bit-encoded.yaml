@@ -1,0 +1,15 @@
+# 10-bit H.264 is outside every TV's H.264 envelope, so castor re-encodes it to 8-bit.
+stream:
+  packaging: hls-ts
+  video: {codec: h264, height: 360, depth: 10}
+  audio: {codec: aac, channels: 2}
+receiver:
+  device:
+    dlna:
+      sink: "http-get:*:video/mp2t:DLNA.ORG_PN=AVC_TS_HD_NA_ISO,http-get:*:audio/mp4:DLNA.ORG_PN=AAC_ISO"
+      decodes:
+        video: {h264: 8}
+        audio: {aac: 2}
+expect:
+  delivery: served
+  video: encoded

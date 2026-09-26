@@ -1,0 +1,13 @@
+# A live HLS source the Chromecast plays is handed over; the receiver follows the edge itself.
+stream:
+  packaging: hls-ts
+  video: {codec: h264, height: 360}
+  audio: {codec: aac, channels: 2}
+  seconds: 20
+origin:
+  live: {start: 4, every: 1s, end: endlist}
+receiver:
+  device: chromecast
+expect:
+  delivery: passthrough
+  video: copied

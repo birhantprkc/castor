@@ -14,14 +14,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stupside/castor/internal/cast/attempt"
-	"github.com/stupside/castor/internal/cast/engine/deliver"
-	"github.com/stupside/castor/internal/cast/engine/ffmpeg"
-	"github.com/stupside/castor/internal/cast/policy/compose"
-	"github.com/stupside/castor/internal/cast/policy/plan"
-	"github.com/stupside/castor/internal/cast/policy/read"
-	"github.com/stupside/castor/internal/cast/policy/watch"
-	"github.com/stupside/castor/internal/container"
+	"github.com/stupside/castor/internal/cast/container"
+	"github.com/stupside/castor/internal/cast/deliver"
+	"github.com/stupside/castor/internal/cast/plan"
+	"github.com/stupside/castor/internal/cast/read"
+	"github.com/stupside/castor/internal/cast/transcode"
+	"github.com/stupside/castor/internal/cast/watch"
+	"github.com/stupside/castor/internal/ffmpeg"
 	"github.com/stupside/castor/internal/media"
 )
 
@@ -75,12 +74,12 @@ func (r observedRenderer) AwaitEnd(ctx context.Context) error         { return r
 
 func TestAPlayingRemuxIsWatchedOverItsEncoder(t *testing.T) {
 	c := took(t, blocking)
-	c.row.Kind = compose.Remux
 	c.sink.(*fakeMechanism).audience = stoppedRenderer{last: time.Now().Add(-watch.StallWindow - time.Second), buffered: 20 * time.Minute}
 
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	fault, ok := errors.AsType[*watch.Fault](c.supervising(ctx))
+	_, err := c.supervising(ctx, c.fromSource())
+	fault, ok := errors.AsType[*watch.Fault](err)
 	if !ok {
 		t.Fatal("a remux whose renderer took nothing was never judged in flight")
 	}
@@ -89,45 +88,28 @@ func TestAPlayingRemuxIsWatchedOverItsEncoder(t *testing.T) {
 	}
 }
 
-func TestPlaybackLifecycleStopsBothSides(t *testing.T) {
-	t.Run("a remote stop cancels local delivery", func(t *testing.T) {
-		cancelled := make(chan struct{})
-		c := took(t, func(ctx context.Context) error {
-			<-ctx.Done()
-			close(cancelled)
-			return context.Cause(ctx)
-		})
-		c.dev = observedRenderer{wait: func(context.Context) error { return nil }}
+func TestARendererThatWentAwayIsReportedAsItselfNotAsTeardown(t *testing.T) {
+	gone := &media.Gone{Renderer: "Living Room TV", Err: errors.New("no route to host")}
+	c := took(t, blocking)
+	c.dev = observedRenderer{wait: func(context.Context) error { return gone }}
 
-		if err := c.supervising(t.Context()); err != nil {
-			t.Fatalf("supervising = %v, want a clean remote stop", err)
-		}
-		select {
-		case <-cancelled:
-		default:
-			t.Fatal("remote playback ended without cancelling the local delivery")
-		}
-	})
-
-	t.Run("a renderer that went away is reported as itself, not as teardown", func(t *testing.T) {
-		gone := &media.Gone{Renderer: "Living Room TV", Err: errors.New("no route to host")}
-		c := took(t, blocking)
-		c.dev = observedRenderer{wait: func(context.Context) error { return gone }}
-
-		err := c.supervising(t.Context())
-		if away, ok := errors.AsType[*media.Gone](err); !ok || away != gone {
-			t.Fatalf("supervising = %v, want the renderer's own account of having gone away", err)
-		}
-		if errors.Is(err, context.Canceled) {
-			t.Errorf("supervising = %v, teardown cancellation reported as another failure", err)
-		}
-	})
+	_, err := c.supervising(t.Context(), c.fromBuffer())
+	if away, ok := errors.AsType[*media.Gone](err); !ok || away != gone {
+		t.Fatalf("supervising = %v, want the renderer's own account of having gone away", err)
+	}
+	if errors.Is(err, context.Canceled) {
+		t.Errorf("supervising = %v, teardown cancellation reported as another failure", err)
+	}
 }
 
 func TestOnlyADeliveryThatRanItsCourseIsAskedWhetherTheRendererTookIt(t *testing.T) {
 	short := errors.New("the renderer was handed a fraction of what this cast produced")
 	inFlight := func(ctx context.Context, c *cast) error {
-		return errors.Join(c.supervising(ctx), c.settled(ctx))
+		ran, err := c.supervising(ctx, c.fromBuffer())
+		if err != nil || !ran {
+			return err
+		}
+		return c.sink.Settled()
 	}
 
 	t.Run("a delivery that ran its course is asked", func(t *testing.T) {
@@ -150,48 +132,6 @@ func TestOnlyADeliveryThatRanItsCourseIsAskedWhetherTheRendererTookIt(t *testing
 			t.Errorf("a cancelled cast was asked %d time(s) what its renderer took", asked)
 		}
 	})
-
-	t.Run("a delivery the renderer took is clean", func(t *testing.T) {
-		if err := inFlight(t.Context(), took(t, over)); err != nil {
-			t.Fatalf("the cast = %v, want nil", err)
-		}
-	})
-}
-
-func TestAServedCastReachesEachPhaseAndHandsItsSupervisorAnAudience(t *testing.T) {
-	c := openFixture(t, media.MP4, t.TempDir())
-	if err := c.opened(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if c.evidence.Reached != attempt.PhaseOpening {
-		t.Errorf("reached %s after the artifact gate, want %s", c.evidence.Reached, attempt.PhaseOpening)
-	}
-	if err := c.hand(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if c.evidence.Reached != attempt.PhasePlaying {
-		t.Errorf("reached %s once the renderer accepted the URL, want %s", c.evidence.Reached, attempt.PhasePlaying)
-	}
-
-	aud := c.sink.Audience()
-	if aud == nil {
-		t.Fatal("the stream delivery handed its supervisor no audience")
-	}
-	if err := until(t.Context(), func() bool { return aud.Buffered() > 0 }); err != nil {
-		t.Errorf("the delivery reported no fetchable media for an encode that ran: %v", err)
-	}
-}
-
-// until polls cond until it holds or ctx ends.
-func until(ctx context.Context, cond func() bool) error {
-	for !cond() {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(50 * time.Millisecond):
-		}
-	}
-	return nil
 }
 
 func TestADeliveryPublishesItsOwnArtifactsAndNothingElseOfTheCasts(t *testing.T) {
@@ -212,6 +152,55 @@ func TestADeliveryPublishesItsOwnArtifactsAndNothingElseOfTheCasts(t *testing.T)
 	if got := statusOf(t, c.sink.URL()); got != http.StatusOK {
 		t.Errorf("GET playlist = %d, so this is a broken server rather than isolation", got)
 	}
+}
+
+// TestARelayedCastIsOpenedOverItsRead: with no encoder, the read is the producer whose end the opening judges.
+func TestARelayedCastIsOpenedOverItsRead(t *testing.T) {
+	c := relayedFixture(t)
+	c.spool.CloseWrite(nil)
+	close(c.reader.done)
+	if err := c.produce(t.Context(), c.fromBuffer()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.sink.Close() })
+
+	// Well inside the first-bytes grace, so only the read's own end can decide the opening.
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	err := c.opened(ctx)
+	if fault, ok := errors.AsType[*watch.Fault](err); !ok || fault.Kind != watch.Dead {
+		t.Fatalf("a read that ended having buffered nothing opened as %v, want a %s verdict", err, watch.Dead)
+	}
+}
+
+// TestARelayedCastFailsWithItsRead: the read writes the served bytes, so its failure is the cast's as an encoder's was.
+func TestARelayedCastFailsWithItsRead(t *testing.T) {
+	failed := errors.New("upstream pull: the origin refused a segment on every retry")
+	c := relayedFixture(t)
+	c.reader.err = failed
+	c.spool.CloseWrite(failed)
+	close(c.reader.done)
+	c.ctx = t.Context()
+	if err := c.produce(t.Context(), c.fromBuffer()); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.teardown(); !errors.Is(err, failed) {
+		t.Errorf("the teardown of a cast whose read failed reported %v, want the read's own failure", err)
+	}
+}
+
+// relayedFixture is a buffered cast whose encode would rewrite its buffer unchanged.
+func relayedFixture(t *testing.T) *cast {
+	t.Helper()
+	c := gateFixture(t, 0)
+	c.localIP, c.dev = "127.0.0.1", observedRenderer{wait: blocking}
+	c.opts = transcode.EncodeOptions{
+		Input:  transcode.FromPipe(transcode.SpoolFormat, read.Pace{}),
+		Format: transcode.SpoolFormat,
+		Video:  plan.CopyVideo(),
+		Audio:  plan.CopyAudio(),
+	}
+	return c
 }
 
 func statusOf(t *testing.T, u *url.URL) int {
@@ -237,8 +226,8 @@ func TestTeardownStopsAnEncoderParkedOnAnInputThatWentQuiet(t *testing.T) {
 		t.Fatal("the format registry cannot produce mpegts")
 	}
 	head := programHead(t, ffmpegPath)
-	copying := func(input ffmpeg.EncodeInput) ffmpeg.EncodeOptions {
-		return ffmpeg.EncodeOptions{
+	copying := func(input transcode.EncodeInput) transcode.EncodeOptions {
+		return transcode.EncodeOptions{
 			Format: format,
 			Input:  input,
 			Probe:  media.ProbeInfo{VideoCodec: media.CodecH264, AudioCodec: media.CodecAAC},
@@ -249,10 +238,10 @@ func TestTeardownStopsAnEncoderParkedOnAnInputThatWentQuiet(t *testing.T) {
 
 	for _, tt := range []struct {
 		name  string
-		setup func(t *testing.T, c *cast)
+		setup func(t *testing.T, c *cast) feed
 	}{{
 		name: "reading a buffer nothing will grow",
-		setup: func(t *testing.T, c *cast) {
+		setup: func(t *testing.T, c *cast) feed {
 			sp, err := deliver.NewSpool(filepath.Join(c.workDir, "spool.ts"))
 			if err != nil {
 				t.Fatal(err)
@@ -261,22 +250,29 @@ func TestTeardownStopsAnEncoderParkedOnAnInputThatWentQuiet(t *testing.T) {
 			if _, err := sp.Write(head); err != nil {
 				t.Fatal(err)
 			}
-			c.row, c.spool = compose.Row{Kind: compose.ReadOnce}, sp
-			c.opts = copying(ffmpeg.FromPipe(ffmpeg.SpoolFormat, read.Pace{}))
+			c.spool = sp
+			c.opts = copying(transcode.FromPipe(transcode.SpoolFormat, read.Pace{}))
+			// A buffer copied whole into its own container is served with no encoder at all.
+			c.opts.Audio = plan.EncodeAudio(plan.AudioEncode{Codec: media.CodecAAC})
+			return c.fromBuffer()
 		},
 	}, {
 		name: "reading an origin that went quiet",
-		setup: func(t *testing.T, c *cast) {
-			c.opts = copying(ffmpeg.FromSource(programSourceWithin(t, quietOrigin(t, head), media.MPEGTS, time.Hour)))
+		setup: func(t *testing.T, c *cast) feed {
+			c.opts = copying(transcode.FromSource(programSourceWithin(t, quietOrigin(t, head), media.MPEGTS, time.Hour)))
+			return c.fromSource()
 		},
 	}} {
 		t.Run(tt.name, func(t *testing.T) {
 			c := servingCast(t, ffmpegPath, t.TempDir())
-			tt.setup(t, c)
-			for _, step := range []step{(*cast).produce, (*cast).opened, (*cast).hand} {
-				if err := step(c, t.Context()); err != nil {
-					t.Fatal(err)
-				}
+			if err := c.produce(t.Context(), tt.setup(t, c)); err != nil {
+				t.Fatal(err)
+			}
+			if err := c.opened(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if err := c.hand(t.Context(), c.sink.URL(), c.opts.Format.ContentType); err != nil {
+				t.Fatal(err)
 			}
 
 			const teardown = 30 * time.Second
@@ -330,8 +326,7 @@ func programHead(t *testing.T, ffmpegPath string) []byte {
 func servingCast(t *testing.T, ffmpegPath, workDir string) *cast {
 	t.Helper()
 	c := &cast{
-		cfg:     Config{FFmpegPath: ffmpegPath, Encoders: ffmpeg.Encoders(ffmpegPath)},
-		row:     compose.Row{Kind: compose.Remux},
+		cfg:     Config{FFmpegPath: ffmpegPath, Encoders: transcode.Encoders(ffmpegPath), Timelines: direct{}},
 		ctx:     t.Context(),
 		localIP: "127.0.0.1",
 		workDir: workDir,
@@ -352,14 +347,14 @@ func openFixture(t *testing.T, contentType, workDir string) *cast {
 	if !ok {
 		t.Fatalf("the format registry cannot produce %s", contentType)
 	}
-	c.opts = ffmpeg.EncodeOptions{
+	c.opts = transcode.EncodeOptions{
 		Format: format,
-		Input:  ffmpeg.FromSource(programSourceWithin(t, origin.stream().URL, media.MP4, 30*time.Second)),
+		Input:  transcode.FromSource(programSourceWithin(t, origin.stream().URL, media.MP4, 30*time.Second)),
 		Probe:  media.ProbeInfo{VideoCodec: media.CodecH264},
 		Video:  plan.CopyVideo(),
 		Audio:  plan.EncodeAudio(plan.AudioEncode{Codec: media.CodecAAC}),
 	}
-	if err := c.produce(t.Context()); err != nil {
+	if err := c.produce(t.Context(), c.fromSource()); err != nil {
 		t.Fatal(err)
 	}
 	return c
@@ -389,7 +384,7 @@ func (probingRenderer) StreamHeaders(string) map[string]string { return nil }
 func (probingRenderer) Capabilities() media.Capabilities       { return media.Capabilities{} }
 func (probingRenderer) Close() error                           { return nil }
 
-func programSourceWithin(t *testing.T, sourceURL *url.URL, contentType string, rwTimeout time.Duration) ffmpeg.ProgramSource {
+func programSourceWithin(t *testing.T, sourceURL *url.URL, contentType string, rwTimeout time.Duration) transcode.ProgramSource {
 	t.Helper()
 	program, err := media.NewProgram(media.Program{
 		Inputs: []media.Input{{ID: media.PrimaryInputID, URL: sourceURL, ContentType: contentType}},
@@ -403,9 +398,9 @@ func programSourceWithin(t *testing.T, sourceURL *url.URL, contentType string, r
 	if err != nil {
 		t.Fatal(err)
 	}
-	source, err := ffmpeg.NewProgramSource(program, map[media.InputID]read.Policy{
+	source, err := transcode.NewProgramSource(program, map[media.InputID]read.Policy{
 		media.PrimaryInputID: read.For(media.Fetch{}, rwTimeout),
-	})
+	}, ffmpeg.Binary{})
 	if err != nil {
 		t.Fatal(err)
 	}

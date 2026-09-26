@@ -4,15 +4,18 @@ package sourcetest
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/stupside/castor/internal/media"
+	"github.com/stupside/castor/internal/source/timeline"
 )
 
 // Measurer answers from a script keyed by URL and records what it was asked.
@@ -30,7 +33,7 @@ type Answer struct {
 	Err   error
 }
 
-// Probe binds the script to one link (test binds it to candidate's URL to build source.Probes).
+// Probe binds the script to one link (test binds it to candidate's URL to build rank.Probes).
 func (m *Measurer) Probe(u *url.URL) media.Prober { return scripted{answers: m, url: u} }
 
 // Asked is every URL measured so far, in order.
@@ -61,10 +64,20 @@ func (p scripted) Probe(context.Context) (media.ProbeInfo, media.Reach, error) {
 	return *a.Info, a.Reach, a.Err
 }
 
-// Playlist serves one fixture document to every fetch; like web.Playlists, anything but a 2xx fails.
+// Playlist serves one fixture document to every fetch; like web.Client, anything but a 2xx fails.
 type Playlist struct {
 	Body   string
 	Status int
+}
+
+func (*Playlist) Session(*url.URL) http.Header { return nil }
+
+func (p *Playlist) Read(ctx context.Context, u *url.URL, h http.Header, r timeline.Range) (io.ReadCloser, error) {
+	body, _, status, err := p.Fetch(ctx, u, h)
+	if err != nil {
+		return nil, &timeline.Failure{Status: status, Err: err}
+	}
+	return within(body, r), nil
 }
 
 func (p *Playlist) Fetch(_ context.Context, u *url.URL, _ http.Header) (string, *url.URL, int, error) {
@@ -100,6 +113,8 @@ func Testdata(t *testing.T, dir string) *Playlists {
 	return &Playlists{Documents: docs}
 }
 
+func (*Playlists) Session(*url.URL) http.Header { return nil }
+
 func (p *Playlists) Fetch(_ context.Context, u *url.URL, _ http.Header) (string, *url.URL, int, error) {
 	p.mu.Lock()
 	p.asked = append(p.asked, u.Path)
@@ -109,6 +124,22 @@ func (p *Playlists) Fetch(_ context.Context, u *url.URL, _ http.Header) (string,
 		return "", u, http.StatusNotFound, fmt.Errorf("fetching playlist: HTTP %d", http.StatusNotFound)
 	}
 	return body, u, http.StatusOK, nil
+}
+
+func (p *Playlists) Read(ctx context.Context, u *url.URL, h http.Header, r timeline.Range) (io.ReadCloser, error) {
+	body, _, status, err := p.Fetch(ctx, u, h)
+	if err != nil {
+		return nil, &timeline.Failure{Status: status, Err: err}
+	}
+	return within(body, r), nil
+}
+
+// within is the part of body a byte range names, all of it for a range with no length.
+func within(body string, r timeline.Range) io.ReadCloser {
+	if r.Length > 0 {
+		body = body[min(r.Offset, int64(len(body))):min(r.Offset+r.Length, int64(len(body)))]
+	}
+	return io.NopCloser(strings.NewReader(body))
 }
 
 // Asked is every path fetched so far, in order.

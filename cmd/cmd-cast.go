@@ -7,6 +7,7 @@ import (
 	"github.com/urfave/cli/v3"
 
 	"github.com/stupside/castor/internal/browse"
+	"github.com/stupside/castor/internal/browse/picker"
 	"github.com/stupside/castor/internal/cast"
 	"github.com/stupside/castor/internal/config"
 	"github.com/stupside/castor/internal/device"
@@ -49,12 +50,12 @@ func (a *app) castInteractive(ctx context.Context, _ *cli.Command) error {
 	discover := func(ctx context.Context) []device.Info {
 		return cfg.Devices().Discover(ctx, cfg.Network.Timeout)
 	}
-	target, err := browse.PickDevice(ctx, discover, cfg.Device.Name)
+	target, err := picker.Device(ctx, discover, cfg.Device.Name)
 	if err != nil {
 		return fmt.Errorf("picking device: %w", err)
 	}
 
-	sel, err := browse.Run(ctx, cfg.Catalog(), target.Name, target.Type)
+	sel, err := browse.Run(ctx, cfg.TMDBClient(), target.Name, target.Type)
 	if err != nil {
 		return fmt.Errorf("browse: %w", err)
 	}
@@ -87,7 +88,7 @@ func (a *app) extractAndCast(ctx context.Context, cfg *config.Config, target dev
 
 // handleStreams ranks streams and prints order (-dry-run) or casts the best one.
 func (a *app) handleStreams(ctx context.Context, cfg *config.Config, target device.Info, streams []*source.Candidate) error {
-	ranked, err := cfg.Ranker().RankStreams(ctx, streams)
+	ranked, err := cfg.Ranker().Rank(ctx, streams)
 	if err != nil {
 		return fmt.Errorf("ranking streams: %w", err)
 	}

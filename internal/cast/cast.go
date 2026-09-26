@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/stupside/castor/internal/cast/attempt"
+	"github.com/stupside/castor/internal/cast/compose"
 	"github.com/stupside/castor/internal/cast/execute"
-	"github.com/stupside/castor/internal/cast/policy/compose"
 	"github.com/stupside/castor/internal/source"
 )
 

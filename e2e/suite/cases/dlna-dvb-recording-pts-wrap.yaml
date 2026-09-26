@@ -1,0 +1,18 @@
+# A DVB recording's PTS crosses the 33-bit rollover seven seconds in; castor must copy it through the wrap without a jump, stall or cut.
+stream:
+  packaging: file-ts
+  video: {codec: h264, height: 360}
+  audio: {codec: ac3, channels: 2}
+  seconds: 16
+  quirks:
+    pts-wrap-after: 7s
+receiver:
+  device:
+    dlna:
+      sink: "http-get:*:video/mp2t:DLNA.ORG_PN=AVC_TS_HD_NA_ISO,http-get:*:audio/mp4:DLNA.ORG_PN=AAC_ISO,http-get:*:audio/vnd.dolby.dd-raw:DLNA.ORG_PN=AC3"
+      decodes:
+        video: {h264: 8}
+        audio: {aac: 2, ac3: 6}
+expect:
+  delivery: served
+  video: copied

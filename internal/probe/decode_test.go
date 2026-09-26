@@ -1,6 +1,7 @@
 package probe
 
 import (
+	"maps"
 	"slices"
 	"testing"
 	"time"
@@ -84,5 +85,46 @@ func TestDecodeProbeReportsEveryPictureItSaw(t *testing.T) {
 	}
 	if info.VideoHeight != 2160 {
 		t.Errorf("VideoHeight = %d, want the selected slot's 2160", info.VideoHeight)
+	}
+}
+
+// An HLS master is read as one program per variant, which is how a rung without RESOLUTION gets a height.
+func TestDecodeProbeReportsEachProgramsPicture(t *testing.T) {
+	out := []byte(`{"programs":[` +
+		`{"program_id":0,"streams":[` + aacStream + `,` + coverArt + `,{"codec_type":"video","height":240}]},` +
+		`{"program_id":1,"streams":[` + aacStream + `,{"codec_type":"video","height":360}]},` +
+		`{"program_id":2,"streams":[` + aacStream + `]}],` +
+		`"streams":[` + h264Stream + `],"format":{"format_name":"hls"}}`)
+	info, err := decodeProbeTracks(out, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := map[int]int{0: 240, 1: 360, 2: 0}; !maps.Equal(info.ProgramHeights, want) {
+		t.Errorf("ProgramHeights = %v, want %v", info.ProgramHeights, want)
+	}
+}
+
+func TestTheProbeReadsWhatDecidesWhetherAPictureCanBeCopied(t *testing.T) {
+	out := []byte(`{
+		"streams": [
+			{"index": 1, "codec_type": "audio", "codec_name": "aac", "channels": 2, "sample_rate": "96000"},
+			{"index": 0, "codec_type": "video", "codec_name": "h264", "profile": "High", "level": 51, "width": 1920, "height": 1080,
+			 "pix_fmt": "yuv420p", "field_order": "unknown", "r_frame_rate": "120000/1001", "side_data_list": [{"rotation": -90}]}
+		],
+		"frames": [{"stream_index": 1, "interlaced_frame": 0}, {"stream_index": 0, "interlaced_frame": 1}],
+		"format": {"format_name": "hls", "duration": "12.0"}
+	}`)
+	info, err := decodeProbeTracks(out, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.VideoInterlaced {
+		t.Error("a picture decoded as fields is interlaced even when the demuxer reports its field order unknown")
+	}
+	if info.VideoLevel != 51 || info.VideoRotation != -90 || info.AudioSampleRate != 96000 {
+		t.Errorf("level %d, rotation %d, sample rate %d; want 51, -90, 96000", info.VideoLevel, info.VideoRotation, info.AudioSampleRate)
+	}
+	if fps := info.VideoFrameRate; fps < 119.8 || fps > 119.9 {
+		t.Errorf("frame rate %v, want 119.88", fps)
 	}
 }

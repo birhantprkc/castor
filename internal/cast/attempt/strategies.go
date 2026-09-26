@@ -1,10 +1,11 @@
 package attempt
 
 import (
+	"cmp"
 	"context"
 	"log/slog"
 
-	"github.com/stupside/castor/internal/cast/policy/compose"
+	"github.com/stupside/castor/internal/cast/compose"
 	"github.com/stupside/castor/internal/media"
 	"github.com/stupside/castor/internal/source"
 )
@@ -75,15 +76,13 @@ var degradeRendition = strategy{
 		}
 
 		rung := lighter[0]
-		if rung.URL == nil {
-			return a, false
-		}
 		primary, ok := a.Program.PrimaryInput()
-		if !ok {
+		// A rung is reached by its own URL, or by name inside the manifest the program already reads.
+		if !ok || (rung.URL == nil && rung.Representation == "") {
 			return a, false
 		}
 		source := source.Candidate{
-			URL: rung.URL, Headers: primary.Headers.Clone(), ContentType: primary.ContentType,
+			URL: cmp.Or(rung.URL, primary.URL), Headers: primary.Headers.Clone(), ContentType: primary.ContentType,
 		}
 		resolved, err := c.Resolver.RefetchProgram(ctx, &source, rung)
 		if err != nil {

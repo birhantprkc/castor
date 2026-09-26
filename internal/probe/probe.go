@@ -1,3 +1,4 @@
+// Package probe measures links and local files with ffprobe.
 package probe
 
 import (
@@ -60,6 +61,8 @@ func (p pass) run(ctx context.Context) (media.ProbeInfo, media.Reach, error) {
 		"-v", "warning",
 		"-print_format", "json",
 		"-show_entries", probeEntries,
+		// The first frames only: a demuxer in front of the decoder (HLS) leaves field order unknown until one decodes.
+		"-read_intervals", "%+#2",
 	}
 	args = append(args, p.inputArgs...)
 	args = append(args, p.input)

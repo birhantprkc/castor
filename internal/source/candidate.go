@@ -3,6 +3,7 @@ package source
 import (
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/stupside/castor/internal/media"
 )
@@ -14,12 +15,8 @@ type Candidate struct {
 
 	Probe *media.ProbeInfo
 
-	// reach is how far the origin let that measurement get.
-	reach media.Reach
-
+	// LastResort is a link ranking admitted without a measurement to back it.
 	LastResort bool
-
-	reason reason
 
 	Headers     http.Header
 	ContentType string
@@ -56,4 +53,12 @@ func originOf(s string) string {
 		return ""
 	}
 	return (&url.URL{Scheme: u.Scheme, Host: u.Host}).String()
+}
+
+// minContentDuration is the shortest runtime treated as real content; pre-roll ads run well under it.
+const minContentDuration = 5 * time.Minute
+
+// ShorterThanContent reports a known runtime under a feature's, which is what an ad runs.
+func ShorterThanContent(runtime time.Duration) bool {
+	return runtime > 0 && runtime < minContentDuration
 }

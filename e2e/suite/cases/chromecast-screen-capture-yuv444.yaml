@@ -1,0 +1,12 @@
+# ffmpeg's own screen and GIF conversions default to 4:4:4 H.264, which no Cast receiver decodes; castor must relay and re-encode it to 4:2:0.
+stream:
+  packaging: file-mp4
+  video: {codec: h264, height: 360}
+  audio: {codec: aac, channels: 2}
+  quirks:
+    chroma: 444
+receiver:
+  device: chromecast
+expect:
+  delivery: served
+  video: encoded

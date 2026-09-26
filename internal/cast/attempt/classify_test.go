@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stupside/castor/internal/cast/policy/watch"
+	"github.com/stupside/castor/internal/cast/watch"
 	"github.com/stupside/castor/internal/media"
 )
 
@@ -23,6 +23,8 @@ func TestClassify(t *testing.T) {
 		{"a reader exit on copied packets broke upstream", Evidence{Reached: PhaseReading, Verdict: watch.Dead, ReadExit: 183, Copied: media.Axes{Video: true}, Health: watch.Health{Landed: 4 << 20, Samples: 12}}, CopyBrokeUpstream},
 		{"a reader castor killed is a stall, not a broken copy", Evidence{Reached: PhaseReading, Verdict: watch.Stalled, ReadExit: -1, Copied: media.Axes{Video: true}, Health: watch.Health{Landed: 4 << 20}}, SourceStalled},
 		{"under-delivering", Evidence{Reached: PhaseReading, Verdict: watch.Undeliverable, Health: starving}, UnderDelivering},
+		{"a clean read that lost media before play is re-read", Evidence{Reached: PhaseReading, ReadIncomplete: true, Copied: media.Axes{Video: true}}, SourceStalled},
+		{"a read that lost media after the hand-off is not re-read", Evidence{Reached: PhasePlaying, ReadIncomplete: true}, Unclassified},
 		{"a renderer that stopped answering is gone", Evidence{Reached: PhasePlaying, RendererGone: gone}, RendererGone},
 		{"gone beats unfetched", Evidence{Reached: PhasePlaying, Verdict: watch.Unfetched, RendererGone: gone}, RendererGone},
 		{"a refused URL is a refusing renderer", Evidence{PlayErr: errors.New("SOAP 714")}, RendererRefused},

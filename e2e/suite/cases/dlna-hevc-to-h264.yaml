@@ -1,0 +1,15 @@
+# A TV that never advertised HEVC gets the picture re-encoded to a codec it did advertise.
+stream:
+  packaging: hls-ts
+  video: {codec: hevc, height: 360}
+  audio: {codec: aac, channels: 2}
+receiver:
+  device:
+    dlna:
+      sink: "http-get:*:video/mp2t:DLNA.ORG_PN=AVC_TS_HD_NA_ISO"
+      decodes:
+        video: {h264: 8}
+        audio: {aac: 2}
+expect:
+  delivery: served
+  video: encoded

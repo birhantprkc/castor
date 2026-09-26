@@ -1,3 +1,4 @@
+// Package subtitle turns a cast's transcribed speech into the captions burnt into its picture.
 package subtitle
 
 // Whisper holds settings for the in-process whisper.cpp transcriber.

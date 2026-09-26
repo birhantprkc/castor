@@ -1,0 +1,10 @@
+# 5.1 E-AC-3 is copyable to a Chromecast, so an HLS source carrying it is handed over whole.
+stream:
+  packaging: hls-ts
+  video: {codec: h264, height: 360}
+  audio: {codec: eac3, channels: 6}
+receiver:
+  device: chromecast
+expect:
+  delivery: passthrough
+  video: copied

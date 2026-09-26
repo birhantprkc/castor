@@ -1,0 +1,10 @@
+# WebM with VP8 and Vorbis is native to a Chromecast, so it is handed over.
+stream:
+  packaging: file-webm
+  video: {codec: vp8, height: 360}
+  audio: {codec: vorbis, channels: 2}
+receiver:
+  device: chromecast
+expect:
+  delivery: passthrough
+  video: copied

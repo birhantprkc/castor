@@ -15,18 +15,20 @@ import (
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
 
+	"github.com/stupside/castor/internal/extract"
 	"github.com/stupside/castor/internal/source"
-	"github.com/stupside/castor/internal/source/extract"
+	"github.com/stupside/castor/internal/source/rank"
+	"github.com/stupside/castor/internal/source/web"
 	"github.com/stupside/castor/internal/subtitle"
 )
 
-// defaults is the base configuration layer, as the real typed Config so a mistyped key cannot compile.
-func defaults() *Config {
+// Defaults is the base configuration layer, as the real typed Config so a mistyped key cannot compile.
+func Defaults() *Config {
 	cfg := &Config{
 		Network: NetworkConfig{Timeout: 5 * time.Second},
 		Browser: extract.BrowserConfig{Timeout: 30 * time.Second, Headless: true},
 		Resolver: ResolverConfig{
-			Config:          source.Config{ProbeMaxConcurrency: 2, MaxHeight: 1080},
+			Config:          rank.Config{ProbeMaxConcurrency: 2, MaxHeight: 1080},
 			PlaylistTimeout: 30 * time.Second,
 			FFprobePath:     "ffprobe",
 			ProbeTimeout:    30 * time.Second,
@@ -35,6 +37,7 @@ func defaults() *Config {
 		Transcode: TranscodeConfig{FFmpegPath: "ffmpeg", RWTimeout: 30 * time.Second},
 		Whisper:   subtitle.Whisper{Language: "en"},
 	}
+	cfg.client = sync.OnceValue(func() source.Client { return web.Client(cfg.Resolver.PlaylistTimeout) })
 	cfg.source = sync.OnceValue(cfg.newResolver)
 	cfg.ranker = sync.OnceValue(cfg.newRanker)
 	return cfg
@@ -60,7 +63,7 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("loading environment overrides: %w", err)
 	}
 
-	cfg := defaults()
+	cfg := Defaults()
 	if err := k.UnmarshalWithConf("", cfg, koanf.UnmarshalConf{
 		Tag: "yaml",
 		DecoderConfig: &mapstructure.DecoderConfig{

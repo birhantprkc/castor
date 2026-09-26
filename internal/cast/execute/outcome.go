@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	"github.com/stupside/castor/internal/cast/attempt"
-	"github.com/stupside/castor/internal/cast/policy/watch"
+	"github.com/stupside/castor/internal/cast/watch"
 	"github.com/stupside/castor/internal/media"
 )
 
@@ -16,6 +16,7 @@ func (c *cast) outcome(ctx context.Context, err error) attempt.Outcome {
 	if c.reader != nil {
 		e.ReadErr = c.readErr()
 		e.ReadExit = c.reader.ExitStatus()
+		e.ReadIncomplete = c.reader.LostMedia()
 		e.Copied = c.reader.Copying()
 		e.Lines = c.reader.Evidence()
 	}

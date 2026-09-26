@@ -1,3 +1,4 @@
+// Package whisper transcribes a cast's sound with whisper.cpp.
 package whisper
 
 import (
@@ -24,7 +25,7 @@ const (
 	// stepSeconds: audio step size (tradeoff: commit sooner vs whisper more).
 	stepSeconds = 3
 
-	// Buffer trim at sentence boundary (15s), hard cap (28s, whisper slack).
+	// The buffer is trimmed at a sentence boundary past the first, and capped short of whisper's 30s window.
 	trimAfterSeconds = 15
 	maxBufferSeconds = 28
 
@@ -34,8 +35,8 @@ const (
 
 type word = subtitle.Word
 
-// Transcriber: whisper wrapper (streams committed words, not reusable).
-type Transcriber struct {
+// transcriber: whisper wrapper (streams committed words, not reusable).
+type transcriber struct {
 	language     subtitle.Language
 	modelPath    string
 	vadModelPath string
@@ -46,7 +47,7 @@ type Transcriber struct {
 }
 
 // newTranscriber resolves models and auto-downloads defaults if unset.
-func newTranscriber(ctx context.Context, cfg subtitle.Whisper) (*Transcriber, error) {
+func newTranscriber(ctx context.Context, cfg subtitle.Whisper) (*transcriber, error) {
 	modelPath, err := ensureModel(ctx, cfg.ModelPath)
 	if err != nil {
 		return nil, err
@@ -56,7 +57,7 @@ func newTranscriber(ctx context.Context, cfg subtitle.Whisper) (*Transcriber, er
 		return nil, err
 	}
 
-	return &Transcriber{
+	return &transcriber{
 		language:     cfg.Language,
 		modelPath:    modelPath,
 		vadModelPath: vadModelPath,
@@ -64,33 +65,33 @@ func newTranscriber(ctx context.Context, cfg subtitle.Whisper) (*Transcriber, er
 }
 
 // LatestEnd: last committed word end-time.
-func (t *Transcriber) LatestEnd() float64 {
+func (t *transcriber) LatestEnd() float64 {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.latestEnd
 }
 
-func (t *Transcriber) setFrontier(sec float64) {
+func (t *transcriber) setFrontier(sec float64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.latestEnd = max(t.latestEnd, sec)
 }
 
 // Done reports whether Run has returned, so no further words will appear.
-func (t *Transcriber) Done() bool {
+func (t *transcriber) Done() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.done
 }
 
-func (t *Transcriber) markDone() {
+func (t *transcriber) markDone() {
 	t.mu.Lock()
 	t.done = true
 	t.mu.Unlock()
 }
 
 // Run: LocalAgreement-2 loop (buffer, transcribe, confirm prefix, trim).
-func (t *Transcriber) Run(ctx context.Context, pcm io.Reader, sink *subtitle.Builder) error {
+func (t *transcriber) Run(ctx context.Context, pcm io.Reader, sink *subtitle.Builder) error {
 	defer t.markDone() // runs last: cues are flushed before Done() flips
 	defer sink.Close() // runs first: flush the final pending words
 
@@ -156,7 +157,7 @@ func (t *Transcriber) Run(ctx context.Context, pcm io.Reader, sink *subtitle.Bui
 	}
 }
 
-func (t *Transcriber) loadModel(ctx context.Context) (wcpp.Model, error) {
+func (t *transcriber) loadModel(ctx context.Context) (wcpp.Model, error) {
 	slog.InfoContext(ctx, "loading whisper model", "path", t.modelPath, "vad", t.vadModelPath)
 	model, err := wcpp.New(t.modelPath)
 	if err != nil {
@@ -174,7 +175,7 @@ func readStep(pcm io.Reader, step []byte) (int, bool, error) {
 	return n, atEOF, nil
 }
 
-func (t *Transcriber) confirm(ctx context.Context, model wcpp.Model, buf []float32, bufStart float64, prompt string, prev []word, frontier float64, atEOF bool) (agreed, tail []word) {
+func (t *transcriber) confirm(ctx context.Context, model wcpp.Model, buf []float32, bufStart float64, prompt string, prev []word, frontier float64, atEOF bool) (agreed, tail []word) {
 	words, err := t.transcribeBuffer(ctx, model, buf, bufStart, prompt)
 	if err != nil {
 		slog.WarnContext(ctx, "whisper inference failed", "error", err)
@@ -198,7 +199,7 @@ func settledTo(frontier, bufStart float64, buf []float32, tail []word) float64 {
 }
 
 // transcribeBuffer: run whisper on buffer, one word per segment, shift by offset.
-func (t *Transcriber) transcribeBuffer(ctx context.Context, model wcpp.Model, samples []float32, offset float64, prompt string) ([]word, error) {
+func (t *transcriber) transcribeBuffer(ctx context.Context, model wcpp.Model, samples []float32, offset float64, prompt string) ([]word, error) {
 	wctx, err := model.NewContext()
 	if err != nil {
 		return nil, fmt.Errorf("new whisper context: %w", err)

@@ -2,7 +2,6 @@ package source
 
 import (
 	"cmp"
-	"net/url"
 	"slices"
 	"time"
 
@@ -31,35 +30,6 @@ func (l Ladder) String() string {
 	}
 }
 
-// Rendition is one version of a program a source offered, as the source described it.
-type Rendition struct {
-	URL *url.URL
-
-	Index int
-
-	// AudioURL is the companion audio rendition for this rung.
-	AudioURL *url.URL
-
-	// Bitrate is the rate the source declared, 0 when it declared none.
-	Bitrate media.Bitrate
-
-	// Height is the declared display height, 0 when the source omitted it.
-	Height int
-
-	// Declared is the codec envelope the source declared for this rung.
-	Declared *media.ProbeInfo
-}
-
-func (r Rendition) BackedBy(prior Rendition) Rendition {
-	if r.AudioURL == nil {
-		r.AudioURL = prior.AudioURL
-	}
-	if r.Declared == nil {
-		r.Declared = prior.Declared
-	}
-	return r
-}
-
 // Origin is what the source itself publishes about the program castor chose to read.
 type Origin struct {
 	Renditions []Rendition
@@ -71,8 +41,11 @@ type Origin struct {
 
 	Live bool
 
-	// Encrypted reports that the source declared its media encrypted.
-	Encrypted bool
+	// Protection is the DRM the source declared, which castor cannot decrypt; empty for clear or AES-128 media.
+	Protection string
+
+	// Spliced reports a program stitched from pieces encoded apart, such as an ad pod.
+	Spliced bool
 
 	// Duration is the program's runtime as the source published it, 0 when it did not.
 	Duration time.Duration
@@ -108,17 +81,4 @@ func (o Origin) ProjectedRuntime(at media.Speed) (time.Duration, bool) {
 		return 0, false
 	}
 	return time.Duration(float64(o.Duration) / float64(at)), true
-}
-
-func SelfFetchHeight(program media.Program, origin Origin, chosen Rendition) int {
-	// A rung with a URL of its own was narrowed at the URL, so the renderer is pinned to it.
-	if chosen.URL != nil {
-		return cmp.Or(chosen.Height, program.MeasuredHeight())
-	}
-	// Otherwise the URL still names the whole ladder. Take the tallest rung it publishes.
-	tallest := 0
-	for _, rung := range origin.Renditions {
-		tallest = max(tallest, rung.Height)
-	}
-	return cmp.Or(tallest, chosen.Height, program.MeasuredHeight())
 }

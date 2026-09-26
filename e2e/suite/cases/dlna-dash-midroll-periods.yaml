@@ -1,0 +1,17 @@
+# A DASH film cut into content / ad break / content Periods by an ad stitcher casts all three as one unbroken stream.
+stream:
+  packaging: dash
+  video: {codec: h264, height: 360}
+  audio: {codec: aac, channels: 2, carriage: separate}
+  seconds: 12
+origin:
+  periods: [4, 2, 6]
+receiver:
+  device:
+    dlna:
+      sink: "http-get:*:video/mp2t:DLNA.ORG_PN=AVC_TS_HD_NA_ISO,http-get:*:audio/mp4:DLNA.ORG_PN=AAC_ISO"
+      decodes:
+        video: {h264: 8}
+        audio: {aac: 2}
+expect:
+  delivery: served

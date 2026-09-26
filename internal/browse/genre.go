@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/stupside/castor/internal/browse/palette"
 	"github.com/stupside/castor/internal/browse/tmdb"
 )
 
@@ -191,7 +192,7 @@ func (g genrePicker) view(spin spinner.Model, w, h int) string {
 	box := lipgloss.NewStyle().
 		Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(accent).
+		BorderForeground(palette.Accent).
 		Render(content)
 	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, box)
 }
@@ -216,9 +217,9 @@ func newGenreDelegate() list.DefaultDelegate {
 	d := list.NewDefaultDelegate()
 	d.ShowDescription = false
 	d.SetSpacing(0)
-	d.Styles.NormalTitle = d.Styles.NormalTitle.Foreground(fgPrimary)
-	d.Styles.SelectedTitle = d.Styles.SelectedTitle.Foreground(accent).BorderForeground(accent).Bold(true)
-	d.Styles.DimmedTitle = d.Styles.DimmedTitle.Foreground(fgMuted)
+	d.Styles.NormalTitle = d.Styles.NormalTitle.Foreground(palette.FgPrimary)
+	d.Styles.SelectedTitle = d.Styles.SelectedTitle.Foreground(palette.Accent).BorderForeground(palette.Accent).Bold(true)
+	d.Styles.DimmedTitle = d.Styles.DimmedTitle.Foreground(palette.FgMuted)
 	return d
 }
 

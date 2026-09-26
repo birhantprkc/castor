@@ -1,0 +1,12 @@
+# Every variant declares the same BANDWIDTH: RESOLUTION must break the tie, not publication order, so the 480p rung is handed over.
+stream:
+  packaging: hls-ts
+  video: {codec: h264, ladder: [240, 360, 480]}
+  audio: {codec: aac, channels: 2}
+origin:
+  rewrites-master: {bandwidth: flat}
+receiver:
+  device: chromecast
+expect:
+  delivery: passthrough
+  video: copied

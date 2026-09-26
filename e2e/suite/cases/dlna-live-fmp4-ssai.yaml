@@ -1,0 +1,21 @@
+# A live fMP4 channel whose ad break brings a 720p creative on its own init: the picture never breaks at either seam.
+stream:
+  packaging: hls-fmp4
+  video: {codec: h264, height: 360}
+  audio: {codec: aac, channels: 2}
+  seconds: 16
+origin:
+  splices-ad: {after: 6, segments: 3, height: 720}
+  live: {start: 4, every: 1s, end: endlist}
+receiver:
+  device:
+    dlna:
+      sink: "http-get:*:video/mp2t:DLNA.ORG_PN=AVC_TS_HD_NA_ISO,http-get:*:audio/mp4:DLNA.ORG_PN=AAC_ISO"
+      decodes:
+        video: {h264: 8}
+        audio: {aac: 2}
+castor:
+  resolver:
+    max_height: 480
+expect:
+  delivery: served

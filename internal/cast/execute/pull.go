@@ -7,85 +7,28 @@ import (
 	"io"
 	"log/slog"
 	"maps"
-	"path/filepath"
 	"slices"
 	"time"
 
-	"github.com/stupside/castor/internal/cast/attempt"
-	"github.com/stupside/castor/internal/cast/engine/deliver"
-	"github.com/stupside/castor/internal/cast/engine/ffmpeg"
-	"github.com/stupside/castor/internal/cast/policy/plan"
-	"github.com/stupside/castor/internal/cast/policy/read"
-	"github.com/stupside/castor/internal/cast/policy/watch"
+	"github.com/stupside/castor/internal/cast/deliver"
+	"github.com/stupside/castor/internal/cast/plan"
+	"github.com/stupside/castor/internal/cast/read"
+	"github.com/stupside/castor/internal/cast/transcode"
+	"github.com/stupside/castor/internal/cast/watch"
+	"github.com/stupside/castor/internal/ffmpeg"
 	"github.com/stupside/castor/internal/media"
-	"github.com/stupside/castor/internal/subtitle"
 )
-
-func (c *cast) read(ctx context.Context) error {
-	source, err := ffmpeg.NewProgramSource(c.attempt.Program, c.attempt.Read)
-	if err != nil {
-		return err
-	}
-	facts := measure(ctx, "the source this cast buffers", c.cfg.Probes.Source(c.attempt.Program, source.ProbeInputs()))
-
-	if c.cfg.Subtitles != nil && (!facts.Measured || facts.Probe.AudioCodec != "") {
-		c.burn = c.cfg.Subtitles(ctx, c.workDir)
-	}
-
-	floor, err := plan.Floor(ctx, plan.Inputs{
-		Probe:     facts.Probe,
-		Into:      ffmpeg.SpoolFormat,
-		Decode:    c.attempt.Decode,
-		MaxHeight: c.cfg.MaxHeight,
-		Encoders:  c.cfg.Encoders,
-	})
-	if err != nil {
-		return err
-	}
-	logRefusals(ctx, floor)
-
-	reader, err := startPull(ctx, pullSpec{
-		ffmpegPath: c.cfg.FFmpegPath,
-		program:    c.attempt.Program,
-		policy:     c.attempt.Read,
-		source:     source,
-		probe:      facts.Probe,
-		spoolPath:  filepath.Join(c.workDir, "spool"+ffmpeg.SpoolFormat.Extension),
-		floor:      floor,
-		pcm:        c.burn != nil,
-	})
-	if err != nil {
-		return err
-	}
-	c.reader, c.spool = reader, reader.spool
-
-	c.evidence.Reached = attempt.PhaseReading
-	return nil
-}
-
-func (c *cast) transcribe(ctx context.Context) error {
-	if c.burn == nil {
-		return nil
-	}
-	c.group.Go(func() error {
-		c.burn.Run(ctx, c.reader.pcm)
-		return nil
-	})
-	return nil
-}
-
-// readErr is the read's own terminal error, and only where the read has terminated (see pull.Err).
-func (c *cast) readErr() error { return c.reader.Err() }
 
 type pull struct {
 	pcm io.ReadCloser
 
 	ffmpegPath string
-	source     ffmpeg.ProgramSource
+	source     transcode.ProgramSource
 	probe      media.ProbeInfo
 	policy     read.Plan
 	verbose    bool
 	pcmOut     *io.PipeWriter
+	pcmRate    int
 
 	floor plan.MediaPlan
 
@@ -103,15 +46,16 @@ type pullSpec struct {
 	ffmpegPath string
 	program    media.Program
 	policy     read.Plan
-	source     ffmpeg.ProgramSource
+	source     transcode.ProgramSource
 	probe      media.ProbeInfo
 	spoolPath  string
 	floor      plan.MediaPlan
-	pcm        bool
+	// pcmRate is the rate of the PCM tee a transcription reads, zero for none.
+	pcmRate int
 }
 
 func startPull(ctx context.Context, spec pullSpec) (*pull, error) {
-	program, floor, wantPCM := spec.program, spec.floor, spec.pcm
+	program, floor, wantPCM := spec.program, spec.floor, spec.pcmRate > 0
 	sp, err := deliver.NewSpool(spec.spoolPath)
 	if err != nil {
 		return nil, err
@@ -123,6 +67,7 @@ func startPull(ctx context.Context, spec pullSpec) (*pull, error) {
 		policy:     spec.policy,
 		verbose:    slog.Default().Enabled(ctx, slog.LevelDebug),
 		floor:      floor,
+		pcmRate:    spec.pcmRate,
 		spool:      sp,
 		done:       make(chan struct{}),
 	}
@@ -166,16 +111,16 @@ func programHeaderKeys(program media.Program) []string {
 }
 
 func (p *pull) start(ctx context.Context) error {
-	opts := ffmpeg.PullOptions{
+	opts := transcode.PullOptions{
 		Source:        p.source,
 		Probe:         p.probe,
 		Video:         p.floor.Video,
 		Audio:         p.floor.Audio,
 		Verbose:       p.verbose,
 		PCM:           p.pcmOut != nil,
-		PCMSampleRate: subtitle.SampleRate,
+		PCMSampleRate: p.pcmRate,
 	}
-	cmd, err := ffmpeg.PullArgs(opts)
+	cmd, err := transcode.PullArgs(opts)
 	if err != nil {
 		return fmt.Errorf("building the puller command line: %w", err)
 	}
@@ -221,7 +166,8 @@ func (p *pull) run(ctx context.Context) {
 
 func (p *pull) copyInto(proc *ffmpeg.Process) error {
 	_, copyErr := io.Copy(p.spool, proc.Stdout)
-	return cmp.Or(copyErr, proc.Wait())
+	// A clean exit is not a complete read: the demuxer skips or truncates media and still exits 0.
+	return cmp.Or(copyErr, proc.Wait(), proc.SilentFailure())
 }
 
 func (p *pull) logProgress(ctx context.Context) {
@@ -285,6 +231,12 @@ func (p *pull) Evidence() []string {
 		return nil
 	}
 	return proc.Evidence().Lines
+}
+
+// LostMedia reports a read that ended short of what its source declared.
+func (p *pull) LostMedia() bool {
+	proc := p.proc
+	return proc != nil && proc.LostMedia()
 }
 
 func (p *pull) ExitStatus() int {

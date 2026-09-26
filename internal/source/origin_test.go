@@ -26,8 +26,8 @@ func TestOriginLighterIsHeaviestFirstBelowTheCeiling(t *testing.T) {
 
 // HLS pins the renderer to a rung; DASH lets the renderer choose.
 func TestSelfFetchHeightIsWhatARendererCouldChoose(t *testing.T) {
-	ladder := Origin{Renditions: []Rendition{{Index: 0, Height: 2160}, {Index: 1, Height: 1080}}}
-	if got := SelfFetchHeight(media.Program{}, ladder, Rendition{Index: 1, Height: 1080}); got != 2160 {
+	ladder := Origin{Renditions: []Rendition{{Representation: "4k", Height: 2160}, {Representation: "hd", Height: 1080}}}
+	if got := SelfFetchHeight(media.Program{}, ladder, Rendition{Representation: "hd", Height: 1080}); got != 2160 {
 		t.Errorf("index-addressed SelfFetchHeight = %d, want the tallest rung 2160", got)
 	}
 	pinned := Rendition{URL: &url.URL{Path: "/1080.m3u8"}, Height: 1080}

@@ -1,0 +1,16 @@
+# A moov-last MP4 on a host that ignores Range cannot be read, and castor must say so rather than relay corrupt media.
+stream:
+  packaging: file-mp4-moov-last
+  video: {codec: h264, height: 360}
+  audio: {codec: aac, channels: 2}
+  seconds: 20
+origin:
+  ignores-range: {}
+receiver:
+  device:
+    dlna:
+      sink: "http-get:*:video/mp2t:DLNA.ORG_PN=AVC_TS_HD_NA_ISO,http-get:*:audio/mp4:DLNA.ORG_PN=AAC_ISO"
+      decodes:
+        video: {h264: 8}
+        audio: {aac: 2}
+outcome: refused

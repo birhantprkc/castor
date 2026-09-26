@@ -1,0 +1,15 @@
+# The viewer stops a relayed cast: the receiver goes IDLE/CANCELLED and castor exits cleanly at once (#41).
+# Disguised segments force the relay, since a hand-off leaves castor nothing to stop.
+stream:
+  packaging: hls-ts
+  video: {codec: h264, height: 360}
+  audio: {codec: aac, channels: 2}
+  segments: {extension: .jpg, served_as: image/jpeg}
+  seconds: 60
+receiver:
+  device: chromecast
+  viewer:
+    stops-after: 3s
+expect:
+  delivery: served
+  video: copied

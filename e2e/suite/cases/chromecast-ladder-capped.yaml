@@ -1,0 +1,13 @@
+# max_height selects the richest rendition within it, and that rendition is handed over as it is.
+stream:
+  packaging: hls-ts
+  video: {codec: h264, ladder: [240, 480, 720]}
+  audio: {codec: aac, channels: 2}
+receiver:
+  device: chromecast
+castor:
+  resolver:
+    max_height: 480
+expect:
+  delivery: passthrough
+  video: copied

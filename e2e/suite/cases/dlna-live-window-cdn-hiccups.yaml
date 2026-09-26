@@ -1,0 +1,18 @@
+# A sliding-window live playlist that deletes old segments and answers some segments late loses nothing once the relay catches back up.
+stream:
+  packaging: hls-ts
+  video: {codec: h264, height: 360}
+  audio: {codec: aac, channels: 2}
+  seconds: 30
+origin:
+  live: {start: 3, every: 1s, end: endlist, window: 6}
+  hiccups: {every: 6, for: 2500ms}
+receiver:
+  device:
+    dlna:
+      sink: "http-get:*:video/mp2t:DLNA.ORG_PN=AVC_TS_HD_NA_ISO,http-get:*:audio/mp4:DLNA.ORG_PN=AAC_ISO"
+      decodes:
+        video: {h264: 8}
+        audio: {aac: 2}
+expect:
+  delivery: served

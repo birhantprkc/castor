@@ -1,0 +1,19 @@
+# A player that only prints its config as JSON to the console is still cast from the link inside it.
+command:
+  player:
+    stream: {logged: '{"sources":[{"file":"%s","type":"hls"}]}'}
+stream:
+  packaging: hls-ts
+  video: {codec: h264, height: 240}
+  audio: {codec: aac, channels: 2}
+  seconds: 300
+receiver:
+  device:
+    dlna:
+      sink: "http-get:*:video/mp2t:DLNA.ORG_PN=AVC_TS_HD_NA_ISO,http-get:*:audio/mp4:DLNA.ORG_PN=AAC_ISO"
+      decodes:
+        video: {h264: 8}
+        audio: {aac: 2}
+expect:
+  delivery: served
+  video: copied

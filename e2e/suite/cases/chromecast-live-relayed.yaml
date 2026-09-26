@@ -1,0 +1,15 @@
+# A live edge castor is told to serve is followed on castor's own timeline and remuxed to the Chromecast until the origin ends it.
+stream:
+  packaging: hls-ts
+  video: {codec: h264, height: 360}
+  audio: {codec: aac, channels: 2}
+  seconds: 20
+origin:
+  live: {start: 4, every: 1s, end: endlist}
+receiver:
+  device: chromecast
+castor:
+  cast:
+    delivery: serve
+expect:
+  delivery: served

@@ -1,112 +1,71 @@
 package execute
 
 import (
-	"cmp"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"slices"
 	"time"
 
 	"github.com/stupside/castor/internal/cast/attempt"
-	"github.com/stupside/castor/internal/cast/engine/deliver"
-	"github.com/stupside/castor/internal/cast/engine/deliver/segments"
-	"github.com/stupside/castor/internal/cast/engine/deliver/stream"
-	"github.com/stupside/castor/internal/cast/engine/ffmpeg"
-	"github.com/stupside/castor/internal/cast/policy/plan"
-	"github.com/stupside/castor/internal/cast/policy/read"
-	"github.com/stupside/castor/internal/cast/policy/watch"
-	"github.com/stupside/castor/internal/container"
+	"github.com/stupside/castor/internal/cast/container"
+	"github.com/stupside/castor/internal/cast/deliver"
+	"github.com/stupside/castor/internal/cast/deliver/segments"
+	"github.com/stupside/castor/internal/cast/deliver/stream"
+	"github.com/stupside/castor/internal/cast/read"
+	"github.com/stupside/castor/internal/cast/transcode"
+	"github.com/stupside/castor/internal/cast/watch"
 	"github.com/stupside/castor/internal/media"
 )
 
-func (c *cast) encode(ctx context.Context) error {
-	caps := c.dev.Capabilities()
-	into, err := plan.ServedFormat(caps)
-	if err != nil {
+// feed is what a served cast's encoder reads: the local buffer, or the source itself.
+type feed struct {
+	input func(ctx context.Context, ceiling read.Pace) (facts, transcode.EncodeInput, error)
+	// spliced is whether the plan joins a seamed program itself; a buffer was made one stream by the floor.
+	spliced bool
+	// stdin is nil where the encoder reads no pipe.
+	stdin   func(ctx context.Context) (io.ReadCloser, error)
+	playing func(watch.Monitor) watch.Monitor
+}
+
+func (c *cast) fromBuffer() feed {
+	return feed{input: c.bufferInput, stdin: c.spool.Tail, playing: c.readMonitor}
+}
+
+func (c *cast) fromSource() feed {
+	return feed{input: c.sourceInput, spliced: c.program.Seamed(), playing: c.encoderMonitor}
+}
+
+func (c *cast) serve(ctx context.Context, f feed) error {
+	if err := c.encode(ctx, f); err != nil {
 		return err
 	}
-
-	var burnIn string
-	if c.burn != nil {
-		if burnIn, err = c.burn.Inputs(); err != nil {
-			return err
-		}
-	}
-
-	ceiling := read.Ceiling(into.Delivery == container.DeliverSegmented, burnIn != "")
-	var (
-		facts facts
-		input ffmpeg.EncodeInput
-	)
-	if c.row.Kind.Buffers() {
-		facts = measure(ctx, "the local buffer this encode reads", c.cfg.Probes.File(c.spool.Path()))
-		input = ffmpeg.FromPipe(ffmpeg.SpoolFormat, ceiling)
-	} else {
-		source, err := ffmpeg.NewProgramSource(c.attempt.Program, c.attempt.Read.Encoding(c.attempt.Program, ceiling))
-		if err != nil {
-			return err
-		}
-		facts = measure(ctx, "the source this remux reads", c.cfg.Probes.Source(c.attempt.Program, source.ProbeInputs()))
-		input = ffmpeg.FromSource(source)
-	}
-
-	decided, err := c.decide(ctx, caps, into, facts, burnIn)
-	if err != nil {
+	if err := c.produce(ctx, f); err != nil {
 		return err
 	}
-	c.opts = ffmpeg.EncodeOptions{
-		Input:  input,
-		Format: into,
-		Probe:  facts.Probe,
-		Video:  decided.Video,
-		Audio:  decided.Audio,
+	if err := c.opened(ctx); err != nil {
+		return err
 	}
-	return nil
+	if err := c.hand(ctx, c.sink.URL(), c.opts.Format.ContentType); err != nil {
+		return err
+	}
+	slog.InfoContext(ctx, "streaming to device, press Ctrl+C to stop")
+	ran, err := c.supervising(ctx, f)
+	if err != nil || !ran {
+		return err
+	}
+	return c.sink.Settled()
 }
 
-func (c *cast) decide(ctx context.Context, caps media.Capabilities, into container.FormatInfo, facts facts, burnIn string) (plan.MediaPlan, error) {
-	decided, err := plan.PlanMedia(ctx, plan.Inputs{
-		Caps: caps, Probe: facts.Probe, Measured: facts.Measured, Into: into, MaxHeight: c.cfg.MaxHeight,
-		// Attempt's evidence: axis a reader already died copying not handed to second process to copy again.
-		Decode:   c.attempt.Decode,
-		BurnIn:   burnIn,
-		Encoders: c.cfg.Encoders,
-	})
-	if err != nil {
-		return plan.MediaPlan{}, fmt.Errorf("planning media: %w", err)
+func (c *cast) produce(ctx context.Context, f feed) error {
+	// A burn-in follows the encoder's progress, so only a cast without one can do without an encoder.
+	if c.burn == nil && c.opts.Verbatim() {
+		return c.relay(ctx)
 	}
-
-	slog.InfoContext(ctx, "encode decision",
-		"video_codec", decided.Video.Name(),
-		"audio_codec", decided.Audio.Name(),
-		"source_video_codec", string(facts.Probe.VideoCodec),
-		"source_video_profile", facts.Probe.VideoProfile,
-		"source_video_height", facts.Probe.VideoHeight,
-		"source_audio_codec", string(facts.Probe.AudioCodec),
-		"source_audio_channels", facts.Probe.AudioChannels,
-		"measured", facts.Measured,
-		"output_content_type", into.ContentType,
-		"burn_in", burnIn != "",
-		"decode", c.attempt.Decode.String(),
-		"encoded", decided.Encoded().String(),
-	)
-	logRefusals(ctx, decided)
-	return decided, nil
-}
-
-// logRefusals states once why each axis a plan encodes is not copied.
-func logRefusals(ctx context.Context, decided plan.MediaPlan) {
-	for _, r := range decided.Refusals {
-		slog.InfoContext(ctx, "not copied", "reason", string(r.Reason), "why", r.Why)
-	}
-}
-
-func (c *cast) produce(ctx context.Context) error {
-	if c.row.Kind.Buffers() {
-		tail, err := c.spool.Tail(ctx)
+	if f.stdin != nil {
+		tail, err := f.stdin(ctx)
 		if err != nil {
 			return err
 		}
@@ -128,20 +87,36 @@ func (c *cast) produce(ctx context.Context) error {
 	}
 	c.proc = proc
 
-	sink, err := sinkFor(deliver.Opening{
-		Format:        c.opts.Format,
-		LocalIP:       c.localIP,
-		Dir:           dir,
-		Out:           proc.Stdout,
-		Headers:       c.dev.StreamHeaders(c.opts.Format.ContentType),
-		IdleGrace:     idleGrace,
-		WriteDeadline: writeDeadline,
-	}, proc.Progress)
+	opening := c.opening()
+	opening.Dir, opening.Out = dir, proc.Stdout
+	sink, err := sinkFor(opening, proc.Progress)
 	if err != nil {
 		return fmt.Errorf("starting the delivery: %w", err)
 	}
-	c.sink = sink
+	c.sink, c.output = sink, encoderOutput{proc: proc, ended: sink.Drained()}
 	return nil
+}
+
+// relay serves the read's own spool, the read standing in for an encoder that would rewrite it unchanged.
+func (c *cast) relay(ctx context.Context) error {
+	sink, err := spoolSink(c.opening(), c.spool, c.reader.Done(), c.reader.Progress)
+	if err != nil {
+		return fmt.Errorf("starting the delivery: %w", err)
+	}
+	c.sink, c.output = sink, c.reader
+	slog.InfoContext(ctx, "serving the read's buffer as it is, since the encode would change nothing")
+	return nil
+}
+
+// opening is the terms every delivery of this cast opens on.
+func (c *cast) opening() deliver.Opening {
+	return deliver.Opening{
+		Format:        c.opts.Format,
+		LocalIP:       c.localIP,
+		Headers:       c.dev.StreamHeaders(c.opts.Format.ContentType),
+		IdleGrace:     idleGrace,
+		WriteDeadline: writeDeadline,
+	}
 }
 
 const (
@@ -153,7 +128,7 @@ const (
 )
 
 // sinkFor opens the mechanism the format's delivery kind names, judged against what the encoder made.
-func sinkFor(o deliver.Opening, made func() media.Progress) (Sink, error) {
+func sinkFor(o deliver.Opening, made func() media.Progress) (sink, error) {
 	switch o.Format.Delivery {
 	case container.DeliverSegmented:
 		srv, err := segments.Open(o)
@@ -170,6 +145,15 @@ func sinkFor(o deliver.Opening, made func() media.Progress) (Sink, error) {
 	default:
 		return nil, fmt.Errorf("no delivery mechanism for kind %v", o.Format.Delivery)
 	}
+}
+
+// spoolSink streams a spool another writes, whole once drained closes, judged against what that writer made.
+func spoolSink(o deliver.Opening, sp *deliver.Spool, drained <-chan struct{}, made func() media.Progress) (sink, error) {
+	srv, err := stream.OpenSpool(o, sp, drained)
+	if err != nil {
+		return nil, err
+	}
+	return streamedSink{Server: srv, made: made}, nil
 }
 
 // streamedSink judges a progressive stream by the share of what was made that one client took.
@@ -197,28 +181,6 @@ func (segmentedSink) Audience() watch.Audience { return nil }
 
 func (s segmentedSink) Settled() error { return watch.NoneFetched(s.Served(), s.made()) }
 
-func (c *cast) startEncoder(ctx context.Context, step func(media.Progress), dir string) (*ffmpeg.Process, error) {
-	cmd, err := ffmpeg.EncodeArgs(c.opts)
-	if err != nil {
-		return nil, fmt.Errorf("building encode args: %w", err)
-	}
-
-	slog.DebugContext(ctx, "encoder ffmpeg command", "path", c.cfg.FFmpegPath, "args", cmd.Args)
-
-	startOpts := []ffmpeg.StartOption{
-		ffmpeg.WithWorkDir(dir),
-		ffmpeg.WithProgress(step),
-	}
-	if c.tail != nil {
-		startOpts = slices.Insert(startOpts, 0, ffmpeg.WithStdin(c.tail))
-	}
-	proc, err := ffmpeg.Start(ctx, c.cfg.FFmpegPath, cmd, startOpts...)
-	if err != nil {
-		return nil, fmt.Errorf("starting transcode: %w", err)
-	}
-	return proc, nil
-}
-
 func (c *cast) opened(ctx context.Context) error {
 	c.evidence.Reached = attempt.PhaseOpening
 
@@ -226,32 +188,8 @@ func (c *cast) opened(ctx context.Context) error {
 	return watch.Watch(ctx, watch.Monitor{
 		Subject:  artifact.Subject,
 		Window:   watch.Opening,
-		Producer: encoderOutput{proc: c.proc, ended: c.sink.Drained()},
+		Producer: c.output,
 		Landed:   artifact.Landed,
 		Grace:    artifact.Grace,
 	})
 }
-
-func (c *cast) settled(context.Context) error {
-	if !c.ran {
-		return nil
-	}
-	return c.sink.Settled()
-}
-
-func encoderResult(ctx context.Context, proc *ffmpeg.Process, waitErr error) error {
-	err := cmp.Or(waitErr, proc.SilentFailure())
-	if err == nil || ctx.Err() != nil || proc.Evidence().ExitStatus < 0 {
-		return nil
-	}
-	proc.LogStderrTail(ctx, "ffmpeg stderr")
-	return fmt.Errorf("encoder: %w", err)
-}
-
-type encoderOutput struct {
-	proc  *ffmpeg.Process
-	ended <-chan struct{}
-}
-
-func (o encoderOutput) Done() <-chan struct{} { return o.ended }
-func (o encoderOutput) Evidence() []string    { return o.proc.Evidence().Lines }

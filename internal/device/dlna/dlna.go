@@ -268,6 +268,7 @@ func fallbackCaps() media.Capabilities {
 		Video:           []media.VideoSupport{device.VideoSupport(media.CodecH264)},
 		Audio:           []media.AudioSupport{{Codec: media.CodecAAC, MaxChannels: 2}},
 		ServedContainer: servedContainer,
+		Deinterlaces:    true,
 	}
 }
 
@@ -300,7 +301,8 @@ func parseSinkProtocolInfo(sink string) media.Capabilities {
 		}
 	}
 
-	r := media.Capabilities{ServedContainer: servedContainer}
+	// A television deinterlaces: broadcast reaches it as fields.
+	r := media.Capabilities{ServedContainer: servedContainer, Deinterlaces: true}
 	for _, c := range discoverableCodecs {
 		if present[c] {
 			r.Video = append(r.Video, device.VideoSupport(c))

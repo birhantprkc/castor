@@ -1,0 +1,15 @@
+# HLG is refused a copy even by a TV that decodes 10-bit HEVC, since nothing says the set engages HDR.
+stream:
+  packaging: hls-ts
+  video: {codec: hevc, height: 360, depth: 10, transfer: hlg}
+  audio: {codec: aac, channels: 2}
+receiver:
+  device:
+    dlna:
+      sink: "http-get:*:video/mp2t:DLNA.ORG_PN=AVC_TS_HD_NA_ISO,http-get:*:video/mp2t:DLNA.ORG_PN=HEVC_TS_MAIN_HD,http-get:*:audio/mp4:DLNA.ORG_PN=AAC_ISO"
+      decodes:
+        video: {h264: 8, hevc: 10}
+        audio: {aac: 2}
+expect:
+  delivery: served
+  video: encoded

@@ -6,7 +6,6 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/stupside/castor/internal/cast/attempt"
-	"github.com/stupside/castor/internal/cast/policy/compose"
 	"github.com/stupside/castor/internal/media"
 	"github.com/stupside/castor/internal/probe"
 )
@@ -25,10 +24,12 @@ func TestTheReadsFloorEncodeIsCappedAtTheCastsCeiling(t *testing.T) {
 	g, ctx := errgroup.WithContext(t.Context())
 	c := &cast{
 		cfg:     cfg,
-		row:     compose.Row{Kind: compose.ReadOnce},
 		attempt: attempt.Attempt{Program: program, Read: sourceReadPlan(t, program, testReadDeadline), Decode: media.Axes{Video: true}},
 		workDir: t.TempDir(),
 		group:   g,
+	}
+	if err := c.follow(ctx); err != nil {
+		t.Fatal(err)
 	}
 	if err := c.read(ctx); err != nil {
 		t.Fatal(err)

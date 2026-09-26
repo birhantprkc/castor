@@ -196,8 +196,8 @@ func (c *Client) Search(ctx context.Context, query string) ([]SearchResult, erro
 
 	var movies, shows []SearchResult
 	g, ctx := errgroup.WithContext(ctx)
-	g.Go(func() (err error) { movies, err = c.typed(ctx, "/search/movie", q, MediaMovie); return })
-	g.Go(func() (err error) { shows, err = c.typed(ctx, "/search/tv", q, MediaTV); return })
+	g.Go(func() (err error) { movies, err = c.typed(ctx, "/search/"+MediaMovie, q, MediaMovie); return })
+	g.Go(func() (err error) { shows, err = c.typed(ctx, "/search/"+MediaTV, q, MediaTV); return })
 	if err := g.Wait(); err != nil {
 		return nil, err
 	}
@@ -206,7 +206,7 @@ func (c *Client) Search(ctx context.Context, query string) ([]SearchResult, erro
 
 func (c *Client) TV(ctx context.Context, id int) (*TVDetails, error) {
 	var d TVDetails
-	if err := c.get(ctx, "/tv/"+strconv.Itoa(id), nil, &d); err != nil {
+	if err := c.get(ctx, "/"+MediaTV+"/"+strconv.Itoa(id), nil, &d); err != nil {
 		return nil, err
 	}
 	return &d, nil
@@ -330,8 +330,11 @@ func today() string { return time.Now().UTC().Format(time.DateOnly) }
 func (c *Client) Trending(ctx context.Context) ([]SearchResult, error) {
 	var movies, shows []SearchResult
 	g, ctx := errgroup.WithContext(ctx)
-	g.Go(func() (err error) { movies, err = c.typed(ctx, "/trending/movie/week", nil, MediaMovie); return })
-	g.Go(func() (err error) { shows, err = c.typed(ctx, "/trending/tv/week", nil, MediaTV); return })
+	g.Go(func() (err error) {
+		movies, err = c.typed(ctx, "/trending/"+MediaMovie+"/week", nil, MediaMovie)
+		return
+	})
+	g.Go(func() (err error) { shows, err = c.typed(ctx, "/trending/"+MediaTV+"/week", nil, MediaTV); return })
 	if err := g.Wait(); err != nil {
 		return nil, err
 	}
@@ -354,7 +357,7 @@ func (c *Client) typed(ctx context.Context, path string, q url.Values, mediaType
 
 func (c *Client) Season(ctx context.Context, tvID, seasonNumber int) (*SeasonDetails, error) {
 	var d SeasonDetails
-	path := "/tv/" + strconv.Itoa(tvID) + "/season/" + strconv.Itoa(seasonNumber)
+	path := "/" + MediaTV + "/" + strconv.Itoa(tvID) + "/season/" + strconv.Itoa(seasonNumber)
 	if err := c.get(ctx, path, nil, &d); err != nil {
 		return nil, err
 	}

@@ -1,12 +1,15 @@
 package execute
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -35,7 +38,7 @@ func passthroughCandidate() *source.Candidate {
 func TestPassthroughBuildsNoLocalMachinery(t *testing.T) {
 	var asked atomic.Int64
 	dev := &fakeDevice{caps: chromecastLike(media.MP4)}
-	got := run(t.Context(), Config{MaxHeight: 1080, Renderer: renderer(selfFetching(), dev), Addresses: countedAddresses{asked: &asked}},
+	got := run(t.Context(), Config{MaxHeight: 1080, Renderer: renderer(selfFetching(), dev), Addresses: countedAddresses{asked: &asked}, Timelines: direct{}},
 		attempt.Attempt{Program: programFromStream(t, passthroughCandidate())})
 	if got.Err != nil {
 		t.Fatalf("passthrough depended on local relay resources: %v", got.Err)
@@ -59,6 +62,9 @@ func TestARendererThatRefusesPlayIsBlamedAndReleased(t *testing.T) {
 	}
 	if !errors.Is(out.Evidence.PlayErr, refused) {
 		t.Errorf("evidence carries PlayErr %v, want the renderer's own refusal %v", out.Evidence.PlayErr, refused)
+	}
+	if out.Evidence.Reached == attempt.PhasePlaying {
+		t.Error("a cast whose renderer refused the URL reached Playing")
 	}
 	if !dev.closed.Load() {
 		t.Error("the renderer was never closed")
@@ -124,7 +130,7 @@ func TestEveryAttemptOwnsAFreshWorkDirectoryAndLeavesNoneBehind(t *testing.T) {
 		program := programFromStream(t, candidate)
 		cfg := Config{
 			Renderer:  renderer(pushOnly(), &fakeDevice{caps: dlnaLike()}),
-			Subtitles: watchDir, Addresses: fixedAddress("127.0.0.1"), Probes: probe.FFprobe(""),
+			Subtitles: watchDir, Addresses: fixedAddress("127.0.0.1"), Probes: probe.FFprobe(""), Timelines: direct{},
 		}
 		out := run(t.Context(), cfg, attempt.Attempt{Program: program, Read: sourceReadPlan(t, program, 30*time.Second)})
 		if out.Err == nil {
@@ -139,5 +145,47 @@ func TestEveryAttemptOwnsAFreshWorkDirectoryAndLeavesNoneBehind(t *testing.T) {
 		if _, err := os.Stat(dir); !os.IsNotExist(err) {
 			t.Errorf("the abandoned attempt's directory %s is still on disk (%v)", dir, err)
 		}
+	}
+}
+
+// TestABufferCopiedWholeIsServedAsItIs: an encoder that would change nothing is not run, so the film is on disk once.
+func TestABufferCopiedWholeIsServedAsItIs(t *testing.T) {
+	ffmpegPath, ffprobePath := requireFFmpegTools(t)
+	origin := serveFixture(t, ffmpegPath)
+
+	dev := &fakeDevice{caps: dlnaLike(), drain: true}
+	cfg := castConfig(pushOnly(), ffmpegPath, ffprobePath)
+	cfg.Renderer = renderer(pushOnly(), dev)
+	cfg.Addresses = fixedAddress("127.0.0.1")
+	program := programFromStream(t, origin.stream())
+	c := &cast{cfg: cfg, attempt: attempt.Attempt{Try: 1, Program: program, Read: sourceReadPlan(t, program, testReadDeadline)}}
+	c.stop = sync.OnceValue(c.teardown)
+	t.Cleanup(func() { _ = c.stop() })
+
+	ctx, cancel := context.WithTimeout(t.Context(), castTimeout)
+	defer cancel()
+	if err := c.play(ctx); err != nil {
+		t.Fatalf("casting a program the renderer takes as it is: %v", err)
+	}
+
+	if c.proc != nil {
+		t.Errorf("a second ffmpeg ran to rewrite a buffer it copies whole: %q", c.proc.Evidence().Lines)
+	}
+	entries, err := os.ReadDir(c.workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != filepath.Base(c.spool.Path()) {
+		t.Errorf("the work directory holds %v, want the read's buffer alone", entries)
+	}
+	spooled, err := os.ReadFile(c.spool.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(spooled) == 0 || !bytes.Equal(dev.served, spooled) {
+		t.Errorf("the renderer was served %d bytes, want exactly the %d the read buffered", len(dev.served), len(spooled))
+	}
+	if copied := c.outcome(ctx, nil).Evidence.Copied; !copied.Video || !copied.Audio {
+		t.Errorf("the outcome says the read copied %s, want both halves", copied)
 	}
 }

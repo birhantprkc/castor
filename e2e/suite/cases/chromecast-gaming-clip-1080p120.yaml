@@ -1,0 +1,11 @@
+# A 1080p120 gaming clip is H.264 level 5.1, past the 4.2 a Chromecast decodes, so castor serves it rather than handing it over.
+stream:
+  packaging: file-mp4
+  video: {codec: h264, height: 1080}
+  audio: {codec: aac, channels: 2}
+  quirks:
+    frame-rate: 120
+receiver:
+  device: chromecast
+expect:
+  delivery: served

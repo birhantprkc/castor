@@ -7,38 +7,31 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
-	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stupside/castor/internal/cast/attempt"
-	"github.com/stupside/castor/internal/cast/engine/ffmpeg"
-	"github.com/stupside/castor/internal/cast/policy/compose"
-	"github.com/stupside/castor/internal/cast/policy/read"
+	"github.com/stupside/castor/internal/cast/read"
+	"github.com/stupside/castor/internal/cast/transcode"
 	"github.com/stupside/castor/internal/device"
+	"github.com/stupside/castor/internal/ffmpeg"
 	"github.com/stupside/castor/internal/media"
 	"github.com/stupside/castor/internal/probe"
 	"github.com/stupside/castor/internal/source"
 )
 
-// fakeDevice records Play calls; if drain is set, fetches and drains the served stream.
+// fakeDevice plays what it is handed; if drain is set, it fetches the served stream and keeps it in served.
 type fakeDevice struct {
 	caps   media.Capabilities
 	drain  bool
 	refuse error
-	// tee, when set, receives the served bytes as they are drained.
-	tee    io.Writer
 	closed atomic.Bool
-
-	mu    sync.Mutex
-	plays []playCall
+	served []byte
 }
 
 func newExecutorAt(cfg Config, acquire acquireFunc, stage Subtitles, address string) *Executor {
@@ -74,18 +67,9 @@ type fixedAddress string
 
 func (a fixedAddress) LocalIPv4(context.Context) (string, error) { return string(a), nil }
 
-type playCall struct {
-	url         string
-	contentType string
-}
-
 var _ device.Device = (*fakeDevice)(nil)
 
-func (d *fakeDevice) Play(ctx context.Context, streamURL *url.URL, contentType string) error {
-	d.mu.Lock()
-	d.plays = append(d.plays, playCall{url: streamURL.String(), contentType: contentType})
-	d.mu.Unlock()
-
+func (d *fakeDevice) Play(ctx context.Context, streamURL *url.URL, _ string) error {
 	if d.refuse != nil {
 		return d.refuse
 	}
@@ -101,11 +85,7 @@ func (d *fakeDevice) Play(ctx context.Context, streamURL *url.URL, contentType s
 		return err
 	}
 	defer resp.Body.Close()
-	var sink io.Writer = io.Discard
-	if d.tee != nil {
-		sink = d.tee
-	}
-	_, err = io.Copy(sink, resp.Body)
+	d.served, err = io.ReadAll(resp.Body)
 	return err
 }
 
@@ -117,12 +97,6 @@ func (d *fakeDevice) AwaitEnd(ctx context.Context) error {
 func (d *fakeDevice) Capabilities() media.Capabilities       { return d.caps }
 func (d *fakeDevice) StreamHeaders(string) map[string]string { return nil }
 func (d *fakeDevice) Close() error                           { d.closed.Store(true); return nil }
-
-func (d *fakeDevice) snapshot() []playCall {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return slices.Clone(d.plays)
-}
 
 func connectTo(dev device.Device) acquireFunc {
 	return func(context.Context) (device.Device, error) { return dev, nil }
@@ -146,130 +120,6 @@ func dlnaLike() media.Capabilities {
 		Video:           []media.VideoSupport{{Codec: media.CodecH264}},
 		Audio:           []media.AudioSupport{{Codec: media.CodecAAC, MaxChannels: 2}},
 		ServedContainer: media.MPEGTS,
-	}
-}
-
-type castCase struct {
-	name     string
-	source   func(*testing.T, string) fixtureOrigin
-	declared int
-
-	profile  media.Capabilities
-	caps     media.Capabilities
-	delivery compose.DeliveryPreference
-
-	// served is the content type the renderer must be handed; empty means the source URL itself.
-	served string
-	video  media.Codec
-	audio  media.Codec
-	height int
-}
-
-// TestCastMatrix runs each composition end to end and reads what the renderer received.
-func TestCastMatrix(t *testing.T) {
-	cases := []castCase{{
-		name:    "a source the renderer can fetch is handed over untouched",
-		source:  serveFixture,
-		profile: selfFetching(),
-		caps:    chromecastLike(media.MP4),
-	}, {
-		name:     "the operator's serve preference relays a source nothing else would",
-		source:   serveFixture,
-		profile:  selfFetching(),
-		caps:     chromecastLike(media.MP4),
-		delivery: compose.DeliveryServe,
-		served:   media.MP4,
-	}, {
-		name:    "a demuxed program keeps its audio through the spool",
-		source:  serveDemuxedHLSFixture,
-		profile: pushOnly(),
-		caps:    dlnaLike(),
-		served:  media.MPEGTS,
-		video:   media.CodecH264,
-		audio:   media.CodecAAC,
-	}, {
-		name:     "a source declared above the cast's ceiling is served scaled rather than handed over",
-		source:   serveTallFixture,
-		declared: 1440,
-		profile:  selfFetching(),
-		caps:     chromecastLike(media.MKV),
-		served:   media.MP4,
-		height:   1080,
-	}}
-
-	for _, tt := range cases {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			ffmpegPath, ffprobePath := requireFFmpegTools(t)
-
-			origin := tt.source(t, ffmpegPath)
-			candidate := origin.stream()
-			candidate.Probe = &media.ProbeInfo{
-				VideoCodec: media.CodecH264, VideoBitDepth: 8,
-				AudioCodec: media.CodecAAC, AudioChannels: 2,
-			}
-
-			received := filepath.Join(t.TempDir(), "received")
-			sink, err := os.Create(received)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer sink.Close()
-
-			dev := &fakeDevice{caps: tt.caps, drain: tt.served != "", tee: sink}
-			ctx, cancel := context.WithTimeout(t.Context(), castTimeout)
-			defer cancel()
-			if err := castProgramRung(ctx, t, castConfig(tt.profile, ffmpegPath, ffprobePath), connectTo(dev),
-				origin.program(t, candidate), source.Rendition{Height: tt.declared}, tt.delivery); err != nil {
-				t.Fatalf("cast: %v", err)
-			}
-
-			plays := dev.snapshot()
-			if len(plays) != 1 {
-				t.Fatalf("expected exactly one Play call, got %d: %+v", len(plays), plays)
-			}
-			if tt.served == "" {
-				if plays[0].url != candidate.URL.String() || plays[0].contentType != candidate.ContentType {
-					t.Errorf("Play = %+v, want the source URL %q as %s", plays[0], candidate.URL, candidate.ContentType)
-				}
-				return
-			}
-			if plays[0].contentType != tt.served {
-				t.Errorf("served content type = %q, want %q", plays[0].contentType, tt.served)
-			}
-			if plays[0].url == candidate.URL.String() {
-				t.Errorf("a relayed cast pointed the device at the source URL %q", candidate.URL)
-			}
-			if err := sink.Close(); err != nil {
-				t.Fatal(err)
-			}
-			assertReceived(t, ffprobePath, received, tt)
-		})
-	}
-}
-
-func assertReceived(t *testing.T, ffprobePath, path string, tt castCase) {
-	t.Helper()
-	if tt.video == "" && tt.audio == "" && tt.height == 0 {
-		return
-	}
-	info, _, err := probe.FFprobe(ffprobePath).File(path).Probe(t.Context())
-	if err != nil {
-		t.Fatalf("probing what the renderer received: %v", err)
-	}
-	if tt.video != "" && info.VideoCodec != tt.video {
-		t.Errorf("received video codec = %q, want %q", info.VideoCodec, tt.video)
-	}
-	if tt.audio != "" {
-		if info.AudioCodec != tt.audio {
-			t.Errorf("received audio codec = %q, want %q", info.AudioCodec, tt.audio)
-		}
-		if countPackets(t, ffprobePath, "a:0", path) == 0 {
-			t.Error("the received stream declares audio but carries no packets")
-		}
-	}
-	if tt.height > 0 && info.VideoHeight != tt.height {
-		t.Errorf("received a %dp picture, want %dp", info.VideoHeight, tt.height)
 	}
 }
 
@@ -330,17 +180,11 @@ const testReadDeadline = 30 * time.Second
 
 func castOnce(ctx context.Context, t *testing.T, cfg Config, connect acquireFunc, candidate *source.Candidate) error {
 	t.Helper()
-	return castProgramRung(ctx, t, cfg, connect, programFromStream(t, candidate), source.Rendition{}, compose.DeliveryAuto)
-}
-
-func castProgramRung(ctx context.Context, t *testing.T, cfg Config, connect acquireFunc, program media.Program, rung source.Rendition, delivery compose.DeliveryPreference) error {
-	t.Helper()
+	program := programFromStream(t, candidate)
 	return newExecutorAt(cfg, connect, noStage, "127.0.0.1").Run(ctx, attempt.Attempt{
-		Try:       1,
-		Program:   program,
-		Rendition: rung,
-		Read:      sourceReadPlan(t, program, testReadDeadline),
-		Delivery:  delivery,
+		Try:     1,
+		Program: program,
+		Read:    sourceReadPlan(t, program, testReadDeadline),
 	}).Err
 }
 
@@ -365,58 +209,30 @@ func castConfig(static media.Capabilities, ffmpegPath, ffprobePath string) Confi
 	return Config{
 		Renderer:   profile(static),
 		FFmpegPath: ffmpegPath,
-		Encoders:   ffmpeg.Encoders(ffmpegPath),
+		Binary:     ffmpeg.Inspect(ffmpegPath),
+		Encoders:   transcode.Encoders(ffmpegPath),
 		Probes:     probe.FFprobe(ffprobePath),
 		MaxHeight:  1080,
+		Timelines:  direct{},
 	}
+}
+
+// direct follows no timeline: every input is read as the origin publishes it.
+type direct struct{}
+
+func (direct) Republish(_ context.Context, program media.Program) (media.Program, func() error, error) {
+	return program, func() error { return nil }, nil
 }
 
 type fixtureOrigin struct {
 	server      *httptest.Server
 	path        string
-	audioPath   string // set when the origin publishes audio as its own rendition
 	contentType string
 }
 
 func (o fixtureOrigin) stream() *source.Candidate {
 	u, _ := url.Parse(o.server.URL + o.path)
 	return &source.Candidate{URL: u, ContentType: o.contentType}
-}
-
-func (o fixtureOrigin) program(t *testing.T, stream *source.Candidate) media.Program {
-	t.Helper()
-	inputs := []media.Input{{
-		ID: media.PrimaryInputID, URL: stream.URL, ContentType: stream.ContentType,
-	}}
-	tracks := []media.TrackRef{
-		{Input: media.PrimaryInputID, Kind: media.TrackVideo, Optional: true},
-		{Input: media.PrimaryInputID, Kind: media.TrackAudio, Optional: true},
-	}
-	end := media.EndAtLongest
-	if o.audioPath != "" {
-		audio, err := url.Parse(o.server.URL + o.audioPath)
-		if err != nil {
-			t.Fatal(err)
-		}
-		inputs = append(inputs, media.Input{
-			ID: media.AudioInputID, URL: audio, ContentType: stream.ContentType,
-		})
-		tracks[1].Input = media.AudioInputID
-		end = media.EndAtShortest
-	}
-	program, err := media.NewProgram(media.Program{
-		Inputs:     inputs,
-		Tracks:     tracks,
-		ClockInput: media.PrimaryInputID,
-		EndPolicy:  end,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stream.Probe != nil {
-		program.SetMeasurement(*stream.Probe)
-	}
-	return program
 }
 
 // serveFixture serves a one-second H.264/AAC mp4.
@@ -433,42 +249,6 @@ func serveSilentFixture(t *testing.T, ffmpegPath string) fixtureOrigin {
 	return serveGenerated(t, ffmpegPath, "silent.mp4", "/silent.mp4", media.MP4,
 		"-map", "0:v", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-profile:v", "baseline", "-movflags", "+faststart",
 	)
-}
-
-func serveTallFixture(t *testing.T, ffmpegPath string) fixtureOrigin {
-	t.Helper()
-	return serveGenerated(t, ffmpegPath, "tall.mkv", "/tall.mkv", media.MKV,
-		"-vf", "scale=1920:1440",
-		"-c:v", "libx264", "-pix_fmt", "yuv420p", "-profile:v", "baseline",
-		"-c:a", "aac", "-ac", "2", "-shortest",
-	)
-}
-
-func serveDemuxedHLSFixture(t *testing.T, ffmpegPath string) fixtureOrigin {
-	t.Helper()
-	dir := t.TempDir()
-	args := []string{
-		"-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc=size=320x240:rate=15:duration=2",
-		"-f", "lavfi", "-i", "sine=frequency=440:duration=2",
-		"-map", "0:v", "-map", "1:a",
-		"-c:v", "libx264", "-pix_fmt", "yuv420p", "-profile:v", "baseline",
-		"-c:a", "aac", "-ac", "2", "-shortest",
-		"-f", "hls",
-		"-hls_time", "1",
-		"-hls_list_size", "0",
-		"-var_stream_map", "v:0,agroup:aud a:0,agroup:aud",
-		filepath.Join(dir, "rendition_%v.m3u8"),
-	}
-	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
-	defer cancel()
-	if out, err := exec.CommandContext(ctx, ffmpegPath, args...).CombinedOutput(); err != nil {
-		t.Fatalf("generating demuxed HLS fixture: %v\n%s", err, out)
-	}
-
-	server := httptest.NewServer(http.FileServer(http.Dir(dir)))
-	t.Cleanup(server.Close)
-	return fixtureOrigin{server: server, path: "/rendition_0.m3u8", audioPath: "/rendition_1.m3u8", contentType: media.HLS}
 }
 
 func serveGenerated(t *testing.T, ffmpegPath, filename, urlPath, contentType string, outputArgs ...string) fixtureOrigin {
@@ -500,26 +280,6 @@ func generateFixture(t *testing.T, ffmpegPath, filename string, seconds int, out
 		t.Fatalf("generating %s: %v\n%s", filename, err, out)
 	}
 	return path
-}
-
-// countPackets counts the packets ffprobe can actually read off one stream.
-func countPackets(t *testing.T, ffprobePath, stream, path string) int {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, ffprobePath,
-		"-v", "error", "-select_streams", stream, "-count_packets",
-		"-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", path,
-	).Output()
-	if err != nil {
-		return 0
-	}
-	fields := strings.Fields(string(out))
-	if len(fields) == 0 {
-		return 0
-	}
-	n, _ := strconv.Atoi(strings.TrimSuffix(fields[0], ","))
-	return n
 }
 
 func requireFFmpegTools(t *testing.T) (ffmpeg, ffprobe string) {

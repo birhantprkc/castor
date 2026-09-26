@@ -1,3 +1,4 @@
+// Package roku casts to Roku players through a channel castor installs.
 package roku
 
 import (
@@ -36,7 +37,7 @@ type Config struct {
 }
 
 type rokuDevice struct {
-	ecp   *url.URL // http://<ip>:8060
+	ecp   *url.URL
 	appID string
 	name  string
 	hc    *http.Client

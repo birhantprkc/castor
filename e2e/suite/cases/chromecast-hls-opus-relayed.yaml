@@ -1,0 +1,10 @@
+# Opus audio is outside a Chromecast's envelope: castor re-encodes the sound and copies the picture.
+stream:
+  packaging: hls-fmp4
+  video: {codec: h264, height: 360}
+  audio: {codec: opus, channels: 2}
+receiver:
+  device: chromecast
+expect:
+  delivery: served
+  video: copied

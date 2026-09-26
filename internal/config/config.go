@@ -1,27 +1,31 @@
+// Package config is the composition root: the operator's settings, and every adapter and strategy bound to them.
 package config
 
 import (
 	"context"
+	"net/url"
 	"time"
 
 	"github.com/stupside/castor/internal/browse/tmdb"
 	"github.com/stupside/castor/internal/cast"
-	"github.com/stupside/castor/internal/cast/engine/ffmpeg"
+	"github.com/stupside/castor/internal/cast/compose"
 	"github.com/stupside/castor/internal/cast/execute"
-	"github.com/stupside/castor/internal/cast/policy/compose"
+	"github.com/stupside/castor/internal/cast/netaddr"
+	"github.com/stupside/castor/internal/cast/transcode"
 	"github.com/stupside/castor/internal/catalog"
 	"github.com/stupside/castor/internal/device"
 	"github.com/stupside/castor/internal/device/chromecast"
 	"github.com/stupside/castor/internal/device/dlna"
 	"github.com/stupside/castor/internal/device/roku"
+	"github.com/stupside/castor/internal/extract"
+	"github.com/stupside/castor/internal/ffmpeg"
 	"github.com/stupside/castor/internal/media"
-	"github.com/stupside/castor/internal/netaddr"
 	"github.com/stupside/castor/internal/probe"
 	"github.com/stupside/castor/internal/source"
 	"github.com/stupside/castor/internal/source/dash"
-	"github.com/stupside/castor/internal/source/extract"
+	"github.com/stupside/castor/internal/source/follow"
 	"github.com/stupside/castor/internal/source/hls"
-	"github.com/stupside/castor/internal/source/web"
+	"github.com/stupside/castor/internal/source/rank"
 	"github.com/stupside/castor/internal/subtitle"
 )
 
@@ -37,9 +41,10 @@ type Config struct {
 	Whisper   subtitle.Whisper      `yaml:"whisper"`
 	TMDB      TMDB                  `yaml:"tmdb"`
 
-	// source is THE source resolver for this process, memoised (see defaults), and ranker THE ranker.
+	// client is THE origin session for this process, memoised (see defaults), so resolution and following share its cookies.
+	client func() source.Client
 	source func() *source.Resolver
-	ranker func() *source.Ranker
+	ranker func() *rank.Ranker
 }
 
 // TMDB holds settings for the TMDB browse subcommand.
@@ -90,12 +95,15 @@ func (c *Config) Playback(target device.Info, subs execute.Subtitles) cast.Confi
 		ReadDeadline: c.Transcode.RWTimeout,
 		Execute: execute.Config{
 			FFmpegPath: c.Transcode.FFmpegPath,
-			Encoders:   ffmpeg.Encoders(c.Transcode.FFmpegPath),
+			Binary:     ffmpeg.Inspect(c.Transcode.FFmpegPath),
+			Encoders:   transcode.Encoders(c.Transcode.FFmpegPath),
 			Probes:     probe.FFprobe(c.Resolver.FFprobePath),
 			Renderer:   configured{families: c.Devices(), target: target, timeout: c.Network.Timeout},
 			Addresses:  netaddr.Local{Interface: c.Network.Interface},
 			Subtitles:  subs,
 			MaxHeight:  c.Resolver.MaxHeight,
+			// Half the read deadline: a reload castor answers late would end ffmpeg's read like no answer.
+			Timelines: follow.New(c.client(), Formats, c.Transcode.RWTimeout/2, ffmpeg.Repackager(c.Transcode.FFmpegPath)),
 		},
 	}
 }
@@ -119,11 +127,11 @@ type NetworkConfig struct {
 }
 
 // Ranker is the one ranker this process uses, built on first call and shared by every caller after.
-func (c *Config) Ranker() *source.Ranker { return c.ranker() }
+func (c *Config) Ranker() *rank.Ranker { return c.ranker() }
 
 // ResolverConfig is the resolver section: what source reads, plus the adapters this root binds for it.
 type ResolverConfig struct {
-	source.Config `yaml:",inline"`
+	rank.Config `yaml:",inline"`
 
 	// PlaylistTimeout bounds each HLS or DASH document fetch.
 	PlaylistTimeout time.Duration `yaml:"playlist_timeout" validate:"required"`
@@ -132,15 +140,20 @@ type ResolverConfig struct {
 }
 
 func (c *Config) newResolver() *source.Resolver {
-	return source.NewResolver(c.Resolver.Config, web.Playlists(c.Resolver.PlaylistTimeout), Formats)
+	return source.NewResolver(c.client(), c.Resolver.MaxHeight, Formats)
+}
+
+// Identify names what a typed link carries, reading its body when its name says nothing.
+func (c *Config) Identify(ctx context.Context, u *url.URL) string {
+	return c.source().Identify(ctx, u, nil)
 }
 
 // newRanker binds ranking to the same measurement resolution identifies a source with.
-func (c *Config) newRanker() *source.Ranker {
-	return source.NewRanker(c.Resolver.Config, c.probes())
+func (c *Config) newRanker() *rank.Ranker {
+	return rank.New(c.Resolver.Config, c.probes())
 }
 
-func (c *Config) probes() source.Probes {
+func (c *Config) probes() rank.Probes {
 	return probe.Candidate(c.Resolver.FFprobePath, c.Resolver.ProbeTimeout)
 }
 
@@ -153,5 +166,5 @@ func (c *Config) Extractor() *extract.Extractor {
 	})
 }
 
-// Catalog is the TMDB client the interactive browser searches.
-func (c *Config) Catalog() *tmdb.Client { return tmdb.New(c.TMDB.APIKey) }
+// TMDBClient is the client the interactive browser searches.
+func (c *Config) TMDBClient() *tmdb.Client { return tmdb.New(c.TMDB.APIKey) }

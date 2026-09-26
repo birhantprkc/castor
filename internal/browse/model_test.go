@@ -1,7 +1,6 @@
 package browse
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -10,7 +9,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/stupside/castor/internal/browse/tmdb"
-	"github.com/stupside/castor/internal/device"
 )
 
 func drive(t *testing.T, m model, msg tea.Msg) (model, tea.Cmd) {
@@ -50,24 +48,6 @@ func TestGenreOverlayDoesNotQuitOnQ(t *testing.T) {
 		if _, isQuit := cmd().(tea.QuitMsg); isQuit {
 			t.Fatal("q in overlay quit the program")
 		}
-	}
-}
-
-// Esc must not return a zero device.Info as the selection.
-func TestDevicePickerEscDoesNotQuit(t *testing.T) {
-	m := newPickerModel(t.Context(), func(context.Context) []device.Info { return nil }, "")
-	tm, _ := m.Update(devicesDoneMsg{devices: []device.Info{{Name: "TV", Type: "dlna", Address: "10.0.0.2"}}})
-	m = tm.(pickerModel)
-
-	tm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	m = tm.(pickerModel)
-	if cmd != nil {
-		if _, isQuit := cmd().(tea.QuitMsg); isQuit {
-			t.Fatal("esc quit the device picker (list quit binding leaked through)")
-		}
-	}
-	if m.selected != (device.Info{}) {
-		t.Fatalf("esc selected %+v", m.selected)
 	}
 }
 

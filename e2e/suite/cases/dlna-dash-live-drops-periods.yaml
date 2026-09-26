@@ -1,0 +1,18 @@
+# A live DASH presentation stitched into Periods drops each one from the MPD once it expires: nothing already played is played again, and nothing new is missed.
+stream:
+  packaging: dash
+  video: {codec: h264, height: 360}
+  audio: {codec: aac, channels: 2, carriage: separate}
+  seconds: 16
+origin:
+  dash-live: {start: 4, every: 1s, window: 3}
+  periods: [4, 6, 6]
+receiver:
+  device:
+    dlna:
+      sink: "http-get:*:video/mp2t:DLNA.ORG_PN=AVC_TS_HD_NA_ISO,http-get:*:audio/mp4:DLNA.ORG_PN=AAC_ISO"
+      decodes:
+        video: {h264: 8}
+        audio: {aac: 2}
+expect:
+  delivery: served

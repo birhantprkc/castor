@@ -12,9 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stupside/castor/internal/cast/engine/deliver"
-	"github.com/stupside/castor/internal/cast/policy/watch"
-	"github.com/stupside/castor/internal/container"
+	"github.com/stupside/castor/internal/cast/container"
+	"github.com/stupside/castor/internal/cast/deliver"
+	"github.com/stupside/castor/internal/cast/transcode"
+	"github.com/stupside/castor/internal/cast/watch"
 	"github.com/stupside/castor/internal/media"
 )
 
@@ -26,20 +27,22 @@ func made() media.Progress {
 	return media.Progress{Bytes: madeBytes, Position: 10 * time.Second}
 }
 
-// This file is the Sink port's specification, and every mechanism is judged by it.
+// This file is the sink port's specification, and every mechanism is judged by it.
 
 type mechanism struct {
 	name string
 	// open builds the mechanism over a producer the case controls, and returns that producer.
-	open func(t *testing.T) (sink Sink, producer *io.PipeWriter)
+	open func(t *testing.T) (sink sink, producer *io.PipeWriter)
 	// judged states whether this mechanism can be judged while it runs.
 	judged bool
+	// reads states whether the mechanism reads the producer itself, rather than serving what another writes.
+	reads bool
 	// media is where the program's bytes are fetched, relative to URL.
 	media string
 }
 
 // opened builds a sink the way a cast does, for the format named.
-func opened(t *testing.T, contentType string) (Sink, *io.PipeWriter) {
+func opened(t *testing.T, contentType string) (sink, *io.PipeWriter) {
 	t.Helper()
 	format, ok := container.FormatForContentType(contentType)
 	if !ok {
@@ -67,16 +70,44 @@ func opened(t *testing.T, contentType string) (Sink, *io.PipeWriter) {
 	return sink, pw
 }
 
-// mechanisms is every implementation of Sink. A new delivery is a row here.
+// relayed builds the sink a cast serves its read's own spool through, the producer writing that spool as a read does.
+func relayed(t *testing.T) (sink, *io.PipeWriter) {
+	t.Helper()
+	sp, err := deliver.NewSpool(filepath.Join(t.TempDir(), "spool"+transcode.SpoolFormat.Extension))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pr, pw := io.Pipe()
+	drained := make(chan struct{})
+	go func() {
+		defer close(drained)
+		_, err := io.Copy(sp, pr)
+		sp.CloseWrite(err)
+	}()
+	t.Cleanup(func() { _ = pw.Close(); <-drained })
+	sink, err := spoolSink(deliver.Opening{
+		Format:        transcode.SpoolFormat,
+		LocalIP:       "127.0.0.1",
+		IdleGrace:     50 * time.Millisecond,
+		WriteDeadline: 300 * time.Millisecond,
+	}, sp, drained, made)
+	if err != nil {
+		t.Fatalf("serving the spool: %v", err)
+	}
+	return sink, pw
+}
+
+// mechanisms is every implementation of sink. A new delivery is a row here.
 func mechanisms() []mechanism {
 	return []mechanism{
-		{name: "streamed", judged: true, open: func(t *testing.T) (Sink, *io.PipeWriter) { return opened(t, media.MP4) }},
-		{name: "segmented", judged: false, media: fmt.Sprintf(container.HLSSegmentPattern, 0), open: func(t *testing.T) (Sink, *io.PipeWriter) { return opened(t, media.HLS) }},
+		{name: "streamed", judged: true, reads: true, open: func(t *testing.T) (sink, *io.PipeWriter) { return opened(t, media.MP4) }},
+		{name: "segmented", judged: false, reads: true, media: fmt.Sprintf(container.HLSSegmentPattern, 0), open: func(t *testing.T) (sink, *io.PipeWriter) { return opened(t, media.HLS) }},
+		{name: "relayed", judged: true, open: relayed},
 	}
 }
 
 // each runs one case per mechanism over a fresh sink and its producer.
-func each(t *testing.T, check func(t *testing.T, m mechanism, sink Sink, producer *io.PipeWriter)) {
+func each(t *testing.T, check func(t *testing.T, m mechanism, sink sink, producer *io.PipeWriter)) {
 	for _, m := range mechanisms() {
 		t.Run(m.name, func(t *testing.T) {
 			sink, producer := m.open(t)
@@ -101,7 +132,7 @@ func get(t *testing.T, u *url.URL) *http.Response {
 }
 
 func TestEveryMechanismAnswersAtItsURLAndSaysWhetherItIsJudgedInFlight(t *testing.T) {
-	each(t, func(t *testing.T, m mechanism, sink Sink, _ *io.PipeWriter) {
+	each(t, func(t *testing.T, m mechanism, sink sink, _ *io.PipeWriter) {
 		u := sink.URL()
 		if u == nil || !u.IsAbs() {
 			t.Fatalf("URL %v is not an absolute address to point a renderer at", u)
@@ -116,14 +147,14 @@ func TestEveryMechanismAnswersAtItsURLAndSaysWhetherItIsJudgedInFlight(t *testin
 }
 
 func TestEveryMechanismSettlesOnlyWhatTheRendererTook(t *testing.T) {
-	each(t, func(t *testing.T, _ mechanism, sink Sink, producer *io.PipeWriter) {
+	each(t, func(t *testing.T, _ mechanism, sink sink, producer *io.PipeWriter) {
 		_ = producer.Close()
 		<-sink.Drained()
 		if _, ok := errors.AsType[*watch.Undelivered](sink.Settled()); !ok {
 			t.Errorf("nobody fetched a delivery and Settled = %v, want *watch.Undelivered", sink.Settled())
 		}
 	})
-	each(t, func(t *testing.T, m mechanism, sink Sink, producer *io.PipeWriter) {
+	each(t, func(t *testing.T, m mechanism, sink sink, producer *io.PipeWriter) {
 		go func() {
 			_, _ = producer.Write(make([]byte, madeBytes))
 			_ = producer.Close()
@@ -137,7 +168,7 @@ func TestEveryMechanismSettlesOnlyWhatTheRendererTook(t *testing.T) {
 }
 
 func TestEveryMechanismSaysWhenItHasReadTheProducerOut(t *testing.T) {
-	each(t, func(t *testing.T, _ mechanism, sink Sink, producer *io.PipeWriter) {
+	each(t, func(t *testing.T, _ mechanism, sink sink, producer *io.PipeWriter) {
 		select {
 		case <-sink.Drained():
 			t.Fatal("Drained is closed while the producer is still running")
@@ -154,7 +185,10 @@ func TestEveryMechanismSaysWhenItHasReadTheProducerOut(t *testing.T) {
 
 // TestEveryMechanismFinishesReadingBeforeCloseReturns: teardown reaps the producer and removes its directory next.
 func TestEveryMechanismFinishesReadingBeforeCloseReturns(t *testing.T) {
-	each(t, func(t *testing.T, _ mechanism, sink Sink, producer *io.PipeWriter) {
+	each(t, func(t *testing.T, m mechanism, sink sink, producer *io.PipeWriter) {
+		if !m.reads {
+			t.Skip("another writes this spool, and teardown stops that writer only after Close")
+		}
 		_ = producer.Close()
 		_ = sink.Close()
 		select {
@@ -165,8 +199,29 @@ func TestEveryMechanismFinishesReadingBeforeCloseReturns(t *testing.T) {
 	})
 }
 
+// TestAMechanismServingAnotherWritersSpoolClosesWhileThatWriterRuns: teardown closes the sink before it cancels the read.
+func TestAMechanismServingAnotherWritersSpoolClosesWhileThatWriterRuns(t *testing.T) {
+	each(t, func(t *testing.T, m mechanism, sink sink, _ *io.PipeWriter) {
+		if m.reads {
+			t.Skip("this mechanism reads its producer itself, so Close waits for that read")
+		}
+		closed := make(chan error, 1)
+		go func() { closed <- sink.Close() }()
+		select {
+		case <-closed:
+		case <-time.After(5 * time.Second):
+			t.Fatal("Close waited on a writer it does not own")
+		}
+		select {
+		case <-sink.Drained():
+			t.Error("Drained closed though the writer is still running")
+		default:
+		}
+	})
+}
+
 func TestEveryMechanismStopsWhenTheCallerDoes(t *testing.T) {
-	each(t, func(t *testing.T, _ mechanism, sink Sink, _ *io.PipeWriter) {
+	each(t, func(t *testing.T, _ mechanism, sink sink, _ *io.PipeWriter) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 		done := make(chan error, 1)

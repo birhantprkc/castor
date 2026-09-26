@@ -1,0 +1,20 @@
+# A CODECS-less master whose only rung under max_height is the audio-only one: castor must scale a video rung down, never cast sound alone.
+stream:
+  packaging: hls-ts
+  video: {codec: h264, ladder: [480, 720]}
+  audio: {codec: aac, channels: 2, carriage: separate}
+origin:
+  rewrites-master: {omit: [codecs]}
+receiver:
+  device:
+    dlna:
+      sink: "http-get:*:video/mp2t:DLNA.ORG_PN=AVC_TS_HD_NA_ISO,http-get:*:audio/mp4:DLNA.ORG_PN=AAC_ISO"
+      decodes:
+        video: {h264: 8}
+        audio: {aac: 2}
+castor:
+  resolver:
+    max_height: 360
+expect:
+  delivery: served
+  video: encoded

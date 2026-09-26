@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stupside/castor/internal/cast/policy/watch"
+	"github.com/stupside/castor/internal/cast/watch"
 )
 
 func TestTheCastIsReportedUnderThePartyThatFailed(t *testing.T) {

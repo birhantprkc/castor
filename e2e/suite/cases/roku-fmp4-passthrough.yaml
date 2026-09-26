@@ -1,0 +1,10 @@
+# An fMP4 HLS source the Roku channel plays is handed over through ECP launch.
+stream:
+  packaging: hls-fmp4
+  video: {codec: h264, height: 360}
+  audio: {codec: aac, channels: 2}
+receiver:
+  device: roku
+expect:
+  delivery: passthrough
+  video: copied

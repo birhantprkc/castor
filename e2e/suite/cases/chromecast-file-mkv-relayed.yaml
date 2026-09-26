@@ -1,0 +1,10 @@
+# Matroska is no container a Chromecast takes, so castor remuxes it to MP4 without touching the picture.
+stream:
+  packaging: file-mkv
+  video: {codec: h264, height: 360}
+  audio: {codec: aac, channels: 2}
+receiver:
+  device: chromecast
+expect:
+  delivery: served
+  video: copied

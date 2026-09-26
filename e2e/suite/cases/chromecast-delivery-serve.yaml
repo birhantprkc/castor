@@ -1,0 +1,13 @@
+# delivery: serve makes castor relay a source the Chromecast could have fetched itself.
+stream:
+  packaging: hls-ts
+  video: {codec: h264, height: 360}
+  audio: {codec: aac, channels: 2}
+receiver:
+  device: chromecast
+castor:
+  cast:
+    delivery: serve
+expect:
+  delivery: served
+  video: copied

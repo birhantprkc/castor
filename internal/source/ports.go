@@ -2,19 +2,21 @@ package source
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/url"
-	"path"
-	"slices"
-	"strings"
 
 	"github.com/stupside/castor/internal/media"
+	"github.com/stupside/castor/internal/source/timeline"
 )
 
-type Probes func(*Candidate) media.Prober
-
-type Playlists interface {
+// Client reads an origin over HTTP: its documents, and the media they list, on the session the documents opened.
+type Client interface {
 	Fetch(ctx context.Context, u *url.URL, h http.Header) (body string, from *url.URL, status int, err error)
+	// Session is what the origin set while documents were read, which every later read of u must replay.
+	Session(u *url.URL) http.Header
+	// Read opens media bytes, within r when it has a length, on the same session; a status the origin answered comes as a timeline.Failure.
+	Read(ctx context.Context, u *url.URL, h http.Header, r timeline.Range) (io.ReadCloser, error)
 }
 
 type Format interface {
@@ -27,7 +29,10 @@ type Format interface {
 	Resolve(ctx context.Context, env Env, s Subject) (Resolution, error)
 
 	// Recognize reads a body in this format's grammar; LadderUnknown means it is not this format.
-	Recognize(body string) (Ladder, []string)
+	Recognize(body string) Reading
+
+	// Timeline follows an input whose timeline castor keeps, read for the kind of track given; nil for one ffmpeg reads directly.
+	Timeline(env Env, in media.Input, reads media.TrackKind) timeline.Source
 }
 
 // Identity is how a link says it carries one content type: a file extension, or a server-confirmed MIME type.
@@ -38,7 +43,7 @@ type Identity struct {
 }
 
 type Env struct {
-	Playlists Playlists
+	Client    Client
 	MaxHeight media.HeightCap
 }
 
@@ -46,44 +51,4 @@ type Subject struct {
 	Stream Candidate
 	Origin Origin
 	Chosen Rendition
-}
-
-// Formats is every format castor reads, in order, first match.
-type Formats []Format
-
-func (fs Formats) claiming(c *Candidate) Format {
-	for _, f := range fs {
-		if f.Identity().ContentType == c.ContentType {
-			return f
-		}
-	}
-	return opaque{}
-}
-
-// ContentTypeOf names what a link carries: its extension first, then a confirmed MIME type, else "".
-func (fs Formats) ContentTypeOf(u *url.URL, mime string) string {
-	ids := fs.identities()
-	if u != nil {
-		ext := strings.ToLower(path.Ext(u.Path))
-		for _, id := range ids {
-			if ext != "" && slices.Contains(id.Extensions, ext) {
-				return id.ContentType
-			}
-		}
-	}
-	mime = strings.ToLower(mime)
-	for _, id := range ids {
-		if mime != "" && slices.Contains(id.MIMETypes, mime) {
-			return id.ContentType
-		}
-	}
-	return ""
-}
-
-func (fs Formats) identities() []Identity {
-	ids := make([]Identity, 0, len(fs)+len(containers))
-	for _, f := range fs {
-		ids = append(ids, f.Identity())
-	}
-	return append(ids, containers...)
 }

@@ -169,7 +169,7 @@ func clauseEnd(s string) bool {
 	return strings.ContainsRune(".?!…,;:—", r)
 }
 
-func Wrap(text string, width int) string {
+func wrap(text string, width int) string {
 	var b strings.Builder
 	lineLen := 0
 	for w := range strings.FieldsSeq(text) {

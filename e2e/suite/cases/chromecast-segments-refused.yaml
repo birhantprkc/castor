@@ -1,0 +1,11 @@
+# A Chromecast is never handed a source whose segments are refused.
+stream:
+  packaging: hls-ts
+  video: {codec: h264, height: 360}
+  audio: {codec: aac, channels: 2}
+  seconds: 20
+origin:
+  refuses-segments: {}
+receiver:
+  device: chromecast
+outcome: refused

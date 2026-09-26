@@ -1,0 +1,18 @@
+# A demuxed HLS whose audio rendition opens a second after its picture must stay aligned on PTS, not on each playlist's first sample.
+stream:
+  packaging: hls-ts
+  video: {codec: h264, height: 360}
+  audio: {codec: aac, channels: 2, carriage: separate}
+  seconds: 8
+  quirks:
+    audio-delay: 1s
+receiver:
+  device:
+    dlna:
+      sink: "http-get:*:video/mp2t:DLNA.ORG_PN=AVC_TS_HD_NA_ISO,http-get:*:audio/mp4:DLNA.ORG_PN=AAC_ISO"
+      decodes:
+        video: {h264: 8}
+        audio: {aac: 2}
+expect:
+  delivery: served
+  video: copied

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/stupside/castor/internal/cast/policy/watch"
+	"github.com/stupside/castor/internal/cast/watch"
 )
 
 // playbook maps fault kinds to retry strategies in cheapest-first order; switchCandidate is last.

@@ -1,11 +1,12 @@
 package attempt
 
 import (
+	"cmp"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/stupside/castor/internal/cast/policy/watch"
+	"github.com/stupside/castor/internal/cast/watch"
 )
 
 // Kind classifies attempt failures: two failures share a Kind exactly when the same change would answer both.
@@ -56,6 +57,7 @@ func (k Kind) String() string {
 }
 
 type classRule struct {
+	// Name is the rule's own name where it differs from its Kind's.
 	Name string
 	Why  string
 	When func(Evidence) bool
@@ -70,42 +72,42 @@ type table struct {
 // classes is the ordered classification rules for failed attempts; every discriminator is STRUCTURAL.
 var classes = table{rules: []classRule{{
 	// First, because cancellation is upstream of every symptom below; decided from context, not error text.
-	Name: "cancelled",
 	Why:  "the cast was cancelled",
 	When: func(e Evidence) bool { return e.Cancelled },
 	Kind: Cancelled,
 }, {
-	Name: "renderer-gone",
 	Why:  "the renderer stopped answering the protocol it was being watched over, so there is nothing at the far end of this cast to send anything to",
 	When: func(e Evidence) bool { return e.RendererGone != nil },
 	Kind: RendererGone,
 }, {
 	// Media landed then died is deliberately not unreachable; that would send a working cast to recovery.
-	Name: "unreachable",
-	Why:  "the source read reached a terminal error having landed no media and never stated a speed, so nothing about this link was established",
+	Why: "the source read reached a terminal error having landed no media and never stated a speed, so nothing about this link was established",
 	When: func(e Evidence) bool {
 		return e.Verdict == watch.Dead && e.Reached <= PhaseReading && e.Health.Landed == 0 && e.Health.Samples == 0
 	},
 	Kind: Unreachable,
 }, {
+	// A cold or failing edge truncates or drops segments; a second read of the same link may get them whole.
+	Name: "source-incomplete",
+	Why:  "the source read ended short of what the source declared, with segments truncated or skipped by the origin",
+	When: func(e Evidence) bool { return e.Reached <= PhaseReading && e.ReadIncomplete },
+	Kind: SourceStalled,
+}, {
 	// Keyed on READER exit status and copied axes; castor kills the reader on its own faults.
-	Name: "copy-broke-upstream",
-	Why:  "the source read exited on packets it was copying, so the bitstream it was handed cannot be passed through as it is",
+	Why: "the source read exited on packets it was copying, so the bitstream it was handed cannot be passed through as it is",
 	When: func(e Evidence) bool {
 		return e.Reached <= PhaseReading && e.ReadExit > 0 && e.Copied.Any()
 	},
 	Kind: CopyBrokeUpstream,
 }, {
 	// One change (stop asking renderer to fetch) answers all three shapes at different moments.
-	Name: "renderer-refused",
-	Why:  "the renderer would not play what it was pointed at, never came for the bytes, or stopped taking them with the program still being served",
+	Why: "the renderer would not play what it was pointed at, never came for the bytes, or stopped taking them with the program still being served",
 	When: func(e Evidence) bool {
 		return e.PlayErr != nil || e.Undelivered != nil || e.Verdict == watch.Unfetched
 	},
 	Kind: RendererRefused,
 }, {
 	// Container refuses tracks at header-write time or reader's every segment answered 404.
-	Name: "produced-nothing",
 	Why:  "the delivery ended without producing anything a renderer could fetch",
 	When: func(e Evidence) bool { return e.Verdict == watch.Dead && e.Reached == PhaseOpening },
 	Kind: ProducedNothing,
@@ -114,13 +116,11 @@ var classes = table{rules: []classRule{{
 var verdictClasses = map[watch.Kind]classRule{
 	// It already waited out two reconnect ceilings.
 	watch.Stalled: {
-		Name: "source-stalled",
 		Why:  "the source stopped delivering entirely while it was still supposed to be delivering",
 		Kind: SourceStalled,
 	},
 	// The failure this whole layer was built for; a fact about the LINK, not media.
 	watch.Undeliverable: {
-		Name: "under-delivering",
 		Why:  "the source delivers fewer media seconds per wall-clock second than playback consumes, so the cast can never catch up however long it is given",
 		Kind: UnderDelivering,
 	},
@@ -128,7 +128,6 @@ var verdictClasses = map[watch.Kind]classRule{
 
 // unclassified is the fallback row; fault still carries phase, measurements and evidence.
 var unclassified = classRule{
-	Name: "unclassified",
 	Why:  "the attempt failed in a way no rule recognises",
 	Kind: Unclassified,
 }
@@ -138,7 +137,7 @@ func classify(in Intent, a Attempt, o Outcome) *Fault {
 	return &Fault{
 		Kind:       r.Kind,
 		Why:        r.Why,
-		Rule:       r.Name,
+		Rule:       cmp.Or(r.Name, r.Kind.String()),
 		Attempt:    a,
 		Candidates: len(in.Candidates),
 		Evidence:   o.Evidence,
@@ -222,7 +221,7 @@ func (f *Fault) arithmetic() []string {
 	return terms
 }
 
-// tells quotes what the blamed party printed; never decides (see TestNoClassIsDecidedByProse).
+// tells quotes what the blamed party printed; it never decides a class.
 func tells(lines []string) []string {
 	const most = 4
 	if len(lines) > most {

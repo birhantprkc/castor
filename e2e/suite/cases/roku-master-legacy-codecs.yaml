@@ -1,0 +1,12 @@
+# A Wowza-style master states CODECS in legacy decimal form (avc1.100.22): the rung is plain H.264/AAC and should still be handed to the Roku.
+stream:
+  packaging: hls-ts
+  video: {codec: h264, ladder: [240, 360]}
+  audio: {codec: aac, channels: 2}
+origin:
+  rewrites-master: {codecs: legacy}
+receiver:
+  device: roku
+expect:
+  delivery: passthrough
+  video: copied

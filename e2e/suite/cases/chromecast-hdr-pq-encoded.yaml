@@ -1,0 +1,10 @@
+# An HDR10 source is never handed to a receiver that did not say it engages HDR: it is re-encoded, and must not stay tagged PQ.
+stream:
+  packaging: hls-fmp4
+  video: {codec: hevc, height: 360, depth: 10, transfer: pq}
+  audio: {codec: aac, channels: 2}
+receiver:
+  device: chromecast
+expect:
+  delivery: served
+  video: encoded

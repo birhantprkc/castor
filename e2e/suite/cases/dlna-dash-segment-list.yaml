@@ -1,0 +1,16 @@
+# A DASH presentation written as one file per representation, its segments listed by byte range, plays whole.
+stream:
+  packaging: dash-single-file
+  video: {codec: h264, height: 360}
+  audio: {codec: aac, channels: 2, carriage: separate}
+  seconds: 12
+receiver:
+  device:
+    dlna:
+      sink: "http-get:*:video/mp2t:DLNA.ORG_PN=AVC_TS_HD_NA_ISO,http-get:*:audio/mp4:DLNA.ORG_PN=AAC_ISO"
+      decodes:
+        video: {h264: 8}
+        audio: {aac: 2}
+expect:
+  delivery: served
+  video: copied

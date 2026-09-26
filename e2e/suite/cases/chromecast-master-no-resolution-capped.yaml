@@ -1,0 +1,14 @@
+# A master that omits RESOLUTION (CODECS kept) must still yield the tallest rung within max_height, not the richest rung nobody declared a height for.
+stream:
+  packaging: hls-ts
+  video: {codec: h264, ladder: [240, 360, 720]}
+  audio: {codec: aac, channels: 2}
+origin:
+  rewrites-master: {omit: [resolution]}
+receiver:
+  device: chromecast
+castor:
+  resolver:
+    max_height: 480
+expect:
+  video: copied

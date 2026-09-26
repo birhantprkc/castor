@@ -1,0 +1,10 @@
+# VP9 and Opus are outside a Chromecast's envelope, so both are re-encoded to what it plays.
+stream:
+  packaging: file-webm
+  video: {codec: vp9, height: 360}
+  audio: {codec: opus, channels: 2}
+receiver:
+  device: chromecast
+expect:
+  delivery: served
+  video: encoded

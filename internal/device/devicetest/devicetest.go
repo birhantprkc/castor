@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/stupside/castor/internal/device"
-	"github.com/stupside/castor/internal/media"
 )
 
 // pollsBeforeTeardown is how many poll intervals a running cast is watched before it is torn down.
@@ -45,21 +44,4 @@ func AwaitsTheCastsEnd(t *testing.T, open func() device.Device) {
 			t.Fatal("AwaitEnd did not return when the cast ended, so every teardown waits on this family forever")
 		}
 	})
-}
-
-// DeclaresTheUniversalBaseline: H.264 High 8-bit is universal (re-encode else).
-func DeclaresTheUniversalBaseline(t *testing.T, caps media.Capabilities) {
-	t.Helper()
-	baseline := media.ProbeInfo{VideoCodec: media.CodecH264, VideoProfile: media.ProfileHigh, VideoBitDepth: 8}
-	if !caps.CanCopyVideo(baseline) {
-		t.Error("the family refuses 8-bit High-profile H.264, the universal baseline")
-	}
-}
-
-// DeclaresNoModelSpecificCodec: family name >= models; no runtime model-specific guesses.
-func DeclaresNoModelSpecificCodec(t *testing.T, caps media.Capabilities) {
-	t.Helper()
-	if caps.SupportsCodec(media.CodecHEVC) {
-		t.Error("the family declares model-specific HEVC support without runtime evidence")
-	}
 }

@@ -3,8 +3,9 @@ package execute
 import (
 	"context"
 	"log/slog"
+	"time"
 
-	"github.com/stupside/castor/internal/cast/policy/read"
+	"github.com/stupside/castor/internal/cast/read"
 	"github.com/stupside/castor/internal/media"
 )
 
@@ -30,3 +31,27 @@ func measure(ctx context.Context, subject string, p media.Prober) facts {
 
 // probeBudget bounds probe time; ffmpeg HLS demuxer walks whole 403-playlist (199s seen).
 const probeBudget = read.BackoffMax / 2
+
+// startSlack is under a frame at any real rate: two inputs this close already open together.
+const startSlack = 10 * time.Millisecond
+
+// aligned offsets each input by its measured start, since ffmpeg rebases every input to zero.
+func aligned(p media.Program, starts map[media.InputID]time.Duration) media.Program {
+	clock, measured := starts[p.ClockInput]
+	if !measured || len(p.Inputs) < 2 {
+		return p
+	}
+	out := p.Clone()
+	for _, input := range p.Inputs {
+		start, ok := starts[input.ID]
+		_, declared := p.Offsets[input.ID]
+		if !ok || declared || input.ID == p.ClockInput || (start-clock).Abs() < startSlack {
+			continue
+		}
+		if out.Offsets == nil {
+			out.Offsets = map[media.InputID]time.Duration{}
+		}
+		out.Offsets[input.ID] = start - clock
+	}
+	return out
+}

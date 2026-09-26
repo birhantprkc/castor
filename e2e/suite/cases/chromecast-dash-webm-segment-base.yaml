@@ -1,0 +1,10 @@
+# A VP9 and Opus DASH presentation of one WebM file per track, each indexed by its own Cues (SegmentBase): castor reads the clusters and the Chromecast plays it.
+stream:
+  packaging: dash-webm
+  video: {codec: vp9, height: 360}
+  audio: {codec: opus, channels: 2}
+  seconds: 8
+receiver:
+  device: chromecast
+expect:
+  delivery: served

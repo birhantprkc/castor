@@ -1,0 +1,10 @@
+# From a ladder castor hands a Chromecast the richest rendition's own playlist, never the master.
+stream:
+  packaging: hls-ts
+  video: {codec: h264, ladder: [240, 360, 480]}
+  audio: {codec: aac, channels: 2}
+receiver:
+  device: chromecast
+expect:
+  delivery: passthrough
+  video: copied

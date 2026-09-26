@@ -20,8 +20,10 @@ const (
 
 // Input is one independently fetched resource (fetch requirements from origins, not URLs).
 type Input struct {
-	ID                   InputID
-	URL                  *url.URL
+	ID  InputID
+	URL *url.URL
+	// Representation is the one representation of a manifest this input reads, empty for a URL naming its media alone.
+	Representation       string
 	Headers              http.Header
 	ContentType          string
 	RequiresRelaxedInput bool
@@ -38,10 +40,16 @@ type Fetch struct {
 
 	// Live: source has no end (arrives at 1x, cannot be outrun).
 	Live bool
+
+	// Spliced: pieces encoded apart, whose parameters and timestamps restart at each seam.
+	Spliced bool
 }
 
+// Seamed is a source whose timeline may break: stitched from pieces encoded apart, or live, where any reload can splice one in.
+func (f Fetch) Seamed() bool { return f.Spliced || f.Live }
+
 func (f Fetch) String() string {
-	return fmt.Sprintf("segmented=%t framing=%s live=%t", f.Segmented, f.Framing, f.Live)
+	return fmt.Sprintf("segmented=%t framing=%s live=%t spliced=%t", f.Segmented, f.Framing, f.Live, f.Spliced)
 }
 
 // Fetching returns how this input must be fetched (content type proves segmented manifests).
@@ -123,7 +131,7 @@ func (p Program) SameBindings(other Program) bool {
 	}
 	for i, input := range p.Inputs {
 		against := other.Inputs[i]
-		if input.ID != against.ID || urlString(input.URL) != urlString(against.URL) {
+		if input.ID != against.ID || urlString(input.URL) != urlString(against.URL) || input.Representation != against.Representation {
 			return false
 		}
 	}
@@ -227,6 +235,11 @@ func (p Program) Track(kind TrackKind) (TrackRef, bool) {
 		}
 	}
 	return TrackRef{}, false
+}
+
+// Seamed reports that any input's timeline may break (see Fetch.Seamed).
+func (p Program) Seamed() bool {
+	return slices.ContainsFunc(p.Inputs, func(in Input) bool { return in.Fetch.Seamed() })
 }
 
 // PrimaryInput returns the input that owns the program clock (bool for incomplete program).

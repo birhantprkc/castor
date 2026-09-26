@@ -1,0 +1,10 @@
+# An HEVC ladder a Roku never advertised is not handed over on what the master declared: castor serves it encoded.
+stream:
+  packaging: hls-ts
+  video: {codec: hevc, ladder: [240, 360]}
+  audio: {codec: aac, channels: 2}
+receiver:
+  device: roku
+expect:
+  delivery: served
+  video: encoded

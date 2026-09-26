@@ -14,9 +14,8 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/stupside/castor/internal/cast/attempt"
-	"github.com/stupside/castor/internal/cast/engine/deliver"
-	"github.com/stupside/castor/internal/cast/engine/ffmpeg"
-	"github.com/stupside/castor/internal/cast/policy/compose"
+	"github.com/stupside/castor/internal/cast/deliver"
+	"github.com/stupside/castor/internal/cast/transcode"
 	"github.com/stupside/castor/internal/media"
 	"github.com/stupside/castor/internal/source"
 )
@@ -43,6 +42,8 @@ func (s *fakeStage) Run(_ context.Context, pcm io.ReadCloser) {
 }
 
 func (s *fakeStage) Inputs() (string, error) { return s.burnIn, nil }
+
+func (*fakeStage) SampleRate() int { return 16000 }
 
 func (s *fakeStage) Follow(context.Context) func(media.Progress) {
 	return func(media.Progress) { s.samples.Add(1) }
@@ -76,10 +77,10 @@ func TestAStagesInputsReachTheEncodeThatDrawsThem(t *testing.T) {
 	c := bufferedCast(t, ffmpegPath, ffprobePath)
 	c.burn = &fakeStage{burnIn: cuePath}
 
-	if err := c.encode(t.Context()); err != nil {
+	if err := c.encode(t.Context(), c.fromBuffer()); err != nil {
 		t.Fatalf("building the encode: %v", err)
 	}
-	cmd, err := ffmpeg.EncodeArgs(c.opts)
+	cmd, err := transcode.EncodeArgs(c.opts)
 	if err != nil {
 		t.Fatalf("building the args: %v", err)
 	}
@@ -104,7 +105,7 @@ func TestTheBufferedEncodeIsMeasuredFromTheBufferAndNotTheSource(t *testing.T) {
 	// A source nothing can measure: nothing is listening on that port.
 	c.attempt.Program = programFromStream(t, &source.Candidate{URL: &url.URL{Scheme: "http", Host: "127.0.0.1:1", Path: "/gone.mp4"}, ContentType: media.MP4})
 
-	if err := c.encode(t.Context()); err != nil {
+	if err := c.encode(t.Context(), c.fromBuffer()); err != nil {
 		t.Fatalf("building the encode: %v", err)
 	}
 	if c.opts.Video.Name() != "copy" || c.opts.Probe.VideoCodec != media.CodecH264 {
@@ -123,12 +124,14 @@ func TestASilentSourceRunsNoStageAtAll(t *testing.T) {
 	cfg.Subtitles = staging(&fakeStage{})
 	c := &cast{
 		cfg:     cfg,
-		row:     compose.Row{Kind: compose.ReadOnce},
 		attempt: attempt.Attempt{Program: program, Read: sourceReadPlan(t, program, testReadDeadline)},
 		workDir: t.TempDir(),
 		group:   g,
 	}
 
+	if err := c.follow(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if err := c.read(ctx); err != nil {
 		t.Fatalf("starting the read: %v", err)
 	}
@@ -190,7 +193,6 @@ func bufferedCast(t *testing.T, ffmpegPath, ffprobePath string) *cast {
 	}
 	return &cast{
 		cfg:     castConfig(pushOnly(), ffmpegPath, ffprobePath),
-		row:     compose.Row{Kind: compose.ReadOnce},
 		dev:     &fakeDevice{caps: dlnaLike()},
 		spool:   sp,
 		workDir: t.TempDir(),

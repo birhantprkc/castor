@@ -1,0 +1,13 @@
+# A live AES-128 HLS edge (EXT-X-KEY with a tokenised key URI) is something a Chromecast decrypts itself: castor hands it over and it plays to the end.
+stream:
+  packaging: hls-ts-aes128
+  video: {codec: h264, height: 360}
+  audio: {codec: aac, channels: 2}
+  seconds: 20
+origin:
+  live: {start: 4, every: 1s, end: endlist}
+receiver:
+  device: chromecast
+expect:
+  delivery: passthrough
+  video: copied

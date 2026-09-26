@@ -2,6 +2,7 @@ package media
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"time"
 )
@@ -16,15 +17,47 @@ type ProbeInfo struct {
 	VideoHeight   int
 	VideoBitDepth int  // derived from pix_fmt (8, 10, 12)
 	VideoHDR      bool // PQ (smpte2084) or HLG (arib-std-b67) transfer
+	// VideoLevel is the codec level in ffprobe's units (H.264 x10, so 42 is 4.2), 0 if unknown.
+	VideoLevel     int
+	VideoFrameRate float64
+	// VideoInterlaced is a picture coded as fields, which a renderer that does not deinterlace shows combed.
+	VideoInterlaced bool
+	// VideoRotation is the display matrix's turn in degrees; no container castor serves carries it.
+	VideoRotation int
 
-	AudioCodec    Codec // e.g. CodecAAC, CodecAC3
-	AudioChannels int   // channel count (2 = stereo, 6 = 5.1, 8 = 7.1), 0 if unknown
+	AudioCodec      Codec // e.g. CodecAAC, CodecAC3
+	AudioChannels   int   // channel count (2 = stereo, 6 = 5.1, 8 = 7.1), 0 if unknown
+	AudioSampleRate int   // Hz, 0 if unknown
 
 	VideoHeights []int
+
+	// ProgramHeights is the tallest picture of each program by id, 0 for one without a picture.
+	ProgramHeights map[int]int
+
+	// Start is the first timestamp the source carries; InputStarts is each input's, for a program read from several.
+	Start       time.Duration
+	InputStarts map[InputID]time.Duration
+}
+
+// TakeVideo is p with every picture fact taken from m; a new video field is carried here or nowhere.
+func (p ProbeInfo) TakeVideo(m ProbeInfo) ProbeInfo {
+	p.VideoCodec, p.VideoProfile, p.VideoHeight, p.VideoBitDepth = m.VideoCodec, m.VideoProfile, m.VideoHeight, m.VideoBitDepth
+	p.VideoHDR, p.VideoLevel, p.VideoFrameRate = m.VideoHDR, m.VideoLevel, m.VideoFrameRate
+	p.VideoInterlaced, p.VideoRotation = m.VideoInterlaced, m.VideoRotation
+	p.VideoHeights, p.ProgramHeights = slices.Clone(m.VideoHeights), maps.Clone(m.ProgramHeights)
+	return p
+}
+
+// TakeAudio is p with every sound fact taken from m; a new audio field is carried here or nowhere.
+func (p ProbeInfo) TakeAudio(m ProbeInfo) ProbeInfo {
+	p.AudioCodec, p.AudioChannels, p.AudioSampleRate = m.AudioCodec, m.AudioChannels, m.AudioSampleRate
+	return p
 }
 
 func (p ProbeInfo) Clone() ProbeInfo {
 	p.VideoHeights = slices.Clone(p.VideoHeights)
+	p.ProgramHeights = maps.Clone(p.ProgramHeights)
+	p.InputStarts = maps.Clone(p.InputStarts)
 	return p
 }
 
