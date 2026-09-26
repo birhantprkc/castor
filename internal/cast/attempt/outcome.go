@@ -81,6 +81,9 @@ type Evidence struct {
 	// PlayErr is the renderer's own refusal of the URL it was handed.
 	PlayErr error
 
+	// Handoff is a renderer pointed at the source itself rather than at what castor serves.
+	Handoff bool
+
 	Undelivered error
 
 	// RendererGone is what an unplugged, crashed or switched-off set looks like from here.

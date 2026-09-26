@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stupside/castor/internal/cast/compose"
 	"github.com/stupside/castor/internal/cast/watch"
 	"github.com/stupside/castor/internal/media"
 	"github.com/stupside/castor/internal/source"
@@ -145,6 +146,34 @@ func mustFault(t *testing.T, err error) *Fault {
 		t.Fatalf("cast error = %v, want a fault", err)
 	}
 	return f
+}
+
+func TestOnlyARendererHandedTheSourceIsServedInstead(t *testing.T) {
+	refusal := errors.New("SOAP 714")
+	for _, tc := range []struct {
+		name    string
+		handoff bool
+		want    string
+	}{
+		{"handed the source", true, serveInstead.Name},
+		{"already served", false, switchCandidate.Name},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := Intent{Candidates: candidates(t, "https://cdn.example/one.m3u8", "https://other.example/two.m3u8"), Deadline: 30 * time.Second}
+			refused := Outcome{Err: refusal, Evidence: Evidence{Reached: PhaseOpening, PlayErr: refusal, Handoff: tc.handoff}}
+			run := &scriptedRunner{outcomes: []Outcome{refused, delivered}}
+			if err := Cast(t.Context(), in, run, &fakeProgram{}); err != nil || len(run.seen) != 2 {
+				t.Fatalf("Cast error = %v after %d attempts, want the second attempt to deliver", err, len(run.seen))
+			}
+			got := switchCandidate.Name
+			if next := run.seen[1]; next.Candidate == 0 && next.Delivery == compose.DeliveryServe {
+				got = serveInstead.Name
+			}
+			if got != tc.want {
+				t.Errorf("the refusal was answered by %s, want %s", got, tc.want)
+			}
+		})
+	}
 }
 
 func TestUnreadableLinksAreMovedPastInRankOrder(t *testing.T) {

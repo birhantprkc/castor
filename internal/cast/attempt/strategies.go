@@ -142,7 +142,8 @@ var serveInstead = strategy{
 	Why:  "read the source and serve it locally, since the renderer would not fetch it itself",
 	Apply: func(_ context.Context, c change) (Attempt, bool) {
 		a := c.Attempt
-		if a.Delivery == compose.DeliveryServe {
+		// A renderer already served would refuse the next attempt's identical serve.
+		if a.Delivery == compose.DeliveryServe || !c.Outcome.Evidence.Handoff {
 			return a, false
 		}
 		a.Delivery = compose.DeliveryServe

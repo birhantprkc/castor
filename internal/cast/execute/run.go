@@ -105,6 +105,7 @@ func (c *cast) handoff(ctx context.Context) error {
 	}
 	// Present because open validated this program before the composition ran.
 	primary, _ := c.attempt.Program.PrimaryInput()
+	c.evidence.Handoff = true
 	if err := c.hand(ctx, primary.URL, primary.ContentType); err != nil {
 		return err
 	}
