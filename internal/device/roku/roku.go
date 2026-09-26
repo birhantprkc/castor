@@ -295,7 +295,7 @@ const rokuMediaPlayerQuery = "/query/media-player"
 
 // AwaitEnd answers exactly ONE of the two things an ECP poll could establish.
 func (r *rokuDevice) AwaitEnd(ctx context.Context) error {
-	return device.AwaitPolledEnd(ctx, r.name, rokuMediaPlayerQuery, device.UnreachablePolls, device.PollInterval, r.mediaPlayerAnswered)
+	return device.AwaitPolledEnd(ctx, r.name, rokuMediaPlayerQuery, device.UnreachableWindow, device.PollInterval, r.mediaPlayerAnswered)
 }
 
 // mediaPlayerAnswered reports only that somebody answered, never that playback is over (see AwaitEnd).

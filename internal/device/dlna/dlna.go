@@ -448,13 +448,13 @@ func (w *transportWatch) observe(state string) bool {
 
 // AwaitEnd polls AVTransport because UPnP families share no dependable event subscription.
 func (d *dlnaDevice) AwaitEnd(ctx context.Context) error {
-	return awaitTransportEnd(ctx, d.name(), device.UnreachablePolls, device.PollInterval, d.transportState)
+	return awaitTransportEnd(ctx, d.name(), device.UnreachableWindow, device.PollInterval, d.transportState)
 }
 
 // awaitTransportEnd folds the AVTransport state machine over the shared poll loop.
-func awaitTransportEnd(ctx context.Context, name string, unreachableAfter int, interval time.Duration, poll func(context.Context) (string, error)) error {
+func awaitTransportEnd(ctx context.Context, name string, unreachableFor, interval time.Duration, poll func(context.Context) (string, error)) error {
 	var watch transportWatch
-	return device.AwaitPolledEnd(ctx, name, transportQuery, unreachableAfter, interval,
+	return device.AwaitPolledEnd(ctx, name, transportQuery, unreachableFor, interval,
 		func(ctx context.Context) (bool, error) {
 			state, err := poll(ctx)
 			if err != nil {

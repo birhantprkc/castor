@@ -94,7 +94,7 @@ func TestAnUnbrokenRunOfFailedPollsIsNeededToEndTheCast(t *testing.T) {
 	gone := errors.New("connect: connection refused")
 	var script []answer
 	for range 2 {
-		for range device.UnreachablePolls - 1 {
+		for range int(device.UnreachableWindow/device.PollInterval) - 1 {
 			script = append(script, answer{err: gone})
 		}
 		script = append(script, answer{state: "PLAYING"})
@@ -108,7 +108,7 @@ func TestAnUnbrokenRunOfFailedPollsIsNeededToEndTheCast(t *testing.T) {
 			calls++
 			return a.state, a.err
 		}
-		if err := awaitTransportEnd(t.Context(), "Living Room TV", device.UnreachablePolls, device.PollInterval, poll); err != nil {
+		if err := awaitTransportEnd(t.Context(), "Living Room TV", device.UnreachableWindow, device.PollInterval, poll); err != nil {
 			t.Fatalf("awaitTransportEnd() = %v, want nil: the renderer answered between the failures", err)
 		}
 		if calls != len(script) {

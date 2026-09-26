@@ -15,17 +15,14 @@ const (
 	PollTimeout  = 10 * time.Second
 )
 
-// unreachableWindow and UnreachablePolls bound consecutive failures forgiven before gone.
-const (
-	unreachableWindow = 2*60*time.Second + 30*time.Second
-	UnreachablePolls  = int(unreachableWindow / PollInterval)
-)
+// UnreachableWindow is how long a renderer may go unanswered before it is gone, whatever each poll costs.
+const UnreachableWindow = 2*60*time.Second + 30*time.Second
 
-// AwaitPolledEnd polls renderer on interval until over, failed unreachableAfter times, or ctx done.
-func AwaitPolledEnd(ctx context.Context, name, question string, unreachableAfter int, interval time.Duration, poll func(context.Context) (bool, error)) error {
+// AwaitPolledEnd polls renderer on interval until over, unanswered for unreachableFor, or ctx done.
+func AwaitPolledEnd(ctx context.Context, name, question string, unreachableFor, interval time.Duration, poll func(context.Context) (bool, error)) error {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	missed := 0
+	answered := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
@@ -34,19 +31,17 @@ func AwaitPolledEnd(ctx context.Context, name, question string, unreachableAfter
 		}
 		over, err := poll(ctx)
 		if err != nil {
-			missed++
-			if missed >= unreachableAfter {
+			if silent := time.Since(answered); silent >= unreachableFor {
 				// Last failure explains how (refused, timed out, no route).
 				return &media.Gone{
 					Renderer: name,
-					Observed: fmt.Sprintf("%d consecutive %s polls over %s went unanswered",
-						unreachableAfter, question, time.Duration(unreachableAfter)*interval),
-					Err: err,
+					Observed: fmt.Sprintf("%s went unanswered for %s", question, silent.Round(time.Second)),
+					Err:      err,
 				}
 			}
 			continue
 		}
-		missed = 0
+		answered = time.Now()
 		if over {
 			return nil
 		}

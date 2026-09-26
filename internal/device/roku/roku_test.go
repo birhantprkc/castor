@@ -123,7 +123,7 @@ func TestARokuThatStopsAnsweringIsNamedGone(t *testing.T) {
 		return dev.mediaPlayerAnswered(ctx)
 	}
 
-	err := device.AwaitPolledEnd(t.Context(), dev.name, rokuMediaPlayerQuery, 3, time.Millisecond, poll)
+	err := device.AwaitPolledEnd(t.Context(), dev.name, rokuMediaPlayerQuery, 3*time.Millisecond, time.Millisecond, poll)
 	var away *media.Gone
 	if !errors.As(err, &away) {
 		t.Fatalf("AwaitPolledEnd() = %v, want a *media.Gone", err)
