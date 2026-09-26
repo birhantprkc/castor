@@ -211,6 +211,6 @@ jobs:
           tag_name: ${{ inputs.version }}
           fail_on_unmatched_files: true
       - if: ${{ !contains(inputs.version, '-') }}
-        run: ./scripts/cask.sh
+        run: ./scripts/brew.sh
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
