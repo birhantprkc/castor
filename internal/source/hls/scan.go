@@ -92,8 +92,11 @@ func scanMedia(body string, base *url.URL) (listing, error) {
 			if err != nil {
 				return listing{}, fmt.Errorf("reading %s: %w", line, err)
 			}
+			// An init range that states no offset starts at the resource's first byte; no segment precedes it.
+			span := byteRange(a["BYTERANGE"])
+			span.Offset = max(span.Offset, 0)
 			// A key in force at the MAP encrypts the init section too, and names its IV outright.
-			init = &timeline.Map{URI: uri.String(), Range: byteRange(a["BYTERANGE"]), Key: key}
+			init = &timeline.Map{URI: uri.String(), Range: span, Key: key}
 			out.Relaxed = out.Relaxed || requiresRelaxedHLSInput(a["URI"])
 		case strings.HasPrefix(line, "#"):
 		default:
