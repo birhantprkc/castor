@@ -44,8 +44,20 @@ func (f *feed) segment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { _ = body.Close() }()
-	if _, err := io.Copy(&committing{w: w, kind: "application/octet-stream"}, body); err != nil && ctx.Err() == nil {
-		slog.WarnContext(ctx, "castor could not relay a segment", "input", f.name, "uri", s.URI, "error", err)
+	f.answer(ctx, w, "application/octet-stream", s, "relay", func(out io.Writer) error {
+		_, err := io.Copy(out, body)
+		return err
+	})
+}
+
+// answer serves what write produces; a failure before its first byte is still answered with a status.
+func (f *feed) answer(ctx context.Context, w http.ResponseWriter, kind string, s timeline.Segment, verb string, write func(io.Writer) error) {
+	out := &committing{w: w, kind: kind}
+	if err := write(out); err != nil && ctx.Err() == nil {
+		slog.WarnContext(ctx, "castor could not "+verb+" a segment", "input", f.name, "uri", s.URI, "error", err)
+		if !out.started {
+			failed(w, err)
+		}
 	}
 }
 
@@ -70,13 +82,9 @@ func (f *feed) repackaged(ctx context.Context, w http.ResponseWriter, s timeline
 		return
 	}
 	defer func() { _ = body.Close() }()
-	out := &committing{w: w, kind: media.MPEGTS}
-	if err := f.repackage(ctx, io.MultiReader(bytes.NewReader(init), body), out); err != nil && ctx.Err() == nil {
-		slog.WarnContext(ctx, "castor could not repackage a segment", "input", f.name, "uri", s.URI, "error", err)
-		if !out.started {
-			failed(w, err)
-		}
-	}
+	f.answer(ctx, w, media.MPEGTS, s, "repackage", func(out io.Writer) error {
+		return f.repackage(ctx, io.MultiReader(bytes.NewReader(init), body), out)
+	})
 }
 
 // init serves an init section the playlist names, decrypted when the origin encrypted it whole.

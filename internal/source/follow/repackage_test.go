@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/stupside/castor/internal/source/timeline"
@@ -56,8 +57,10 @@ type stored struct {
 	resources map[string][]byte
 	window    timeline.Window
 	// fail answers every fragment read, when set.
-	fail  *timeline.Failure
-	reads map[string]int
+	fail *timeline.Failure
+	// breaks makes every fragment body fail before its first byte, when set.
+	breaks bool
+	reads  map[string]int
 }
 
 func (m *stored) Window(context.Context) (timeline.Window, error) { return m.window, nil }
@@ -69,6 +72,9 @@ func (m *stored) Read(_ context.Context, uri string, r timeline.Range) (io.ReadC
 	m.reads[uri]++
 	if m.fail != nil && strings.HasSuffix(uri, ".m4s") {
 		return nil, m.fail
+	}
+	if m.breaks && strings.HasSuffix(uri, ".m4s") {
+		return io.NopCloser(iotest.ErrReader(io.ErrUnexpectedEOF)), nil
 	}
 	b, ok := m.resources[uri]
 	if !ok {
@@ -192,6 +198,17 @@ func TestTheOriginsRefusalIsRelayedAndAnythingElseIsABadGateway(t *testing.T) {
 		if got, _ := fetch(t, server.base.JoinPath("primary", "1").String()); got != want {
 			t.Errorf("an origin failing with %d answered %d, want %d", status, got, want)
 		}
+	}
+}
+
+// An empty 200 would read as an empty segment, which the reader never retries.
+func TestABodyThatBreaksBeforeItsFirstByteIsABadGateway(t *testing.T) {
+	m := fragmented("av01")
+	m.breaks = true
+	server, _ := repackaging(t, m)
+	fetch(t, server.URL("primary").String())
+	if got, _ := fetch(t, server.base.JoinPath("primary", "1").String()); got != http.StatusBadGateway {
+		t.Errorf("a segment whose body broke before any byte answered %d, want 502", got)
 	}
 }
 
