@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Eyevinn/dash-mpd/mpd"
 
@@ -65,11 +66,17 @@ func (a addressed) indexed(b *mpd.SegmentBaseType, fetch indexer) ([]timeline.Se
 		return nil, err
 	}
 	out := make([]timeline.Segment, len(references))
+	var before time.Duration
 	for i, r := range references {
 		out[i] = timeline.Segment{
 			URI: a.base.String(), Range: timeline.Range{Offset: r.Offset, Length: r.Length}, Duration: ticks(r.Duration, timescale), Map: init,
 			Place: a.place(int64(i), int64(i+1)),
 		}
+		// An index that could not tell its last subsegment's length leaves it to end where the Period does.
+		if i == len(references)-1 && out[i].Duration == 0 {
+			out[i].Duration = max(a.period.duration-before, 0)
+		}
+		before += out[i].Duration
 	}
 	return out, nil
 }

@@ -99,7 +99,8 @@ func Cues(init, cues []byte, at int64) ([]Reference, int64, error) {
 		if i+1 < len(points) {
 			next, until = base+points[i+1].cluster, points[i+1].time
 		}
-		refs[i] = Reference{Offset: base + p.cluster, Length: next - base - p.cluster, Duration: until - p.time}
+		// A Segment that states no Duration leaves its last cluster's length unknown (zero), never negative.
+		refs[i] = Reference{Offset: base + p.cluster, Length: next - base - p.cluster, Duration: max(until-p.time, 0)}
 	}
 	return refs, int64(math.Round(1e9 / float64(scale))), nil
 }
