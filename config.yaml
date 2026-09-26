@@ -55,9 +55,10 @@ whisper:
   # (no CLI flag). The transcription and VAD models download once to your
   # user cache; language defaults to English. Set `language` for anything
   # else, and `model_path` to trade speed for accuracy.
-  # Burn-in needs frames Castor is drawing, so it applies only where Castor
-  # relays the stream. A device that fetches the source itself gets no
-  # subtitles from this.
+  # Burn-in needs frames Castor is drawing, so it applies only to devices
+  # Castor streams to directly (DLNA). A device that fetches for itself
+  # (Chromecast, Roku) gets no subtitles from this, even when Castor relays
+  # the stream to it.
   enable: false
 
 resolver:
