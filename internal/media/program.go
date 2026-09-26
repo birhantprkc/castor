@@ -242,6 +242,17 @@ func (p Program) Seamed() bool {
 	return slices.ContainsFunc(p.Inputs, func(in Input) bool { return in.Fetch.Seamed() })
 }
 
+// HeaderKeys is every request header name any input is read with, sorted.
+func (p Program) HeaderKeys() []string {
+	keys := map[string]struct{}{}
+	for _, input := range p.Inputs {
+		for key := range input.Headers {
+			keys[key] = struct{}{}
+		}
+	}
+	return slices.Sorted(maps.Keys(keys))
+}
+
 // PrimaryInput returns the input that owns the program clock (bool for incomplete program).
 func (p Program) PrimaryInput() (Input, bool) {
 	return p.LookupInput(p.ClockInput)

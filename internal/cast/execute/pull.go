@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"maps"
-	"slices"
 	"time"
 
 	"github.com/stupside/castor/internal/cast/deliver"
@@ -92,22 +90,12 @@ func startPull(ctx context.Context, spec pullSpec) (*pull, error) {
 		"reencode_video", produced.Video,
 		"reencode_audio", produced.Audio,
 		"source", primary.URL,
-		"header_keys", programHeaderKeys(program),
+		"header_keys", program.HeaderKeys(),
 	)
 
 	go p.logProgress(ctx)
 	go p.run(ctx)
 	return p, nil
-}
-
-func programHeaderKeys(program media.Program) []string {
-	keys := map[string]struct{}{}
-	for _, input := range program.Inputs {
-		for key := range input.Headers {
-			keys[key] = struct{}{}
-		}
-	}
-	return slices.Sorted(maps.Keys(keys))
 }
 
 func (p *pull) start(ctx context.Context) error {

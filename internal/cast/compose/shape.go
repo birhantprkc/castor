@@ -3,8 +3,6 @@ package compose
 import (
 	"cmp"
 	"fmt"
-	"maps"
-	"slices"
 
 	"github.com/stupside/castor/internal/media"
 )
@@ -51,12 +49,6 @@ func (s Shape) Passthrough() bool {
 
 // String reports composition and refusal reasons; heights load-bearing for users.
 func (s Shape) String() string {
-	headerKeys := map[string]struct{}{}
-	for _, input := range s.Program.Inputs {
-		for key := range input.Headers {
-			headerKeys[key] = struct{}{}
-		}
-	}
 	// Handles invalid programs; no container name if clock names missing input.
 	sourceContentType := "unknown"
 	if primary, ok := s.Program.PrimaryInput(); ok {
@@ -67,7 +59,7 @@ func (s Shape) String() string {
 		cmp.Or(s.Renderer.ServedContainer, "none"),
 		sourceContentType,
 		s.Program.SelfFetchable(),
-		slices.Sorted(maps.Keys(headerKeys)),
+		s.Program.HeaderKeys(),
 		s.Height, s.MaxHeight,
 		cmp.Or(s.Delivery, DeliveryAuto))
 }
