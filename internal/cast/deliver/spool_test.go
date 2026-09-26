@@ -63,7 +63,7 @@ func TestATailWaitsForGrowthAndEndsOnlyAtClose(t *testing.T) {
 func TestTailReportsTheProducerError(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		s := newTestSpool(t)
-		tail, err := s.Tail(t.Context())
+		tail, err := s.TailAt(t.Context(), 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -82,7 +82,7 @@ func TestClosingATailTerminatesAReadParkedInIt(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		s := newTestSpool(t)
 		t.Cleanup(func() { s.CloseWrite(nil) })
-		tail, err := s.Tail(t.Context())
+		tail, err := s.TailAt(t.Context(), 0)
 		if err != nil {
 			t.Fatal(err)
 		}

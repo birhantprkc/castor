@@ -5,29 +5,23 @@ import (
 	"errors"
 
 	"github.com/stupside/castor/internal/cast/watch"
+	"github.com/stupside/castor/internal/device"
 )
 
-func (c *cast) readMonitor(m watch.Monitor) watch.Monitor {
-	m.Producer = c.reader
-	m.Telemetry = c.reader
-	m.Landed = c.spool.Size
-	m.Headroom = c.reader.judgedPace()
+func readMonitor(reader *pull, m watch.Monitor) watch.Monitor {
+	m.Producer = reader
+	m.Telemetry = reader
+	m.Landed = reader.spool.Size
+	m.Headroom = reader.judgedPace()
 	return m
 }
 
-// lead is nil where this cast runs no transcription, so no readiness rule waits on one.
-func (c *cast) lead() watch.Lead {
-	if c.burn == nil {
-		return nil
-	}
-	return c.burn
-}
-
-func (c *cast) playable(ctx context.Context) error {
-	return watch.Watch(ctx, c.readMonitor(watch.Monitor{
+// gate holds a buffered cast until its read has proven it can deliver, and its transcription leads.
+func gate(ctx context.Context, buf *buffered) error {
+	return watch.Watch(ctx, readMonitor(buf.reader, watch.Monitor{
 		Subject: "playback gate",
 		Window:  watch.BeforePlay,
-		Lead:    c.lead(),
+		Lead:    buf.burn,
 	}))
 }
 
@@ -37,35 +31,32 @@ type producer interface {
 	watch.Telemetry
 }
 
-func (c *cast) encoderMonitor(m watch.Monitor) watch.Monitor {
-	m.Producer, m.Telemetry = c.output, c.output
-	m.Landed = c.sink.Artifact().Landed
+// playingMonitor judges a buffered cast by its read, and one reading its source by the encoder serving it.
+func playingMonitor(f feed, d delivery, aud watch.Audience) watch.Monitor {
+	m := watch.Monitor{Subject: "the playing cast", Window: watch.Playing, Audience: aud}
+	if f.buffered != nil {
+		return readMonitor(f.buffered.reader, m)
+	}
+	m.Producer, m.Telemetry = d.output, d.output
+	m.Landed = d.sink.Artifact().Landed
 	return m
 }
 
-func (c *cast) playingMonitor(f feed, aud watch.Audience) watch.Monitor {
-	return f.playing(watch.Monitor{
-		Subject:  "the playing cast",
-		Window:   watch.Playing,
-		Audience: aud,
-	})
-}
-
 // supervising also reports whether the delivery ran its course, which alone earns the question serve asks next.
-func (c *cast) supervising(ctx context.Context, f feed) (bool, error) {
+func supervising(ctx context.Context, dev device.Device, d delivery, f feed) (bool, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	delivered := make(chan error, 1)
-	go func() { delivered <- c.sink.Wait(ctx) }()
+	go func() { delivered <- d.sink.Wait(ctx) }()
 	playback := make(chan error, 1)
-	go func() { playback <- c.dev.AwaitEnd(ctx) }()
+	go func() { playback <- dev.AwaitEnd(ctx) }()
 
 	// Nil where delivery has no supervisor; sink deleting behind its live edge reads as stall on every cast.
 	var judged chan error
-	if aud := c.sink.Audience(); aud != nil {
+	if aud := d.sink.Audience(); aud != nil {
 		judged = make(chan error, 1)
-		go func() { judged <- watch.Watch(ctx, c.playingMonitor(f, aud)) }()
+		go func() { judged <- watch.Watch(ctx, playingMonitor(f, d, aud)) }()
 	}
 
 	select {

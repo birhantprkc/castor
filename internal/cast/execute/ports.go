@@ -8,7 +8,6 @@ import (
 	"github.com/stupside/castor/internal/cast/deliver"
 	"github.com/stupside/castor/internal/cast/watch"
 	"github.com/stupside/castor/internal/device"
-	"github.com/stupside/castor/internal/ffmpeg"
 	"github.com/stupside/castor/internal/media"
 )
 
@@ -35,12 +34,6 @@ type Burn interface {
 	Inputs() (burnIn string, err error)
 
 	Follow(ctx context.Context) func(media.Progress)
-}
-
-// Probes measures what an attempt reads: its source program, or its local buffer.
-type Probes interface {
-	Source(program media.Program, inputs []ffmpeg.ProbeInput) media.Prober
-	File(path string) media.Prober
 }
 
 type Addresses interface {

@@ -5,80 +5,94 @@ import (
 	"log/slog"
 	"path/filepath"
 
-	"github.com/stupside/castor/internal/cast/attempt"
 	"github.com/stupside/castor/internal/cast/plan"
 	"github.com/stupside/castor/internal/cast/transcode"
+	"github.com/stupside/castor/internal/media"
 )
 
-func (c *cast) read(ctx context.Context) error {
-	source, err := transcode.NewProgramSource(c.program, c.attempt.Read, c.cfg.Binary)
+// buffered is a read into castor's own spool, and the transcription it feeds (nil where it feeds none).
+type buffered struct {
+	reader *pull
+	burn   Burn
+}
+
+// read buffers program under its own context, so releasing it stops the read and its transcription before the work dir goes.
+func (s *session) read(ws workspace, program media.Program) (*buffered, error) {
+	ctx, stop := context.WithCancel(s.ctx)
+	source, err := transcode.NewProgramSource(program, s.attempt.Read, s.cfg.Binary)
 	if err != nil {
-		return err
+		stop()
+		return nil, err
 	}
-	facts := measure(ctx, "the source this cast buffers", c.cfg.Probes.Source(c.program, source.ProbeInputs()))
-	program := aligned(c.program, facts.Probe.InputStarts)
-	if source, err = transcode.NewProgramSource(program, c.attempt.Read, c.cfg.Binary); err != nil {
-		return err
-	}
-
-	if c.cfg.Subtitles != nil {
-		if facts.sounds(program) {
-			c.burn = c.cfg.Subtitles(ctx, c.workDir)
-		} else {
-			slog.InfoContext(ctx, "no subtitles for this cast: nothing shows the source carries sound")
-		}
+	facts := measure(ctx, "the source this cast buffers", s.cfg.Probes.Source(program, source.ProbeInputs()))
+	program = aligned(program, facts.Probe.InputStarts)
+	if source, err = transcode.NewProgramSource(program, s.attempt.Read, s.cfg.Binary); err != nil {
+		stop()
+		return nil, err
 	}
 
+	burn := s.transcription(ctx, ws, facts, program)
 	floor, err := plan.Floor(ctx, plan.Inputs{
 		Probe:     facts.Probe,
 		Into:      transcode.SpoolFormat,
-		Decode:    c.attempt.Decode,
-		MaxHeight: c.cfg.MaxHeight,
+		Decode:    s.attempt.Decode,
+		MaxHeight: s.cfg.MaxHeight,
 		Spliced:   program.Seamed(),
-		Encoders:  c.cfg.Encoders,
+		Encoders:  s.cfg.Encoders,
 	})
 	if err != nil {
-		return err
+		stop()
+		return nil, err
 	}
 	logRefusals(ctx, floor)
 
 	reader, err := startPull(ctx, pullSpec{
-		ffmpegPath: c.cfg.FFmpegPath,
+		ffmpegPath: s.cfg.FFmpegPath,
 		program:    program,
-		policy:     c.attempt.Read,
+		policy:     s.attempt.Read,
 		source:     source,
 		probe:      facts.Probe,
-		spoolPath:  filepath.Join(c.workDir, "spool"+transcode.SpoolFormat.Extension),
+		spoolPath:  filepath.Join(ws.dir, "spool"+transcode.SpoolFormat.Extension),
 		floor:      floor,
-		pcmRate:    c.pcmRate(),
+		pcmRate:    pcmRate(burn),
 	})
 	if err != nil {
-		return err
+		stop()
+		return nil, err
 	}
-	c.reader, c.spool = reader, reader.spool
 
-	c.evidence.Reached = attempt.PhaseReading
-	return nil
-}
-
-func (c *cast) transcribe(ctx context.Context) error {
-	if c.burn == nil {
-		return nil
-	}
-	c.group.Go(func() error {
-		c.burn.Run(ctx, c.reader.pcm)
+	transcribed := make(chan struct{})
+	go func() {
+		defer close(transcribed)
+		if burn != nil {
+			burn.Run(ctx, reader.pcm)
+		}
+	}()
+	s.releases.push(func() error {
+		stop()
+		<-reader.Done()
+		<-transcribed
 		return nil
 	})
-	return nil
+	return &buffered{reader: reader, burn: burn}, nil
 }
 
-// readErr is the read's own terminal error, and only where the read has terminated (see pull.Err).
-func (c *cast) readErr() error { return c.reader.Err() }
+// transcription is the burn-in this read feeds, nil where subtitles are off or nothing shows the source has sound.
+func (s *session) transcription(ctx context.Context, ws workspace, facts facts, program media.Program) Burn {
+	if s.cfg.Subtitles == nil {
+		return nil
+	}
+	if !facts.sounds(program) {
+		slog.InfoContext(ctx, "no subtitles for this cast: nothing shows the source carries sound")
+		return nil
+	}
+	return s.cfg.Subtitles(ctx, ws.dir)
+}
 
 // pcmRate is the rate the transcription listens at, zero where this cast runs none.
-func (c *cast) pcmRate() int {
-	if c.burn == nil {
+func pcmRate(burn Burn) int {
+	if burn == nil {
 		return 0
 	}
-	return c.burn.SampleRate()
+	return burn.SampleRate()
 }

@@ -26,9 +26,9 @@ func (f fakeLead) Done() bool         { return f.done }
 
 func TestWaitForPlayableHoldsUntilTheTranscriptionLeads(t *testing.T) {
 	// Pace omitted: starving verdict would confuse the assertion.
-	c := gateFixture(t, 0)
-	c.burn = &fakeStage{lead: &fakeLead{latest: 1}}
-	if _, err := c.spool.Write(make([]byte, 4<<20)); err != nil {
+	buf := gateFixture(t, 0)
+	buf.burn = &fakeStage{lead: &fakeLead{latest: 1}}
+	if _, err := buf.reader.spool.Write(make([]byte, 4<<20)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -36,7 +36,7 @@ func TestWaitForPlayableHoldsUntilTheTranscriptionLeads(t *testing.T) {
 	defer cancel()
 	opened := make(chan error, 1)
 	go func() {
-		opened <- c.playable(ctx)
+		opened <- gate(ctx, buf)
 	}()
 
 	select {
@@ -75,24 +75,24 @@ func TestBothWindowsJudgeTheSameReadAgainstTheSamePace(t *testing.T) {
 		want: 0,
 	}} {
 		t.Run(tt.name, func(t *testing.T) {
-			c := gateFixture(t, granted)
-			tt.load(c.reader)
+			buf := gateFixture(t, granted)
+			tt.load(buf.reader)
 
 			// A read that died is the fastest verdict the pre-playback window reaches.
-			c.reader.err = errors.New("upstream pull: exit status 1")
-			close(c.reader.done)
-			gate := paceBehindTheVerdict(t, c.playable)
+			buf.reader.err = errors.New("upstream pull: exit status 1")
+			close(buf.reader.done)
+			before := paceBehindTheVerdict(t, func(ctx context.Context) error { return gate(ctx, buf) })
 
 			never := stoppedRenderer{last: time.Now().Add(-watch.StallWindow - time.Second)}
 			inFlight := paceBehindTheVerdict(t, func(ctx context.Context) error {
-				return watch.Watch(ctx, c.playingMonitor(c.fromBuffer(), never))
+				return watch.Watch(ctx, playingMonitor(feed{buffered: buf}, delivery{}, never))
 			})
 
-			if gate != inFlight {
-				t.Errorf("the gate judged this read against %gx and the supervisor against %gx", gate, inFlight)
+			if before != inFlight {
+				t.Errorf("the gate judged this read against %gx and the supervisor against %gx", before, inFlight)
 			}
-			if gate != tt.want {
-				t.Errorf("the pace this read is judged against = %gx, want %gx", gate, tt.want)
+			if before != tt.want {
+				t.Errorf("the pace this read is judged against = %gx, want %gx", before, tt.want)
 			}
 		})
 	}
@@ -120,7 +120,8 @@ type stoppedRenderer struct {
 func (s stoppedRenderer) Handed() (int64, time.Time) { return 0, s.last }
 func (s stoppedRenderer) Buffered() time.Duration    { return s.buffered }
 
-func gateFixture(t *testing.T, pace float64) *cast {
+// gateFixture is a buffered read over an empty spool, granted pace.
+func gateFixture(t *testing.T, pace float64) *buffered {
 	t.Helper()
 	sp, err := deliver.NewSpool(filepath.Join(t.TempDir(), "spool.ts"))
 	if err != nil {
@@ -128,12 +129,9 @@ func gateFixture(t *testing.T, pace float64) *cast {
 	}
 	t.Cleanup(func() { sp.CloseWrite(nil) })
 
-	return &cast{
-		spool: sp,
-		reader: &pull{
-			spool:  sp,
-			done:   make(chan struct{}),
-			policy: read.Plan{media.PrimaryInputID: {Pace: read.Pace{Realtime: pace}}},
-		},
-	}
+	return &buffered{reader: &pull{
+		spool:  sp,
+		done:   make(chan struct{}),
+		policy: read.Plan{media.PrimaryInputID: {Pace: read.Pace{Realtime: pace}}},
+	}}
 }

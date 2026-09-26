@@ -54,7 +54,7 @@ func TestTheDrainOutlastsALineTooLongToHold(t *testing.T) {
 
 func drainLines(t *testing.T, lines ...string) (*ringTail, *markerWatch) {
 	t.Helper()
-	tail, markers := newTail(stderrTailCapacity), &markerWatch{}
+	tail, markers := newTail(), &markerWatch{}
 	var to fanout
 	to.add(tail)
 	to.add(markers)
@@ -66,7 +66,7 @@ func TestWaitDoesNotOutrunTheStderrDrain(t *testing.T) {
 	const last = "castor-final-stderr-line"
 	script := "sleep 0.2; i=0; while [ $i -lt 200 ]; do echo \"line $i\" >&2; i=$((i+1)); done; echo " + last + " >&2"
 
-	proc, err := Start(t.Context(), "/bin/sh", Command{Args: []string{"-c", script}})
+	proc, err := Start(t.Context(), "/bin/sh", Command{Args: []string{"-c", script}}, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestAnExitStatusSaysWhoEndedTheProcess(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
-			proc, err := Start(ctx, "/bin/sh", Command{Args: []string{"-c", tc.script}})
+			proc, err := Start(ctx, "/bin/sh", Command{Args: []string{"-c", tc.script}}, Options{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -146,7 +146,7 @@ func TestSideOutputsEndWhenFFmpegNeverOpensThem(t *testing.T) {
 	cmd := NewCommand([]string{"-hide_banner", "-i", "/nonexistent/castor-input",
 		"-progress", ProgressPipe, "-f", "s16le", PCMPipe})
 	var pcm bytes.Buffer
-	proc, err := Start(t.Context(), ffmpegPath, cmd, WithPCM(&pcm), WithProgress(func(media.Progress) {}))
+	proc, err := Start(t.Context(), ffmpegPath, cmd, Options{PCM: &pcm, Progress: func(media.Progress) {}})
 	if err != nil {
 		t.Fatal(err)
 	}

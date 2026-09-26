@@ -14,106 +14,128 @@ import (
 	"github.com/stupside/castor/internal/cast/deliver"
 	"github.com/stupside/castor/internal/cast/deliver/segments"
 	"github.com/stupside/castor/internal/cast/deliver/stream"
-	"github.com/stupside/castor/internal/cast/read"
 	"github.com/stupside/castor/internal/cast/transcode"
 	"github.com/stupside/castor/internal/cast/watch"
+	"github.com/stupside/castor/internal/device"
 	"github.com/stupside/castor/internal/media"
 )
 
-// feed is what a served cast's encoder reads: the local buffer, or the source itself.
+// feed is what a served cast's encoder reads: the read's buffer where there is one, else the program's source.
 type feed struct {
-	input func(ctx context.Context, ceiling read.Pace) (facts, transcode.EncodeInput, error)
-	// spliced is whether the plan joins a seamed program itself; a buffer was made one stream by the floor.
-	spliced bool
-	// stdin is nil where the encoder reads no pipe.
-	stdin   func(ctx context.Context) (io.ReadCloser, error)
-	playing func(watch.Monitor) watch.Monitor
+	buffered *buffered
+	program  media.Program
 }
 
-func (c *cast) fromBuffer() feed {
-	return feed{input: c.bufferInput, stdin: c.spool.Tail, playing: c.readMonitor}
+// spliced is whether the plan joins a seamed program itself; a buffer was made one stream by the floor.
+func (f feed) spliced() bool { return f.buffered == nil && f.program.Seamed() }
+
+// delivery is what serves a cast: the mechanism the renderer fetches from, and what writes the bytes it serves.
+type delivery struct {
+	sink   sink
+	output producer
 }
 
-func (c *cast) fromSource() feed {
-	return feed{input: c.sourceInput, spliced: c.program.Seamed(), playing: c.encoderMonitor}
+// serve encodes what f reads for dev, delivers it, and watches it play; it reports how far the delivery got.
+func (s *session) serve(dev device.Device, ws workspace, f feed, burn Burn) (attempt.Phase, error) {
+	opts, err := s.encode(dev, f, burn)
+	if err != nil {
+		return 0, err
+	}
+	d, err := s.produce(dev, ws, f, opts, burn)
+	if err != nil {
+		return 0, err
+	}
+	if err := awaitArtifact(s.ctx, d); err != nil {
+		return attempt.PhaseOpening, err
+	}
+	if err := hand(s.ctx, dev, d.sink.URL(), opts.Format.ContentType, false); err != nil {
+		return attempt.PhaseOpening, err
+	}
+	slog.InfoContext(s.ctx, "streaming to device, press Ctrl+C to stop")
+	delivered, err := supervising(s.ctx, dev, d, f)
+	if err != nil || !delivered {
+		return attempt.PhasePlaying, err
+	}
+	return attempt.PhasePlaying, d.sink.Settled()
 }
 
-func (c *cast) serve(ctx context.Context, f feed) error {
-	if err := c.encode(ctx, f); err != nil {
-		return err
-	}
-	if err := c.produce(ctx, f); err != nil {
-		return err
-	}
-	if err := c.opened(ctx); err != nil {
-		return err
-	}
-	if err := c.hand(ctx, c.sink.URL(), c.opts.Format.ContentType); err != nil {
-		return err
-	}
-	slog.InfoContext(ctx, "streaming to device, press Ctrl+C to stop")
-	ran, err := c.supervising(ctx, f)
-	if err != nil || !ran {
-		return err
-	}
-	return c.sink.Settled()
-}
-
-func (c *cast) produce(ctx context.Context, f feed) error {
+func (s *session) produce(dev device.Device, ws workspace, f feed, opts transcode.EncodeOptions, burn Burn) (delivery, error) {
+	o := opening(dev, opts, ws.localIP)
 	// A burn-in follows the encoder's progress, so only a cast without one can do without an encoder.
-	if c.burn == nil && c.opts.Verbatim() {
-		return c.relay(ctx)
-	}
-	if f.stdin != nil {
-		tail, err := f.stdin(ctx)
-		if err != nil {
-			return err
-		}
-		c.tail = tail
+	if f.buffered != nil && burn == nil && opts.Verbatim() {
+		return s.relay(o, f.buffered.reader)
 	}
 
-	dir := filepath.Join(c.workDir, "delivery")
+	var tail io.ReadCloser
+	if f.buffered != nil {
+		var err error
+		if tail, err = f.buffered.reader.spool.TailAt(s.ctx, 0); err != nil {
+			return delivery{}, err
+		}
+	}
+	closeTail := func() {
+		if tail != nil {
+			_ = tail.Close()
+		}
+	}
+
+	dir := filepath.Join(ws.dir, "delivery")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("creating the delivery directory: %w", err)
+		closeTail()
+		return delivery{}, fmt.Errorf("creating the delivery directory: %w", err)
 	}
 
 	var step func(media.Progress)
-	if c.burn != nil {
-		step = c.burn.Follow(ctx)
+	if burn != nil {
+		step = burn.Follow(s.ctx)
 	}
-	proc, err := c.startEncoder(ctx, step, dir)
+	proc, err := s.startEncoder(opts, tail, step, dir)
 	if err != nil {
-		return err
+		closeTail()
+		return delivery{}, err
 	}
-	c.proc = proc
 
-	opening := c.opening()
-	opening.Dir, opening.Out = dir, proc.Stdout
-	sink, err := sinkFor(opening, proc.Progress)
+	o.Dir, o.Out = dir, proc.Stdout
+	sk, err := sinkFor(o, proc.Progress)
+	// Killed first, since everything after needs it to have stopped writing; the tail before the wait, which joins its copy.
+	s.releases.push(func() error {
+		proc.Kill()
+		closeTail()
+		if sk != nil {
+			_ = sk.Close()
+		}
+		return encoderResult(s.ctx, proc, proc.Wait())
+	})
 	if err != nil {
-		return fmt.Errorf("starting the delivery: %w", err)
+		return delivery{}, fmt.Errorf("starting the delivery: %w", err)
 	}
-	c.sink, c.output = sink, encoderOutput{proc: proc, ended: sink.Drained()}
-	return nil
+	return delivery{sink: sk, output: encoderOutput{proc: proc, ended: sk.Drained()}}, nil
 }
 
 // relay serves the read's own spool, the read standing in for an encoder that would rewrite it unchanged.
-func (c *cast) relay(ctx context.Context) error {
-	sink, err := spoolSink(c.opening(), c.spool, c.reader.Done(), c.reader.Progress)
+func (s *session) relay(o deliver.Opening, reader *pull) (delivery, error) {
+	sk, err := spoolSink(o, reader.spool, reader.Done(), reader.Progress)
 	if err != nil {
-		return fmt.Errorf("starting the delivery: %w", err)
+		return delivery{}, fmt.Errorf("starting the delivery: %w", err)
 	}
-	c.sink, c.output = sink, c.reader
-	slog.InfoContext(ctx, "serving the read's buffer as it is, since the encode would change nothing")
-	return nil
+	s.releases.push(func() error {
+		_ = sk.Close()
+		// The read stands in for the encoder, so a read that failed fails the cast as that encoder would have.
+		if s.ctx.Err() != nil {
+			return nil
+		}
+		return reader.Err()
+	})
+	slog.InfoContext(s.ctx, "serving the read's buffer as it is, since the encode would change nothing")
+	return delivery{sink: sk, output: reader}, nil
 }
 
 // opening is the terms every delivery of this cast opens on.
-func (c *cast) opening() deliver.Opening {
+func opening(dev device.Device, opts transcode.EncodeOptions, localIP string) deliver.Opening {
 	return deliver.Opening{
-		Format:        c.opts.Format,
-		LocalIP:       c.localIP,
-		Headers:       c.dev.StreamHeaders(c.opts.Format.ContentType),
+		Format:        opts.Format,
+		LocalIP:       localIP,
+		Headers:       dev.StreamHeaders(opts.Format.ContentType),
 		IdleGrace:     idleGrace,
 		WriteDeadline: writeDeadline,
 	}
@@ -181,14 +203,13 @@ func (segmentedSink) Audience() watch.Audience { return nil }
 
 func (s segmentedSink) Settled() error { return watch.NoneFetched(s.Served(), s.made()) }
 
-func (c *cast) opened(ctx context.Context) error {
-	c.evidence.Reached = attempt.PhaseOpening
-
-	artifact := c.sink.Artifact()
+// awaitArtifact waits for the artifact the renderer will fetch to exist.
+func awaitArtifact(ctx context.Context, d delivery) error {
+	artifact := d.sink.Artifact()
 	return watch.Watch(ctx, watch.Monitor{
 		Subject:  artifact.Subject,
 		Window:   watch.Opening,
-		Producer: c.output,
+		Producer: d.output,
 		Landed:   artifact.Landed,
 		Grace:    artifact.Grace,
 	})

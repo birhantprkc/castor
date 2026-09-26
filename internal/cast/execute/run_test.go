@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -38,7 +37,7 @@ func passthroughCandidate() *source.Candidate {
 func TestPassthroughBuildsNoLocalMachinery(t *testing.T) {
 	var asked atomic.Int64
 	dev := &fakeDevice{caps: chromecastLike(media.MP4)}
-	got := run(t.Context(), Config{MaxHeight: 1080, Renderer: renderer(selfFetching(), dev), Addresses: countedAddresses{asked: &asked}, Timelines: direct{}},
+	got := NewExecutor(Config{MaxHeight: 1080, Renderer: renderer(selfFetching(), dev), Addresses: countedAddresses{asked: &asked}, Timelines: direct{}}).Run(t.Context(),
 		attempt.Attempt{Program: programFromStream(t, passthroughCandidate())})
 	if got.Err != nil {
 		t.Fatalf("passthrough depended on local relay resources: %v", got.Err)
@@ -136,7 +135,7 @@ func TestEveryAttemptOwnsAFreshWorkDirectoryAndLeavesNoneBehind(t *testing.T) {
 			Renderer:  renderer(pushOnly(), &fakeDevice{caps: dlnaLike()}),
 			Subtitles: watchDir, Addresses: fixedAddress("127.0.0.1"), Probes: probe.FFprobe(""), Timelines: direct{},
 		}
-		out := run(t.Context(), cfg, attempt.Attempt{Program: program, Read: sourceReadPlan(t, program, 30*time.Second)})
+		out := NewExecutor(cfg).Run(t.Context(), attempt.Attempt{Program: program, Read: sourceReadPlan(t, program, 30*time.Second)})
 		if out.Err == nil {
 			t.Fatal("a cast with no ffmpeg to read with reported success")
 		}
@@ -162,34 +161,33 @@ func TestABufferCopiedWholeIsServedAsItIs(t *testing.T) {
 	cfg.Renderer = renderer(pushOnly(), dev)
 	cfg.Addresses = fixedAddress("127.0.0.1")
 	program := programFromStream(t, origin.stream())
-	c := &cast{cfg: cfg, attempt: attempt.Attempt{Try: 1, Program: program, Read: sourceReadPlan(t, program, testReadDeadline)}}
-	c.stop = sync.OnceValue(c.teardown)
-	t.Cleanup(func() { _ = c.stop() })
 
 	ctx, cancel := context.WithTimeout(t.Context(), castTimeout)
 	defer cancel()
-	if err := c.play(ctx); err != nil {
+	s := open(ctx, cfg, attempt.Attempt{Try: 1, Program: program, Read: sourceReadPlan(t, program, testReadDeadline)})
+	t.Cleanup(func() { _ = s.releases.release() })
+	r, err := s.play()
+	if err != nil {
 		t.Fatalf("casting a program the renderer takes as it is: %v", err)
 	}
 
-	if c.proc != nil {
-		t.Errorf("a second ffmpeg ran to rewrite a buffer it copies whole: %q", c.proc.Evidence().Lines)
-	}
-	entries, err := os.ReadDir(c.workDir)
+	// An encoder would have written its delivery beside the buffer.
+	spool := r.reader.spool.Path()
+	entries, err := os.ReadDir(filepath.Dir(spool))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].Name() != filepath.Base(c.spool.Path()) {
+	if len(entries) != 1 || entries[0].Name() != filepath.Base(spool) {
 		t.Errorf("the work directory holds %v, want the read's buffer alone", entries)
 	}
-	spooled, err := os.ReadFile(c.spool.Path())
+	spooled, err := os.ReadFile(spool)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(spooled) == 0 || !bytes.Equal(dev.served, spooled) {
 		t.Errorf("the renderer was served %d bytes, want exactly the %d the read buffered", len(dev.served), len(spooled))
 	}
-	if copied := c.outcome(ctx, nil).Evidence.Copied; !copied.Video || !copied.Audio {
+	if copied := evidence(r, nil, false).Copied; !copied.Video || !copied.Audio {
 		t.Errorf("the outcome says the read copied %s, want both halves", copied)
 	}
 }

@@ -73,43 +73,22 @@ type Process struct {
 	teed chan struct{}
 }
 
-type startConfig struct {
-	stdin    io.Reader
-	workDir  string
-	progress func(media.Progress)
-	pcm      io.Writer
-}
-
-type StartOption func(*startConfig)
-
-func WithStdin(r io.Reader) StartOption {
-	return func(c *startConfig) { c.stdin = r }
-}
-
-// WithWorkDir runs ffmpeg with dir as its working directory for relative output files (HLS).
-func WithWorkDir(dir string) StartOption {
-	return func(c *startConfig) { c.workDir = dir }
-}
-
-// WithProgress calls step once per -progress sample (the feed has exactly one reader).
-func WithProgress(step func(media.Progress)) StartOption {
-	return func(c *startConfig) { c.progress = step }
-}
-
-// WithPCM copies the command's PCM tee into w until ffmpeg closes it; Wait joins the copy, w stays the caller's.
-func WithPCM(w io.Writer) StartOption {
-	return func(c *startConfig) { c.pcm = w }
+// Options is what a process runs with beyond its command line; each zero value means none.
+type Options struct {
+	Stdin io.Reader
+	// WorkDir is where relative output files (HLS) are written.
+	WorkDir string
+	// Progress is called once per -progress sample.
+	Progress func(media.Progress)
+	// PCM receives the command's PCM tee until ffmpeg closes it; Wait joins the copy, the writer stays the caller's.
+	PCM io.Writer
 }
 
 // Start launches the command at path. The process is killed when ctx is cancelled.
-func Start(ctx context.Context, path string, command Command, opts ...StartOption) (*Process, error) {
-	var cfg startConfig
-	for _, opt := range opts {
-		opt(&cfg)
-	}
+func Start(ctx context.Context, path string, command Command, opts Options) (*Process, error) {
 	// An unread tee blocks ffmpeg once the pipe fills, and a writer with no tee waits forever.
-	if tees := command.ExtraPipes > pcmFD-firstExtraFD; tees != (cfg.pcm != nil) {
-		return nil, fmt.Errorf("a PCM tee routed (%t) and a PCM consumer given (%t) disagree", tees, cfg.pcm != nil)
+	if tees := command.ExtraPipes > pcmFD-firstExtraFD; tees != (opts.PCM != nil) {
+		return nil, fmt.Errorf("a PCM tee routed (%t) and a PCM consumer given (%t) disagree", tees, opts.PCM != nil)
 	}
 
 	var (
@@ -146,8 +125,8 @@ func Start(ctx context.Context, path string, command Command, opts ...StartOptio
 	cmd := exec.CommandContext(ctx, path, args...)
 	stopped, scanned := new(atomic.Bool), make(chan struct{})
 	cmd.Cancel = func() error { return kill(cmd.Process, scanned, stopped) }
-	cmd.Stdin = cfg.stdin
-	cmd.Dir = cfg.workDir
+	cmd.Stdin = opts.Stdin
+	cmd.Dir = opts.WorkDir
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -172,7 +151,7 @@ func Start(ctx context.Context, path string, command Command, opts ...StartOptio
 		cmd:     cmd,
 		extra:   extra,
 		lines:   &fanout{},
-		tail:    newTail(stderrTailCapacity),
+		tail:    newTail(),
 		markers: &markerWatch{},
 		scanned: scanned,
 		stopped: stopped,
@@ -185,8 +164,8 @@ func Start(ctx context.Context, path string, command Command, opts ...StartOptio
 		defer func() { _ = stderrRead.Close() }()
 		drainStderr(ctx, stderrRead, p.lines)
 	}()
-	p.followProgress(cfg.progress)
-	p.tee(cfg.pcm)
+	p.followProgress(opts.Progress)
+	p.tee(opts.PCM)
 
 	return p, nil
 }
@@ -210,7 +189,7 @@ func (p *Process) tee(w io.Writer) {
 
 func (p *Process) followProgress(step func(media.Progress)) {
 	p.drained = make(chan struct{})
-	feed := p.progressFeed()
+	feed := p.extraAt(progressFD)
 	if feed == nil {
 		close(p.drained)
 		return
@@ -234,9 +213,6 @@ func (p *Process) extraAt(fd int) io.ReadCloser {
 	}
 	return p.extra[i]
 }
-
-// progressFeed is ffmpeg's -progress feed (has exactly one reader for its life).
-func (p *Process) progressFeed() io.ReadCloser { return p.extraAt(progressFD) }
 
 // Progress returns the latest sample. Zero value = not yet muxed; whole pair is comparable.
 func (p *Process) Progress() media.Progress {

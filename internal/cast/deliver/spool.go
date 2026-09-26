@@ -60,9 +60,6 @@ func (s *Spool) Size() int64 {
 // Path returns backing file path; append-only guarantee lets readers see consistent prefixes.
 func (s *Spool) Path() string { return s.path }
 
-// Tail returns reader from byte 0 blocking at end-of-data (unblocked by write, close, or ctx).
-func (s *Spool) Tail(ctx context.Context) (io.ReadCloser, error) { return s.TailAt(ctx, 0) }
-
 // TailAt returns tail from byte offset with resume support (append-only guarantees immutability).
 func (s *Spool) TailAt(ctx context.Context, offset int64) (io.ReadCloser, error) {
 	f, err := os.Open(s.path)

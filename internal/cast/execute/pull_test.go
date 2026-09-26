@@ -3,8 +3,6 @@ package execute
 import (
 	"testing"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/stupside/castor/internal/cast/attempt"
 	"github.com/stupside/castor/internal/media"
 	"github.com/stupside/castor/internal/probe"
@@ -21,28 +19,21 @@ func TestTheReadsFloorEncodeIsCappedAtTheCastsCeiling(t *testing.T) {
 	cfg.Subtitles = noStage
 	program := programFromStream(t, origin.stream())
 
-	g, ctx := errgroup.WithContext(t.Context())
-	c := &cast{
-		cfg:     cfg,
-		attempt: attempt.Attempt{Program: program, Read: sourceReadPlan(t, program, testReadDeadline), Decode: media.Axes{Video: true}},
-		workDir: t.TempDir(),
-		group:   g,
-	}
-	if err := c.follow(ctx); err != nil {
+	s := readingSession(t, cfg, attempt.Attempt{Program: program, Read: sourceReadPlan(t, program, testReadDeadline), Decode: media.Axes{Video: true}})
+	followed, err := s.follow(program)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.read(ctx); err != nil {
+	buf, err := s.read(workspace{dir: t.TempDir()}, followed)
+	if err != nil {
 		t.Fatal(err)
 	}
-	<-c.reader.Done()
-	if err := c.reader.Err(); err != nil {
-		t.Fatalf("the read failed: %v\n%q", err, c.reader.Evidence())
-	}
-	if err := g.Wait(); err != nil {
-		t.Fatal(err)
+	<-buf.reader.Done()
+	if err := buf.reader.Err(); err != nil {
+		t.Fatalf("the read failed: %v\n%q", err, buf.reader.Evidence())
 	}
 
-	info, _, err := probe.FFprobe(ffprobePath).File(c.spool.Path()).Probe(t.Context())
+	info, _, err := probe.FFprobe(ffprobePath).File(buf.reader.spool.Path()).Probe(t.Context())
 	if err != nil {
 		t.Fatalf("probing the buffer this read wrote: %v", err)
 	}

@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"sync/atomic"
 	"testing"
@@ -196,9 +195,7 @@ func sourceReadPlan(t *testing.T, program media.Program, rwTimeout time.Duration
 func uniformReadPlan(program media.Program, policy read.Policy) read.Plan {
 	plan := make(read.Plan, len(program.Inputs))
 	for _, input := range program.Inputs {
-		copy := policy
-		copy.RetryStatuses = slices.Clone(policy.RetryStatuses)
-		plan[input.ID] = copy
+		plan[input.ID] = policy
 	}
 	return plan
 }

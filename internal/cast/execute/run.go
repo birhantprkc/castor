@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/url"
 	"os"
@@ -15,11 +14,9 @@ import (
 
 	"github.com/stupside/castor/internal/cast/attempt"
 	"github.com/stupside/castor/internal/cast/compose"
-	"github.com/stupside/castor/internal/cast/deliver"
-	"github.com/stupside/castor/internal/cast/transcode"
 	"github.com/stupside/castor/internal/device"
-	"github.com/stupside/castor/internal/ffmpeg"
 	"github.com/stupside/castor/internal/media"
+	"github.com/stupside/castor/internal/source"
 )
 
 // Executor runs decided attempt over real machinery (varies: Attempt; fixed: binaries/renderer/address).
@@ -31,195 +28,144 @@ func NewExecutor(cfg Config) *Executor { return &Executor{cfg: cfg} }
 
 var _ attempt.Runner = (*Executor)(nil)
 
-func (e *Executor) Run(ctx context.Context, a attempt.Attempt) attempt.Outcome {
-	return run(ctx, e.cfg, a)
+// Run casts a end to end; everything it acquired is released before its outcome is read.
+func (e *Executor) Run(parent context.Context, a attempt.Attempt) attempt.Outcome {
+	if err := a.Program.Validate(); err != nil {
+		err = fmt.Errorf("attempt has no valid media program: %w", err)
+		return attempt.Outcome{Err: err, Evidence: evidence(ran{}, err, parent.Err() != nil)}
+	}
+	s := open(parent, e.cfg, a)
+	r, err := s.play()
+	err = errors.Join(err, s.releases.release())
+	return attempt.Outcome{Err: err, Evidence: evidence(r, err, parent.Err() != nil)}
 }
 
-// cast is one attempt: working material and record of what each step established.
-type cast struct {
+// session is what one attempt runs on and never changes once opened; every step returns what it established.
+type session struct {
 	cfg     Config
 	attempt attempt.Attempt
 
-	row compose.Row
-
-	// program is what this cast reads: the attempt's, with each followed input pointed at castor's timeline.
-	program  media.Program
-	unfollow func() error
-
-	localIP string
-	workDir string
-
-	ctx      context.Context
-	cancel   context.CancelFunc
-	group    *errgroup.Group               // Owns concurrent stages (cancelled before work dir removed).
-	connect  func() (device.Device, error) // Renderer acquisition (memo, not lock).
-	dev      device.Device
-	stop     func() error
-	burn     Burn // Nil if cast runs none (only buffering cast needs it).
-	spool    *deliver.Spool
-	reader   *pull
-	opts     transcode.EncodeOptions
-	proc     *ffmpeg.Process
-	sink     sink
-	tail     io.ReadCloser // Stdin feed for encoder (cast owns and closes).
-	evidence attempt.Evidence
-	output   producer // What writes the served bytes: the encoder, or the read standing in for it.
+	ctx   context.Context
+	group *errgroup.Group // Owns the steps that run beside the pipeline (the concurrent connect).
+	// device acquires the renderer once, whichever step asks first.
+	device func() (device.Device, error)
+	// releases undoes everything the attempt acquired, once it ends.
+	releases *releases
 }
 
-// run casts attempt end to end (teardown called here, not deferred; result is cast's own).
-func run(parent context.Context, cfg Config, a attempt.Attempt) attempt.Outcome {
-	c := &cast{cfg: cfg, attempt: a}
-	c.stop = sync.OnceValue(c.teardown)
-
-	err := errors.Join(c.play(parent), c.stop())
-	if err == nil {
-		c.evidence.Reached = attempt.PhaseDelivered
-	}
-	return c.outcome(parent, err)
+// ran is how far an attempt's pipeline got, and the read it started on the way (nil where it read nothing).
+type ran struct {
+	reached attempt.Phase
+	reader  *pull
 }
 
-func (c *cast) play(parent context.Context) error {
-	ctx, err := c.open(parent)
-	if err != nil {
-		return err
-	}
-	if err := c.compose(ctx); err != nil {
-		return err
-	}
-	switch c.row.Kind {
-	case compose.Handoff:
-		return c.handoff(ctx)
-	case compose.Remux:
-		return c.remux(ctx)
-	case compose.ReadOnce:
-		return c.readOnce(ctx)
-	default:
-		return fmt.Errorf("composition %q has no execution for kind %d", c.row.Name, c.row.Kind)
-	}
-}
-
-func (c *cast) handoff(ctx context.Context) error {
-	if _, err := c.connect(); err != nil {
-		return err
-	}
-	// Present because open validated this program before the composition ran.
-	primary, _ := c.attempt.Program.PrimaryInput()
-	c.evidence.Handoff = true
-	if err := c.hand(ctx, primary.URL, primary.ContentType); err != nil {
-		return err
-	}
-	slog.InfoContext(ctx, "playback handed off to device")
-	return nil
-}
-
-func (c *cast) remux(ctx context.Context) error {
-	if err := c.workspace(ctx); err != nil {
-		return err
-	}
-	if err := c.follow(ctx); err != nil {
-		return err
-	}
-	if _, err := c.connect(); err != nil {
-		return err
-	}
-	return c.serve(ctx, c.fromSource())
-}
-
-func (c *cast) readOnce(ctx context.Context) error {
-	if err := c.workspace(ctx); err != nil {
-		return err
-	}
-	if err := c.follow(ctx); err != nil {
-		return err
-	}
-	if err := c.read(ctx); err != nil {
-		return err
-	}
-	if err := c.transcribe(ctx); err != nil {
-		return err
-	}
-	if err := c.playable(ctx); err != nil {
-		return err
-	}
-	c.evidence.Buffered = true
-	if _, err := c.connect(); err != nil {
-		return err
-	}
-	return c.serve(ctx, c.fromBuffer())
-}
-
-func (c *cast) open(parent context.Context) (context.Context, error) {
-	if err := c.attempt.Program.Validate(); err != nil {
-		return nil, fmt.Errorf("attempt has no valid media program: %w", err)
-	}
-	c.program = c.attempt.Program
+func open(parent context.Context, cfg Config, a attempt.Attempt) *session {
 	runCtx, cancel := context.WithCancel(parent)
 	g, ctx := errgroup.WithContext(runCtx)
-	c.ctx, c.cancel, c.group = ctx, cancel, g
-	c.connect = sync.OnceValues(func() (device.Device, error) {
-		dev, err := c.cfg.Renderer.Connect(ctx)
-		c.dev = dev
+	rel := &releases{}
+	// Released last: whatever still runs beside the pipeline stops before the attempt is over.
+	rel.push(func() error {
+		cancel()
+		_ = g.Wait()
+		return nil
+	})
+	connect := sync.OnceValues(func() (device.Device, error) {
+		dev, err := cfg.Renderer.Connect(ctx)
+		if dev != nil {
+			rel.push(func() error { _ = dev.Close(); return nil })
+		}
 		return dev, err
 	})
-	return ctx, nil
+	return &session{cfg: cfg, attempt: a, ctx: ctx, group: g, device: connect, releases: rel}
 }
 
-func (c *cast) teardown() error {
-	// Killed first, because everything after this needs the encoder to have stopped writing.
-	if c.proc != nil {
-		c.proc.Kill()
+func (s *session) play() (ran, error) {
+	row, err := s.compose()
+	if err != nil {
+		return ran{}, err
 	}
-	if c.tail != nil {
-		_ = c.tail.Close()
+	switch row.Kind {
+	case compose.Handoff:
+		return s.handoff()
+	case compose.Remux:
+		return s.remux()
+	case compose.ReadOnce:
+		return s.readOnce()
+	default:
+		return ran{}, fmt.Errorf("composition %q has no execution for kind %d", row.Name, row.Kind)
 	}
-	if c.sink != nil {
-		_ = c.sink.Close()
-	}
-	var encoded error
-	switch {
-	case c.proc != nil:
-		encoded = encoderResult(c.ctx, c.proc, c.proc.Wait())
-	case c.output == producer(c.reader) && c.ctx.Err() == nil:
-		// The read stands in for the encoder, so a read that failed fails the cast as that encoder would have.
-		encoded = c.reader.Err()
-	}
-	if c.cancel != nil {
-		c.cancel()
-	}
-	if c.group != nil {
-		_ = c.group.Wait()
-	}
-	// The read runs outside the group, so it is joined here: its evidence settles and its spool closes before the work dir goes.
-	if c.reader != nil {
-		<-c.reader.Done()
-	}
-	// Only once every reader is gone: a timeline closed under one would read as the source failing.
-	if c.unfollow != nil {
-		_ = c.unfollow()
-	}
-	if c.dev != nil {
-		_ = c.dev.Close()
-	}
-	if c.workDir != "" {
-		_ = os.RemoveAll(c.workDir)
-	}
-	return encoded
 }
 
-func (c *cast) compose(ctx context.Context) error {
+func (s *session) handoff() (ran, error) {
+	dev, err := s.device()
+	if err != nil {
+		return ran{}, err
+	}
+	// Present because run validated this program before the composition ran.
+	primary, _ := s.attempt.Program.PrimaryInput()
+	if err := hand(s.ctx, dev, primary.URL, primary.ContentType, true); err != nil {
+		return ran{}, err
+	}
+	slog.InfoContext(s.ctx, "playback handed off to device")
+	return ran{reached: attempt.PhasePlaying}, nil
+}
+
+func (s *session) remux() (ran, error) {
+	ws, err := s.workspace()
+	if err != nil {
+		return ran{}, err
+	}
+	program, err := s.follow(s.attempt.Program)
+	if err != nil {
+		return ran{}, err
+	}
+	dev, err := s.device()
+	if err != nil {
+		return ran{}, err
+	}
+	reached, err := s.serve(dev, ws, feed{program: program}, nil)
+	return ran{reached: reached}, err
+}
+
+func (s *session) readOnce() (ran, error) {
+	ws, err := s.workspace()
+	if err != nil {
+		return ran{}, err
+	}
+	program, err := s.follow(s.attempt.Program)
+	if err != nil {
+		return ran{}, err
+	}
+	buf, err := s.read(ws, program)
+	if err != nil {
+		return ran{}, err
+	}
+	reading := ran{reached: attempt.PhaseReading, reader: buf.reader}
+	if err := gate(s.ctx, buf); err != nil {
+		return reading, err
+	}
+	dev, err := s.device()
+	if err != nil {
+		return reading, err
+	}
+	reached, err := s.serve(dev, ws, feed{buffered: buf}, buf.burn)
+	return ran{reached: max(reading.reached, reached), reader: buf.reader}, err
+}
+
+func (s *session) compose() (compose.Row, error) {
 	shape := compose.Shape{
-		Program:   c.attempt.Program,
-		Delivery:  c.attempt.Delivery,
-		Height:    c.attempt.SelfFetchHeight(),
-		MaxHeight: c.cfg.MaxHeight,
+		Program:   s.attempt.Program,
+		Delivery:  s.attempt.Delivery,
+		Height:    source.SelfFetchHeight(s.attempt.Program, s.attempt.Origin, s.attempt.Rendition),
+		MaxHeight: s.cfg.MaxHeight,
 	}
 
-	shape.Renderer = c.cfg.Renderer.Profile()
+	shape.Renderer = s.cfg.Renderer.Profile()
 	row, fixed := compose.Compose(shape, compose.ProfileOnly)
 	if !fixed {
-		dev, err := c.connect()
+		dev, err := s.device()
 		if err != nil {
-			return err
+			return compose.Row{}, err
 		}
 		negotiated := dev.Capabilities()
 		// The family states whether it fetches for itself once, in its profile.
@@ -227,13 +173,12 @@ func (c *cast) compose(ctx context.Context) error {
 		shape.Renderer = negotiated
 		row, _ = compose.Compose(shape, compose.Negotiated)
 	}
-	c.row = row
 
 	connected := "before the read"
 	if fixed {
 		connected = "concurrently with the read"
 	}
-	slog.InfoContext(ctx, "cast composition",
+	slog.InfoContext(s.ctx, "cast composition",
 		"composition", row.Name,
 		"why", row.Why,
 		"connect", connected,
@@ -241,41 +186,62 @@ func (c *cast) compose(ctx context.Context) error {
 	)
 
 	if fixed {
-		c.group.Go(func() error { _, err := c.connect(); return err })
+		s.group.Go(func() error { _, err := s.device(); return err })
 	}
-	return nil
+	return row, nil
 }
 
-func (c *cast) workspace(ctx context.Context) error {
-	localIP, err := c.cfg.Addresses.LocalIPv4(ctx)
+// workspace is where an attempt keeps its files, and the address its renderer reaches it at.
+type workspace struct {
+	localIP string
+	dir     string
+}
+
+func (s *session) workspace() (workspace, error) {
+	localIP, err := s.cfg.Addresses.LocalIPv4(s.ctx)
 	if err != nil {
-		return fmt.Errorf("resolving local relay address: %w", err)
+		return workspace{}, fmt.Errorf("resolving local relay address: %w", err)
 	}
-	workDir, err := os.MkdirTemp("", "castor-")
+	dir, err := os.MkdirTemp("", "castor-")
 	if err != nil {
-		return fmt.Errorf("creating work directory: %w", err)
+		return workspace{}, fmt.Errorf("creating work directory: %w", err)
 	}
-	c.localIP, c.workDir = localIP, workDir
-	return nil
+	s.releases.push(func() error { _ = os.RemoveAll(dir); return nil })
+	return workspace{localIP: localIP, dir: dir}, nil
 }
 
 // follow points the inputs whose timelines castor keeps at castor's republished playlists.
-func (c *cast) follow(ctx context.Context) error {
-	program, unfollow, err := c.cfg.Timelines.Republish(ctx, c.attempt.Program)
+func (s *session) follow(program media.Program) (media.Program, error) {
+	followed, unfollow, err := s.cfg.Timelines.Republish(s.ctx, program)
 	if err != nil {
-		c.evidence.TimelineErr = err
-		return fmt.Errorf("following the source's timeline: %w", err)
+		return media.Program{}, &timelineUnreadable{err: err}
 	}
-	c.program, c.unfollow = program, unfollow
+	s.releases.push(func() error { _ = unfollow(); return nil })
+	return followed, nil
+}
+
+// timelineUnreadable is a source whose timeline castor must keep and could not read.
+type timelineUnreadable struct{ err error }
+
+func (e *timelineUnreadable) Error() string {
+	return "following the source's timeline: " + e.err.Error()
+}
+func (e *timelineUnreadable) Unwrap() error { return e.err }
+
+// hand points the renderer at target; source says whether that is the source itself rather than what castor serves.
+func hand(ctx context.Context, dev device.Device, target *url.URL, contentType string, source bool) error {
+	slog.InfoContext(ctx, "starting playback", "url", target.String(), "content_type", contentType)
+	if err := dev.Play(ctx, target, contentType); err != nil {
+		return &playRefused{err: err, source: source}
+	}
 	return nil
 }
 
-func (c *cast) hand(ctx context.Context, target *url.URL, contentType string) error {
-	slog.InfoContext(ctx, "starting playback", "url", target.String(), "content_type", contentType)
-	if err := c.dev.Play(ctx, target, contentType); err != nil {
-		c.evidence.PlayErr = err
-		return fmt.Errorf("starting playback: %w", err)
-	}
-	c.evidence.Reached = attempt.PhasePlaying
-	return nil
+// playRefused is the renderer's own refusal of the URL it was handed.
+type playRefused struct {
+	err    error
+	source bool
 }
+
+func (e *playRefused) Error() string { return "starting playback: " + e.err.Error() }
+func (e *playRefused) Unwrap() error { return e.err }

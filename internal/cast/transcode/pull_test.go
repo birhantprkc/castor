@@ -46,14 +46,14 @@ func TestTheExtraPipesCarryWhatTheFlagsSay(t *testing.T) {
 		samples []media.Progress
 		pcm     countingWriter
 	)
-	proc, err := ffmpeg.Start(t.Context(), ffmpegPath, cmd, ffmpeg.WithPCM(&pcm),
-		ffmpeg.WithProgress(func(s media.Progress) { samples = append(samples, s) }))
+	proc, err := ffmpeg.Start(t.Context(), ffmpegPath, cmd, ffmpeg.Options{PCM: &pcm,
+		Progress: func(s media.Progress) { samples = append(samples, s) }})
 	if err != nil {
 		t.Fatal(err)
 	}
 	spooled, _ := io.Copy(io.Discard, proc.Stdout)
 	if err := proc.Wait(); err != nil {
-		t.Fatalf("the pull failed: %v\n%q", err, proc.StderrTail())
+		t.Fatalf("the pull failed: %v\n%q", err, proc.Evidence().Lines)
 	}
 
 	if spooled == 0 {

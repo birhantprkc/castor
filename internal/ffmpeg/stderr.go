@@ -15,11 +15,6 @@ import (
 // stderrTailCapacity bounds retained lines: startup burst (~20) plus two minutes of progress.
 const stderrTailCapacity = 128
 
-// StderrTail returns the most recent stderr lines (kept even while process runs).
-func (p *Process) StderrTail() []string {
-	return p.tail.snapshot()
-}
-
 type observer interface {
 	Observe(line string)
 }
@@ -28,9 +23,7 @@ type Evidence struct {
 	// ExitStatus is the process exit code (noExitStatus = not reaped or castor killed it).
 	ExitStatus int
 
-	// Markers are unplayable-output markers printed by ffmpeg, in first-appearance order.
-	Markers []string
-
+	// Lines are the most recent stderr lines, kept even while the process runs.
 	Lines []string
 }
 
@@ -38,13 +31,12 @@ type Evidence struct {
 func (p *Process) Evidence() Evidence {
 	return Evidence{
 		ExitStatus: int(p.status.Load()),
-		Markers:    p.markers.snapshot(),
 		Lines:      p.tail.snapshot(),
 	}
 }
 
 func (p *Process) LogStderrTail(ctx context.Context, msg string) {
-	for _, line := range p.StderrTail() {
+	for _, line := range p.tail.snapshot() {
 		slog.WarnContext(ctx, msg, "line", line)
 	}
 }
@@ -97,17 +89,16 @@ func (f *fanout) Observe(line string) {
 type ringTail struct {
 	mu  sync.Mutex
 	buf []string
-	cap int
 }
 
-func newTail(capacity int) *ringTail {
-	return &ringTail{buf: make([]string, 0, capacity), cap: capacity}
+func newTail() *ringTail {
+	return &ringTail{buf: make([]string, 0, stderrTailCapacity)}
 }
 
 func (t *ringTail) Observe(line string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if len(t.buf) == t.cap {
+	if len(t.buf) == stderrTailCapacity {
 		t.buf = t.buf[1:]
 	}
 	t.buf = append(t.buf, line)

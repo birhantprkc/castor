@@ -9,37 +9,44 @@ import (
 	"github.com/stupside/castor/internal/media"
 )
 
-// outcome folds cast result and judgement into one value; read error travels beside cast error.
-func (c *cast) outcome(ctx context.Context, err error) attempt.Outcome {
-	e := c.evidence
+// evidence is what an attempt left behind, read from how far it ran and how it ended.
+func evidence(r ran, err error, cancelled bool) attempt.Evidence {
+	e := attempt.Evidence{Reached: r.reached, Cancelled: cancelled}
+	if err == nil {
+		e.Reached = attempt.PhaseDelivered
+	}
+	// A read cast reaches its delivery only once the playback gate proved the buffer.
+	e.Buffered = r.reader != nil && r.reached >= attempt.PhaseOpening
 
-	if c.reader != nil {
-		// A read the cast's own teardown cancelled did not fail on its own account.
-		if err := c.readErr(); !errors.Is(err, context.Canceled) {
+	if p := r.reader; p != nil {
+		// A read the cast's own release cancelled did not fail on its own account.
+		if err := p.Err(); !errors.Is(err, context.Canceled) {
 			e.ReadErr = err
 		}
-		e.ReadExit = c.reader.ExitStatus()
-		e.ReadIncomplete = c.reader.LostMedia()
-		e.Copied = c.reader.Copying()
-		e.Lines = c.reader.Evidence()
+		e.ReadExit = p.ExitStatus()
+		e.ReadIncomplete = p.LostMedia()
+		e.Copied = p.Copying()
+		e.Lines = p.Evidence()
 	}
-	e.Cancelled = ctx.Err() != nil
 
+	if refused, ok := errors.AsType[*playRefused](err); ok {
+		e.PlayErr, e.Handoff = refused.err, refused.source
+	}
+	if unread, ok := errors.AsType[*timelineUnreadable](err); ok {
+		e.TimelineErr = unread.err
+	}
 	if undelivered, ok := errors.AsType[*watch.Undelivered](err); ok {
 		e.Undelivered = undelivered
 	}
-
 	// A renderer its family saw go away while the cast played (see supervising).
 	if gone, ok := errors.AsType[*media.Gone](err); ok {
 		e.RendererGone = gone
 	}
-
 	if verdict, ok := errors.AsType[*watch.Fault](err); ok {
 		e.Verdict, e.Health = verdict.Kind, verdict.Health
 		if len(e.Lines) == 0 {
 			e.Lines = verdict.Evidence
 		}
 	}
-
-	return attempt.Outcome{Err: err, Evidence: e}
+	return e
 }

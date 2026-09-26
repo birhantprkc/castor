@@ -59,7 +59,7 @@ type rule struct {
 	Why string
 	// Windows: where row applies (action table decides what to do).
 	Windows []Window
-	// When: health predicate; nil on total row (enables testing without ffmpeg).
+	// When: health predicate; nil on the fallback rows, which are never asked.
 	When func(Health) bool
 	Kind Kind
 	// Blames: whose evidence explains this verdict.
@@ -151,31 +151,17 @@ var rules = []rule{{
 	Kind:    Ready,
 }}
 
-// starting is the total row of both pre-playback windows: nothing has been established.
-var starting = rule{
-	Name:    "starting",
-	Why:     "nothing has been established yet",
-	Windows: []Window{BeforePlay, Opening},
-	Kind:    Starting,
-}
+// starting answers both pre-playback windows when no rule did: nothing has been established.
+var starting = rule{Name: "starting", Why: "nothing has been established yet", Kind: Starting}
 
-// healthy is the total row of the playing window: a cast in flight with nothing against it.
-var healthy = rule{
-	Name:    "healthy",
-	Why:     "nothing is against this cast",
-	Windows: []Window{Playing},
-	Kind:    Healthy,
-}
-
-func total(w Window) rule {
-	if w == Playing {
-		return healthy
-	}
-	return starting
-}
+// healthy answers the playing window when no rule did: a cast in flight with nothing against it.
+var healthy = rule{Name: "healthy", Why: "nothing is against this cast", Kind: Healthy}
 
 func judge(w Window, h Health) (rule, action, error) {
-	r := total(w)
+	r := starting
+	if w == Playing {
+		r = healthy
+	}
 	for _, candidate := range rules {
 		if slices.Contains(candidate.Windows, w) && candidate.When(h) {
 			r = candidate

@@ -63,8 +63,6 @@ func Ceiling(segmentedOutput, burning bool) Pace {
 	}
 }
 
-var transient = []int{429, 500, 502, 503, 504}
-
 const segmentOpenRetries = 3
 
 type Policy struct {
@@ -76,10 +74,6 @@ type Policy struct {
 	Deadline time.Duration
 
 	SegmentRetries int
-
-	Backoff time.Duration
-
-	RetryStatuses []int
 
 	// Pace is how fast the source may be consumed.
 	Pace Pace

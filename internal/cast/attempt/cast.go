@@ -49,8 +49,7 @@ func Cast(ctx context.Context, in Intent, run Runner, resolver SourceResolver) e
 			return nil
 		}
 
-		f := classify(in, a, out)
-		f.Tried = tried
+		f := classify(in, a, out, tried)
 		if f.Kind == Cancelled {
 			// Prefer context.Cause (cancellation reason) over attempt error (pipe break).
 			return cmp.Or(context.Cause(ctx), out.Err)
@@ -103,8 +102,6 @@ func announce(ctx context.Context, in Intent, a Attempt) {
 		"inputs", a.Read.String(),
 		// Zero deadline is valid for some sources, not missing.
 		"read_deadline", primaryRead.Deadline,
-		"backoff_max", primaryRead.Backoff,
-		"retry_statuses", primaryRead.RetryStatuses,
 		"segment_retries", primaryRead.SegmentRetries,
 		"readrate", primaryRead.Pace.Realtime,
 		"burst", primaryRead.Pace.Burst,

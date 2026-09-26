@@ -4,82 +4,83 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
-	"slices"
 
 	"github.com/stupside/castor/internal/cast/container"
 	"github.com/stupside/castor/internal/cast/plan"
 	"github.com/stupside/castor/internal/cast/read"
 	"github.com/stupside/castor/internal/cast/transcode"
+	"github.com/stupside/castor/internal/device"
 	"github.com/stupside/castor/internal/ffmpeg"
 	"github.com/stupside/castor/internal/media"
 )
 
-func (c *cast) encode(ctx context.Context, f feed) error {
-	caps := c.dev.Capabilities()
+// encode decides what the served encode does with what f reads, for dev and any burn-in.
+func (s *session) encode(dev device.Device, f feed, burn Burn) (transcode.EncodeOptions, error) {
+	caps := dev.Capabilities()
 	into, err := plan.ServedFormat(caps)
 	if err != nil {
-		return err
+		return transcode.EncodeOptions{}, err
 	}
 
 	var burnIn string
-	if c.burn != nil {
-		if burnIn, err = c.burn.Inputs(); err != nil {
-			return err
+	if burn != nil {
+		if burnIn, err = burn.Inputs(); err != nil {
+			return transcode.EncodeOptions{}, err
 		}
 	}
 
-	facts, input, err := f.input(ctx, read.Ceiling(into.Delivery == container.DeliverSegmented, burnIn != ""))
+	facts, input, err := s.input(f, read.Ceiling(into.Delivery == container.DeliverSegmented, burnIn != ""))
 	if err != nil {
-		return err
+		return transcode.EncodeOptions{}, err
 	}
 
-	decided, err := c.decide(ctx, caps, into, facts, burnIn, f.spliced)
+	decided, err := s.decide(caps, into, facts, burnIn, f.spliced())
 	if err != nil {
-		return err
+		return transcode.EncodeOptions{}, err
 	}
-	c.opts = transcode.EncodeOptions{
+	return transcode.EncodeOptions{
 		Input:  input,
 		Format: into,
 		Probe:  facts.Probe,
 		Video:  decided.Video,
 		Audio:  decided.Audio,
+	}, nil
+}
+
+// input is what the encoder reads from f, measured where it reads it: the spool as it grows, or the source itself.
+func (s *session) input(f feed, ceiling read.Pace) (facts, transcode.EncodeInput, error) {
+	if f.buffered != nil {
+		measured := measure(s.ctx, "the local buffer this encode reads", s.cfg.Probes.File(f.buffered.reader.spool.Path()))
+		return measured, transcode.FromPipe(transcode.SpoolFormat, ceiling), nil
 	}
-	return nil
-}
-
-func (c *cast) bufferInput(ctx context.Context, ceiling read.Pace) (facts, transcode.EncodeInput, error) {
-	measured := measure(ctx, "the local buffer this encode reads", c.cfg.Probes.File(c.spool.Path()))
-	return measured, transcode.FromPipe(transcode.SpoolFormat, ceiling), nil
-}
-
-func (c *cast) sourceInput(ctx context.Context, ceiling read.Pace) (facts, transcode.EncodeInput, error) {
-	policies := c.attempt.Read.Encoding(c.program, ceiling)
-	source, err := transcode.NewProgramSource(c.program, policies, c.cfg.Binary)
+	policies := s.attempt.Read.Encoding(f.program, ceiling)
+	source, err := transcode.NewProgramSource(f.program, policies, s.cfg.Binary)
 	if err != nil {
 		return facts{}, transcode.EncodeInput{}, err
 	}
-	measured := measure(ctx, "the source this remux reads", c.cfg.Probes.Source(c.program, source.ProbeInputs()))
-	if source, err = transcode.NewProgramSource(aligned(c.program, measured.Probe.InputStarts), policies, c.cfg.Binary); err != nil {
+	measured := measure(s.ctx, "the source this remux reads", s.cfg.Probes.Source(f.program, source.ProbeInputs()))
+	if source, err = transcode.NewProgramSource(aligned(f.program, measured.Probe.InputStarts), policies, s.cfg.Binary); err != nil {
 		return facts{}, transcode.EncodeInput{}, err
 	}
 	return measured, transcode.FromSource(source), nil
 }
 
-func (c *cast) decide(ctx context.Context, caps media.Capabilities, into container.FormatInfo, facts facts, burnIn string, spliced bool) (plan.MediaPlan, error) {
-	decided, err := plan.PlanMedia(ctx, plan.Inputs{
-		Caps: caps, Probe: facts.Probe, Measured: facts.Measured, Into: into, MaxHeight: c.cfg.MaxHeight,
+func (s *session) decide(caps media.Capabilities, into container.FormatInfo, facts facts, burnIn string, spliced bool) (plan.MediaPlan, error) {
+	decided, err := plan.PlanMedia(s.ctx, plan.Inputs{
+		Caps: caps, Probe: facts.Probe, Measured: facts.Measured, Into: into, MaxHeight: s.cfg.MaxHeight,
 		Spliced: spliced,
 		// Attempt's evidence: axis a reader already died copying not handed to second process to copy again.
-		Decode:   c.attempt.Decode,
+		Decode:   s.attempt.Decode,
 		BurnIn:   burnIn,
-		Encoders: c.cfg.Encoders,
+		Encoders: s.cfg.Encoders,
 	})
 	if err != nil {
 		return plan.MediaPlan{}, fmt.Errorf("planning media: %w", err)
 	}
 
-	slog.InfoContext(ctx, "encode decision",
+	slog.InfoContext(s.ctx, "encode decision",
 		"video_codec", decided.Video.Name(),
 		"audio_codec", decided.Audio.Name(),
 		"source_video_codec", string(facts.Probe.VideoCodec),
@@ -90,10 +91,10 @@ func (c *cast) decide(ctx context.Context, caps media.Capabilities, into contain
 		"measured", facts.Measured,
 		"output_content_type", into.ContentType,
 		"burn_in", burnIn != "",
-		"decode", c.attempt.Decode.String(),
+		"decode", s.attempt.Decode.String(),
 		"encoded", decided.Encoded().String(),
 	)
-	logRefusals(ctx, decided)
+	logRefusals(s.ctx, decided)
 	return decided, nil
 }
 
@@ -104,22 +105,16 @@ func logRefusals(ctx context.Context, decided plan.MediaPlan) {
 	}
 }
 
-func (c *cast) startEncoder(ctx context.Context, step func(media.Progress), dir string) (*ffmpeg.Process, error) {
-	cmd, err := transcode.EncodeArgs(c.opts)
+// startEncoder runs opts in dir, reading tail where it reads a pipe (nil where it reads the source).
+func (s *session) startEncoder(opts transcode.EncodeOptions, tail io.Reader, step func(media.Progress), dir string) (*ffmpeg.Process, error) {
+	cmd, err := transcode.EncodeArgs(opts)
 	if err != nil {
 		return nil, fmt.Errorf("building encode args: %w", err)
 	}
 
-	slog.DebugContext(ctx, "encoder ffmpeg command", "path", c.cfg.FFmpegPath, "args", cmd.Args)
+	slog.DebugContext(s.ctx, "encoder ffmpeg command", "path", s.cfg.FFmpegPath, "args", cmd.Args)
 
-	startOpts := []ffmpeg.StartOption{
-		ffmpeg.WithWorkDir(dir),
-		ffmpeg.WithProgress(step),
-	}
-	if c.tail != nil {
-		startOpts = slices.Insert(startOpts, 0, ffmpeg.WithStdin(c.tail))
-	}
-	proc, err := ffmpeg.Start(ctx, c.cfg.FFmpegPath, cmd, startOpts...)
+	proc, err := ffmpeg.Start(s.ctx, s.cfg.FFmpegPath, cmd, ffmpeg.Options{Stdin: tail, WorkDir: dir, Progress: step})
 	if err != nil {
 		return nil, fmt.Errorf("starting transcode: %w", err)
 	}
@@ -146,5 +141,5 @@ func (o encoderOutput) Evidence() []string { return o.proc.Evidence().Lines }
 
 func (o encoderOutput) Progress() media.Progress { return o.proc.Progress() }
 
-// Err is nil: the encoder's own failure is read once, at teardown (see encoderResult).
+// Err is nil: the encoder's own failure is read once, when it is released (see encoderResult).
 func (encoderOutput) Err() error { return nil }

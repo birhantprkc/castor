@@ -119,8 +119,3 @@ func (a Attempt) reading(r source.Resolution, deadline time.Duration) Attempt {
 	a.Read = read.ForProgram(a.Program, deadline)
 	return a
 }
-
-// SelfFetchHeight is the tallest picture a renderer fetching this attempt's link could pull.
-func (a Attempt) SelfFetchHeight() int {
-	return source.SelfFetchHeight(a.Program, a.Origin, a.Rendition)
-}

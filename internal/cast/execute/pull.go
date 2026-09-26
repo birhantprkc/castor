@@ -18,23 +18,18 @@ import (
 )
 
 type pull struct {
-	pcm io.ReadCloser
+	// pcm is the transcription's feed and pcmOut its write end, both nil where the read tees none.
+	pcm    io.ReadCloser
+	pcmOut *io.PipeWriter
 
-	ffmpegPath string
-	source     transcode.ProgramSource
-	probe      media.ProbeInfo
-	policy     read.Plan
-	verbose    bool
-	pcmOut     *io.PipeWriter
-	pcmRate    int
+	policy read.Plan
+	floor  plan.MediaPlan
+	spool  *deliver.Spool
+	proc   *ffmpeg.Process
 
-	floor plan.MediaPlan
-
-	spool *deliver.Spool
-	done  chan struct{}
-	err   error
-
-	proc *ffmpeg.Process
+	// done is closed once the read has ended, publishing err with it.
+	done chan struct{}
+	err  error
 }
 
 var _ watch.Producer = (*pull)(nil)
@@ -53,44 +48,37 @@ type pullSpec struct {
 }
 
 func startPull(ctx context.Context, spec pullSpec) (*pull, error) {
-	program, floor, wantPCM := spec.program, spec.floor, spec.pcmRate > 0
 	sp, err := deliver.NewSpool(spec.spoolPath)
 	if err != nil {
 		return nil, err
 	}
-	p := &pull{
-		ffmpegPath: spec.ffmpegPath,
-		source:     spec.source,
-		probe:      spec.probe,
-		policy:     spec.policy,
-		verbose:    slog.Default().Enabled(ctx, slog.LevelDebug),
-		floor:      floor,
-		pcmRate:    spec.pcmRate,
-		spool:      sp,
-		done:       make(chan struct{}),
-	}
-	if wantPCM {
+	var (
+		pcm    io.ReadCloser
+		pcmOut *io.PipeWriter
+	)
+	if spec.pcmRate > 0 {
 		r, w := io.Pipe()
-		p.pcm, p.pcmOut = r, w
+		pcm, pcmOut = r, w
 	}
-
-	if err := p.start(ctx); err != nil {
+	proc, err := startPuller(ctx, spec, pcmOut)
+	if err != nil {
 		sp.CloseWrite(err)
-		if p.pcmOut != nil {
-			_ = p.pcmOut.CloseWithError(err)
+		if pcmOut != nil {
+			_ = pcmOut.CloseWithError(err)
 		}
 		return nil, err
 	}
+	p := &pull{pcm: pcm, pcmOut: pcmOut, policy: spec.policy, floor: spec.floor, spool: sp, proc: proc, done: make(chan struct{})}
 
-	produced := floor.Encoded()
+	produced := spec.floor.Encoded()
 	// NewProgramSource refused every program Validate rejects, so the primary is present.
-	primary, _ := program.PrimaryInput()
+	primary, _ := spec.program.PrimaryInput()
 	slog.InfoContext(ctx, "upstream pull started",
-		"pcm", wantPCM,
+		"pcm", pcmOut != nil,
 		"reencode_video", produced.Video,
 		"reencode_audio", produced.Audio,
 		"source", primary.URL,
-		"header_keys", program.HeaderKeys(),
+		"header_keys", spec.program.HeaderKeys(),
 	)
 
 	go p.logProgress(ctx)
@@ -98,41 +86,40 @@ func startPull(ctx context.Context, spec pullSpec) (*pull, error) {
 	return p, nil
 }
 
-func (p *pull) start(ctx context.Context) error {
-	opts := transcode.PullOptions{
-		Source:        p.source,
-		Probe:         p.probe,
-		Video:         p.floor.Video,
-		Audio:         p.floor.Audio,
-		Verbose:       p.verbose,
-		PCM:           p.pcmOut != nil,
-		PCMSampleRate: p.pcmRate,
-	}
-	cmd, err := transcode.PullArgs(opts)
+// startPuller runs the read's ffmpeg, teeing PCM into pcmOut where there is one.
+func startPuller(ctx context.Context, spec pullSpec, pcmOut *io.PipeWriter) (*ffmpeg.Process, error) {
+	cmd, err := transcode.PullArgs(transcode.PullOptions{
+		Source:        spec.source,
+		Probe:         spec.probe,
+		Video:         spec.floor.Video,
+		Audio:         spec.floor.Audio,
+		Verbose:       slog.Default().Enabled(ctx, slog.LevelDebug),
+		PCM:           pcmOut != nil,
+		PCMSampleRate: spec.pcmRate,
+	})
 	if err != nil {
-		return fmt.Errorf("building the puller command line: %w", err)
+		return nil, fmt.Errorf("building the puller command line: %w", err)
 	}
 
-	var startOpts []ffmpeg.StartOption
-	if p.pcmOut != nil {
-		startOpts = append(startOpts, ffmpeg.WithPCM(p.pcmOut))
+	var opts ffmpeg.Options
+	// Set only when there is a tee: a nil *PipeWriter in the field would read as a consumer.
+	if pcmOut != nil {
+		opts.PCM = pcmOut
 	}
-	proc, err := ffmpeg.Start(ctx, p.ffmpegPath, cmd, startOpts...)
+	proc, err := ffmpeg.Start(ctx, spec.ffmpegPath, cmd, opts)
 	if err != nil {
-		return fmt.Errorf("starting puller ffmpeg: %w", err)
+		return nil, fmt.Errorf("starting puller ffmpeg: %w", err)
 	}
 
 	// Full invocation at debug so the pull can be reproduced by hand.
-	slog.DebugContext(ctx, "puller ffmpeg command", "path", p.ffmpegPath, "args", cmd.Args)
-
-	p.proc = proc
-	return nil
+	slog.DebugContext(ctx, "puller ffmpeg command", "path", spec.ffmpegPath, "args", cmd.Args)
+	return proc, nil
 }
 
 func (p *pull) run(ctx context.Context) {
 	defer close(p.done)
 
-	err := p.copyInto(p.proc)
+	err := p.copyInto()
 
 	proc := p.proc
 	if err != nil && ctx.Err() == nil {
@@ -152,10 +139,11 @@ func (p *pull) run(ctx context.Context) {
 	}
 }
 
-func (p *pull) copyInto(proc *ffmpeg.Process) error {
-	_, copyErr := io.Copy(p.spool, proc.Stdout)
+// copyInto buffers the read's output to its end.
+func (p *pull) copyInto() error {
+	_, copyErr := io.Copy(p.spool, p.proc.Stdout)
 	// A clean exit is not a complete read: the demuxer skips or truncates media and still exits 0.
-	return cmp.Or(copyErr, proc.Wait(), proc.SilentFailure())
+	return cmp.Or(copyErr, p.proc.Wait(), p.proc.SilentFailure())
 }
 
 func (p *pull) logProgress(ctx context.Context) {

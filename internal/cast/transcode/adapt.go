@@ -96,24 +96,6 @@ var videoCopyAdaptations = []copyAdaptation{
 	},
 }
 
-func planAudioCopy(probe media.ProbeInfo, into container.FormatInfo) copyPlan {
-	return planCopy(audioCopyAdaptations, copySubject{Codec: probe.AudioCodec, Into: into, Copying: true})
-}
-
-// planAudioEncode sums audio adaptations for encoder output (omitting it breaks E-AC-3).
-func planAudioEncode(codec media.Codec, into container.FormatInfo) copyPlan {
-	return planCopy(audioCopyAdaptations, copySubject{Codec: codec, Into: into})
-}
-
-func planVideoCopy(probe media.ProbeInfo, into container.FormatInfo) copyPlan {
-	return planCopy(videoCopyAdaptations, copySubject{Codec: probe.VideoCodec, Into: into, Copying: true})
-}
-
-// planVideoEncode is video counterpart of planAudioEncode; HEVC tagged hvc1.
-func planVideoEncode(codec media.Codec, into container.FormatInfo) copyPlan {
-	return planCopy(videoCopyAdaptations, copySubject{Codec: codec, Into: into})
-}
-
 // planCopy walks table once; empty codec yields empty plan; order is -bsf chain order.
 func planCopy(table []copyAdaptation, s copySubject) copyPlan {
 	var plan copyPlan

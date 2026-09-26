@@ -23,7 +23,7 @@ func TestEachInputIsOpenedOnItsOwnTerms(t *testing.T) {
 	}, ClockInput: "picture", EndPolicy: media.EndAtLongest})
 	source := mustProgramSource(t, program, read.Plan{
 		"picture": {
-			Deadline: time.Second, SegmentRetries: 4, Backoff: time.Minute, RetryStatuses: []int{429, 503},
+			Deadline: time.Second, SegmentRetries: 4,
 			Pace: read.Pace{Realtime: 2, Burst: 90 * time.Second},
 		},
 		// A direct file is never handed -seg_max_retry, which its demuxer aborts on.
@@ -35,13 +35,15 @@ func TestEachInputIsOpenedOnItsOwnTerms(t *testing.T) {
 		slices.Concat(demuxFlags, []string{
 			"-readrate", "2.0", "-readrate_initial_burst", "90",
 			"-rw_timeout", "1000000",
-			"-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "60", "-reconnect_on_http_error", "429,503",
+			"-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "60", "-reconnect_on_http_error", "429,500,502,503,504",
 			"-headers", "X-Video-Token: v\r\n",
 			"-f", "hls", "-http_seekable", "0", "-prefer_x_start", "1", "-allowed_extensions", "ALL", "-allowed_segment_extensions", "ALL",
 			"-extension_picky", "0", "-seg_format_options", "extension_picky=0",
 			"-seg_max_retry", "4", "-i", "https://video.test/master.m3u8",
 		}),
-		slices.Concat(demuxFlags, []string{"-rw_timeout", "2000000", "-headers", "X-Audio-Token: a\r\n", "-i", "https://audio.test/track.m4a"}),
+		slices.Concat(demuxFlags, []string{"-rw_timeout", "2000000",
+			"-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "60", "-reconnect_on_http_error", "429,500,502,503,504",
+			"-headers", "X-Audio-Token: a\r\n", "-i", "https://audio.test/track.m4a"}),
 		{"-map", "0:V:0", "-map", "1:a:2"},
 	} {
 		if !containsSequence(args, want) {

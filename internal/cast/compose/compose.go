@@ -38,14 +38,8 @@ const (
 	Negotiated
 )
 
-// Ordered rows plus fallback; total row has no predicate.
-type table struct {
-	rules []Row
-	total Row
-}
-
-// compositions is the whole of what a cast can be, in the order rows are asked.
-var compositions = table{rules: []Row{{
+// compositions is what a cast can be besides a remux, asked in declaration order, which is the contract.
+var compositions = []Row{{
 	// Non-fetching renderer; castor serves; early read before device connect.
 	Name:  "read-once",
 	Why:   "the renderer never fetches for itself, so this cast is served whatever it advertises",
@@ -59,34 +53,25 @@ var compositions = table{rules: []Row{{
 	Kind:  Handoff,
 	needs: Negotiated,
 	when:  Shape.Passthrough,
-}}, total: Row{
-	// Fallback: renderer rejects source or headers don't match.
+}}
+
+// remux answers what no composition did: the renderer rejects the source, or its headers do not match.
+var remux = Row{
 	Name:  "remux",
 	Why:   "the renderer fetches for itself but cannot be handed this source",
 	Kind:  Remux,
 	needs: Negotiated,
-}}
+}
 
 // Compose answers row for shape; two-pass (profile, then negotiated).
 func Compose(s Shape, admits Needs) (Row, bool) {
-	if row, ok := match(compositions.rules, s, admits); ok {
-		return row, true
-	}
-	if compositions.total.needs > admits {
-		return Row{}, false
-	}
-	return compositions.total, true
-}
-
-// First matching row in order; declaration order is contract.
-func match(rows []Row, s Shape, admits Needs) (Row, bool) {
-	for _, row := range rows {
-		if row.needs > admits {
-			continue
-		}
-		if row.when(s) {
+	for _, row := range compositions {
+		if row.needs <= admits && row.when(s) {
 			return row, true
 		}
 	}
-	return Row{}, false
+	if remux.needs > admits {
+		return Row{}, false
+	}
+	return remux, true
 }

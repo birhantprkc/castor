@@ -64,13 +64,8 @@ type classRule struct {
 	Kind Kind
 }
 
-type table struct {
-	rules []classRule
-	total classRule
-}
-
 // classes is the ordered classification rules for failed attempts; every discriminator is STRUCTURAL.
-var classes = table{rules: []classRule{{
+var classes = []classRule{{
 	// First, because cancellation is upstream of every symptom below; decided from context, not error text.
 	Why:  "the cast was cancelled",
 	When: func(e Evidence) bool { return e.Cancelled },
@@ -119,7 +114,7 @@ var classes = table{rules: []classRule{{
 		return e.Reached == PhaseOpening && (e.Verdict == watch.Dead || e.Verdict == watch.Stalled && e.Buffered)
 	},
 	Kind: ProducedNothing,
-}}, total: unclassified}
+}}
 
 var verdictClasses = map[watch.Kind]classRule{
 	// It already waited out two reconnect ceilings.
@@ -140,7 +135,8 @@ var unclassified = classRule{
 	Kind: Unclassified,
 }
 
-func classify(in Intent, a Attempt, o Outcome) *Fault {
+// classify names what failed, after the strategies already tried.
+func classify(in Intent, a Attempt, o Outcome, tried []string) *Fault {
 	r := classFor(o.Evidence)
 	return &Fault{
 		Kind:       r.Kind,
@@ -149,12 +145,13 @@ func classify(in Intent, a Attempt, o Outcome) *Fault {
 		Attempt:    a,
 		Candidates: len(in.Candidates),
 		Evidence:   o.Evidence,
+		Tried:      tried,
 		Err:        o.Err,
 	}
 }
 
 func classFor(e Evidence) classRule {
-	for _, r := range classes.rules {
+	for _, r := range classes {
 		if r.When(e) {
 			return r
 		}
@@ -162,7 +159,7 @@ func classFor(e Evidence) classRule {
 	if r, ok := verdictClasses[e.Verdict]; ok {
 		return r
 	}
-	return classes.total
+	return unclassified
 }
 
 type Fault struct {

@@ -198,11 +198,11 @@ func TestPipesAreCountedFromTheArgvAndMatchTheConsumer(t *testing.T) {
 	for _, tt := range []struct {
 		name  string
 		opts  PullOptions
-		with  []ffmpeg.StartOption
+		with  ffmpeg.Options
 		pipes int
 	}{
-		{"a tee nobody reads", teeing, nil, 2},
-		{"a consumer of a tee never routed", copyingPull(src), []ffmpeg.StartOption{ffmpeg.WithPCM(io.Discard)}, 1},
+		{"a tee nobody reads", teeing, ffmpeg.Options{}, 2},
+		{"a consumer of a tee never routed", copyingPull(src), ffmpeg.Options{PCM: io.Discard}, 1},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			cmd, err := PullArgs(tt.opts)
@@ -212,7 +212,7 @@ func TestPipesAreCountedFromTheArgvAndMatchTheConsumer(t *testing.T) {
 			if cmd.ExtraPipes != tt.pipes {
 				t.Errorf("extra pipes = %d, want %d", cmd.ExtraPipes, tt.pipes)
 			}
-			if _, err := ffmpeg.Start(t.Context(), "/bin/true", cmd, tt.with...); err == nil {
+			if _, err := ffmpeg.Start(t.Context(), "/bin/true", cmd, tt.with); err == nil {
 				t.Fatal("started anyway")
 			}
 		})

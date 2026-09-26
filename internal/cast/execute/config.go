@@ -4,6 +4,7 @@ import (
 	"github.com/stupside/castor/internal/cast/plan"
 	"github.com/stupside/castor/internal/ffmpeg"
 	"github.com/stupside/castor/internal/media"
+	"github.com/stupside/castor/internal/probe"
 )
 
 // Config is what one attempt runs on (binaries, ceiling, renderer ports, burn-in).
@@ -15,7 +16,8 @@ type Config struct {
 	// Encoders is the host's encoder lookup, bound to that binary.
 	Encoders plan.Encoders
 
-	Probes Probes
+	// Probes measures what an attempt reads: its source program, or its local buffer.
+	Probes probe.FFprobe
 
 	Renderer Renderer
 

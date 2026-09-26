@@ -37,16 +37,6 @@ func ForProgram(program media.Program, deadline time.Duration) Plan {
 	return plan
 }
 
-// Clone owns every retry-status slice as well as the map itself.
-func (p Plan) Clone() Plan {
-	clone := make(Plan, len(p))
-	for id, policy := range p {
-		policy.RetryStatuses = slices.Clone(policy.RetryStatuses)
-		clone[id] = policy
-	}
-	return clone
-}
-
 // Primary returns clock input's policy (pace describing program).
 func (p Plan) Primary(program media.Program) Policy {
 	return p[program.ClockInput]
@@ -55,7 +45,7 @@ func (p Plan) Primary(program media.Program) Policy {
 // Cautious lowers inputs that can give up startup burst (single finite recovery).
 func (p Plan) Cautious() (Plan, bool) {
 	changed := false
-	plan := p.Clone()
+	plan := maps.Clone(p)
 	for id, policy := range plan {
 		if relaxed, ok := cautious(policy); ok {
 			plan[id] = relaxed
@@ -88,7 +78,7 @@ func (p Plan) String() string {
 
 // Encoding is the plan an encode reads a source with: every input under the ceiling, or with none, only segmented inputs paced.
 func (p Plan) Encoding(program media.Program, ceiling Pace) Plan {
-	plan := p.Clone()
+	plan := maps.Clone(p)
 	for _, input := range program.Inputs {
 		policy, ok := plan[input.ID]
 		if !ok {

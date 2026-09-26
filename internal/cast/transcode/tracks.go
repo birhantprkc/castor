@@ -13,23 +13,33 @@ import (
 
 // No "-c copy" keyword; decided track name goes on -c:v and -c:a (nowhere else).
 
+// axis is one decided track as the output carries it.
 type axis struct {
-	spec    string // ffmpeg's stream specifier: "v" or "a"
+	spec  string // ffmpeg's stream specifier: "v" or "a"
+	table []copyAdaptation
+	name  string // what -c names: "copy", or the encoder
+	// codec is what lands in the container: the source's when copied, the encoder's otherwise.
+	codec   media.Codec
 	copying bool
 	refused bool // the tables already say this container will not carry it
+	// encode is the encoder's own options, nil when copied.
+	encode []string
 }
 
-var (
-	encodedVideo = axis{spec: "v"}
-	encodedAudio = axis{spec: "a"}
-)
-
-func copiedVideo(refused media.Axes) axis {
-	return axis{spec: "v", copying: true, refused: refused.Video}
+func videoAxis(probe media.ProbeInfo, video plan.VideoTrack, refused media.Axes) axis {
+	a := axis{spec: "v", table: videoCopyAdaptations, name: video.Name(), codec: probe.VideoCodec, copying: true, refused: refused.Video}
+	if venc, ok := video.Encode(); ok {
+		a.codec, a.copying, a.encode = venc.Encoder.Codec, false, videoEncodeArgs(venc)
+	}
+	return a
 }
 
-func copiedAudio(refused media.Axes) axis {
-	return axis{spec: "a", copying: true, refused: refused.Audio}
+func audioAxis(probe media.ProbeInfo, audio plan.AudioTrack, refused media.Axes) axis {
+	a := axis{spec: "a", table: audioCopyAdaptations, name: audio.Name(), codec: probe.AudioCodec, copying: true, refused: refused.Audio}
+	if aenc, ok := audio.Encode(); ok {
+		a.codec, a.copying, a.encode = aenc.Codec, false, audioEncodeArgs(aenc)
+	}
+	return a
 }
 
 func decidedTracks(video plan.VideoTrack, audio plan.AudioTrack) error {
@@ -82,65 +92,24 @@ type axisArgs struct {
 	outputArgs []string
 }
 
-func adaptArgs(a axis, cp copyPlan, codec media.Codec, format container.FormatInfo) (axisArgs, error) {
+// args renders the axis into format; an encode takes its output's adaptations too (omitting them breaks E-AC-3).
+func (a axis) args(format container.FormatInfo) (axisArgs, error) {
+	cp := planCopy(a.table, copySubject{Codec: a.codec, Into: format, Copying: a.copying})
 	// A copy the tables already refuse must not be buildable.
 	if a.copying && a.refused {
 		return axisArgs{}, fmt.Errorf("copy of %q into %q on -c:%s is known not to be carriable; it should have been re-encoded",
-			codec, format.ContentType, a.spec)
+			a.codec, format.ContentType, a.spec)
 	}
 	if !a.copying && len(cp.Filters) > 0 {
 		return axisArgs{}, fmt.Errorf("re-encode to %q on -c:%s would carry bitstream filters %v; a repack belongs to a copy, so that row needs the copying predicate",
-			codec, a.spec, cp.Filters)
+			a.codec, a.spec, cp.Filters)
 	}
-	out := axisArgs{movFlags: cp.MovFlags, outputArgs: cp.OutputArgs}
+	out := axisArgs{args: []string{"-c:" + a.spec, a.name}, movFlags: cp.MovFlags, outputArgs: cp.OutputArgs}
 	// ffmpeg takes the whole chain as one comma separated value.
 	if len(cp.Filters) > 0 {
-		out.args = []string{"-bsf:" + a.spec, strings.Join(cp.Filters, ",")}
+		out.args = append(out.args, "-bsf:"+a.spec, strings.Join(cp.Filters, ","))
 	}
-	return out, nil
-}
-
-func videoCodecArgs(probe media.ProbeInfo, format container.FormatInfo, video plan.VideoTrack, refused media.Axes) (axisArgs, error) {
-	venc, reencode := video.Encode()
-	var (
-		out axisArgs
-		err error
-	)
-	if !reencode {
-		out, err = adaptArgs(copiedVideo(refused), planVideoCopy(probe, format), probe.VideoCodec, format)
-	} else {
-		out, err = adaptArgs(encodedVideo, planVideoEncode(venc.Encoder.Codec, format), venc.Encoder.Codec, format)
-	}
-	if err != nil {
-		return axisArgs{}, err
-	}
-	args := append([]string{"-c:v", video.Name()}, out.args...)
-	if reencode {
-		args = append(args, videoEncodeArgs(venc)...)
-	}
-	out.args = args
-	return out, nil
-}
-
-func audioCodecArgs(probe media.ProbeInfo, format container.FormatInfo, audio plan.AudioTrack, refused media.Axes) (axisArgs, error) {
-	aenc, reencode := audio.Encode()
-	var (
-		out axisArgs
-		err error
-	)
-	if !reencode {
-		out, err = adaptArgs(copiedAudio(refused), planAudioCopy(probe, format), probe.AudioCodec, format)
-	} else {
-		out, err = adaptArgs(encodedAudio, planAudioEncode(aenc.Codec, format), aenc.Codec, format)
-	}
-	if err != nil {
-		return axisArgs{}, err
-	}
-	args := append([]string{"-c:a", audio.Name()}, out.args...)
-	if reencode {
-		args = append(args, audioEncodeArgs(aenc)...)
-	}
-	out.args = args
+	out.args = append(out.args, a.encode...)
 	return out, nil
 }
 
@@ -165,11 +134,11 @@ func audioEncodeArgs(aenc plan.AudioEncode) []string {
 // trackArgs renders both decided axes into format: codecs first, then the output options their adaptations add.
 func trackArgs(probe media.ProbeInfo, format container.FormatInfo, video plan.VideoTrack, audio plan.AudioTrack) (codecs, output []string, err error) {
 	refused := container.Known(probe, format)
-	v, err := videoCodecArgs(probe, format, video, refused)
+	v, err := videoAxis(probe, video, refused).args(format)
 	if err != nil {
 		return nil, nil, err
 	}
-	a, err := audioCodecArgs(probe, format, audio, refused)
+	a, err := audioAxis(probe, audio, refused).args(format)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -2,6 +2,7 @@ package transcode
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -37,7 +38,7 @@ func NewProgramSource(program media.Program, plan read.Plan, binary ffmpeg.Binar
 		}
 	}
 
-	return ProgramSource{program: program.Clone(), plan: plan.Clone(), binary: binary}, nil
+	return ProgramSource{program: program.Clone(), plan: maps.Clone(plan), binary: binary}, nil
 }
 
 func (s ProgramSource) inputs() []sourceInput {
@@ -139,25 +140,13 @@ func readArgs(p read.Policy) []string {
 	if p.Deadline > 0 {
 		args = append(args, "-rw_timeout", strconv.FormatInt(p.Deadline.Microseconds(), 10))
 	}
-	if p.Backoff > 0 {
-		args = append(args,
-			"-reconnect", "1",
-			"-reconnect_streamed", "1",
-			"-reconnect_delay_max", strconv.Itoa(int(p.Backoff.Seconds())),
-		)
-		if len(p.RetryStatuses) > 0 {
-			args = append(args, "-reconnect_on_http_error", formatStatuses(p.RetryStatuses))
-		}
-	}
-	return args
-}
-
-func formatStatuses(codes []int) string {
-	out := make([]string, len(codes))
-	for i, code := range codes {
-		out[i] = strconv.Itoa(code)
-	}
-	return strings.Join(out, ",")
+	return append(args,
+		"-reconnect", "1",
+		"-reconnect_streamed", "1",
+		"-reconnect_delay_max", strconv.Itoa(int(read.BackoffMax.Seconds())),
+		// Transient statuses are retried; any other refusal is the origin's answer.
+		"-reconnect_on_http_error", "429,500,502,503,504",
+	)
 }
 
 // demuxFlags are terms all inputs use (generate timestamps, drop corrupt packets).

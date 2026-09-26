@@ -44,7 +44,7 @@ func TestACautiousReadGivesUpOnlyItsPace(t *testing.T) {
 			if !ok || got.Pace != pacePlayback {
 				t.Fatalf("cautious = %+v (%v), want playback pace with no burst", got.Pace, ok)
 			}
-			if got.Deadline != was.Deadline || got.Backoff != was.Backoff || got.SegmentRetries != was.SegmentRetries || got.Name == was.Name {
+			if got.Deadline != was.Deadline || got.SegmentRetries != was.SegmentRetries || got.Name == was.Name {
 				t.Errorf("relaxing changed more than the pace: %+v from %+v", got, was)
 			}
 			if _, again := cautious(got); again {

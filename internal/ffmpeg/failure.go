@@ -2,7 +2,6 @@ package ffmpeg
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 	"sync"
 )
@@ -52,9 +51,7 @@ type markerWatch struct {
 	mu sync.Mutex
 	// silent is the FIRST silent-failure line (nil until one appears).
 	silent error
-	// seen are markers that fired, in order and without repeats.
-	seen []string
-	lost bool
+	lost   bool
 }
 
 func (w *markerWatch) Observe(line string) {
@@ -63,9 +60,6 @@ func (w *markerWatch) Observe(line string) {
 			continue
 		}
 		w.mu.Lock()
-		if !slices.Contains(w.seen, f.marker) {
-			w.seen = append(w.seen, f.marker)
-		}
 		if w.silent == nil {
 			w.silent = fmt.Errorf("ffmpeg produced unplayable output: %s (%s)", f.reason, line)
 		}
@@ -85,10 +79,4 @@ func (w *markerWatch) lostMedia() bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.lost
-}
-
-func (w *markerWatch) snapshot() []string {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return slices.Clone(w.seen)
 }
