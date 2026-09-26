@@ -87,7 +87,7 @@ func (in *inspector) loadPoster(r tmdb.SearchResult) tea.Cmd {
 		return nil
 	}
 	in.posterPending = r.PosterPath
-	return fetchPosterCmd(in.ctx, in.client, r.PosterPath, posterCols, posterRows)
+	return fetchPosterCmd(in.ctx, in.client, r.PosterPath)
 }
 
 func (in *inspector) loadDetails(r tmdb.SearchResult) tea.Cmd {
@@ -176,7 +176,7 @@ func detailsCmd(ctx context.Context, c *tmdb.Client, mediaType string, id int) t
 func detailKey(mediaType string, id int) string { return mediaType + ":" + strconv.Itoa(id) }
 
 // fetchPosterCmd renders the poster to ANSI escapes; half-blocks show 2 pixels per cell.
-func fetchPosterCmd(ctx context.Context, c *tmdb.Client, posterPath string, cols, rows int) tea.Cmd {
+func fetchPosterCmd(ctx context.Context, c *tmdb.Client, posterPath string) tea.Cmd {
 	return func() tea.Msg {
 		body, err := c.Poster(ctx, posterPath, "w500")
 		if err != nil {
@@ -187,7 +187,7 @@ func fetchPosterCmd(ctx context.Context, c *tmdb.Client, posterPath string, cols
 		// NoDithering uses true-color; ScaleModeResize fits exactly to prevent layout shift.
 		img, err := ansimage.NewScaledFromReader(
 			body,
-			rows*2, cols,
+			posterRows*2, posterCols,
 			color.Transparent,
 			ansimage.ScaleModeResize,
 			ansimage.NoDithering,

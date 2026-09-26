@@ -263,7 +263,6 @@ type DiscoverParams struct {
 // Page carries paging cursor; allows caller to check remaining pages without request.
 type Page struct {
 	Results    []SearchResult
-	Page       int
 	TotalPages int
 }
 
@@ -293,7 +292,6 @@ func (c *Client) Discover(ctx context.Context, p DiscoverParams) (Page, error) {
 	}
 
 	var resp struct {
-		Page       int            `json:"page"`
 		TotalPages int            `json:"total_pages"`
 		Results    []SearchResult `json:"results"`
 	}
@@ -303,7 +301,7 @@ func (c *Client) Discover(ctx context.Context, p DiscoverParams) (Page, error) {
 	for i := range resp.Results {
 		resp.Results[i].MediaType = p.MediaType
 	}
-	return Page{Results: resp.Results, Page: resp.Page, TotalPages: resp.TotalPages}, nil
+	return Page{Results: resp.Results, TotalPages: resp.TotalPages}, nil
 }
 
 func sortBy(s Sort, mediaType string) string {

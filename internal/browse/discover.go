@@ -59,7 +59,7 @@ func discoverCmd(ctx context.Context, c *tmdb.Client, tok int, p tmdb.DiscoverPa
 // discParams snapshots the picker's filter and the current sort as a query.
 func (m model) discParams(page int) tmdb.DiscoverParams {
 	return tmdb.DiscoverParams{
-		MediaType: m.picker.mediaType(),
+		MediaType: m.picker.media,
 		GenreIDs:  m.picker.genreIDs(),
 		Sort:      m.disc.sort,
 		Page:      page,

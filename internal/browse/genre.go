@@ -133,8 +133,6 @@ func (g *genrePicker) reload() {
 	g.list.Select(min(idx, max(len(items)-1, 0)))
 }
 
-func (g genrePicker) mediaType() string { return g.media }
-
 // genreIDs is in a stable order.
 func (g genrePicker) genreIDs() []int {
 	ids := make([]int, 0, len(g.selected))

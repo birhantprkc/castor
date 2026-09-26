@@ -59,8 +59,6 @@ func (d *drilldown) begin(id int, name string) tea.Cmd {
 
 func (d *drilldown) setSize(w, h int) { d.list.SetSize(max(w, 30), h) }
 
-func (d drilldown) filtering() bool { return d.list.SettingFilter() }
-
 func (d *drilldown) showSeasons(tv *tmdb.TVDetails) {
 	d.tvName = tv.Name
 	items := make([]list.Item, 0, len(tv.Seasons))

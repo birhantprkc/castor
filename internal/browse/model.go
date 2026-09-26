@@ -321,7 +321,7 @@ func (m model) updateDrilldown(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) drilldownFiltering() bool {
-	return m.scr == screenDrilldown && m.drill.filtering()
+	return m.scr == screenDrilldown && m.drill.list.SettingFilter()
 }
 
 // goTo is the only way to change screen; different chrome needs recompute.
