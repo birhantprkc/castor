@@ -109,6 +109,13 @@ var rules = []rule{{
 	When:    func(h Health) bool { return h.starving() && h.SinceDeficit > StallWindow },
 	Kind:    Undeliverable,
 }, {
+	// A trickle never goes silent long enough to stall, and a paced-down read states no deficit.
+	Name:    "starved-in-flight",
+	Why:     "the renderer has had nothing left to play for longer than the stall window: what reaches it arrives far slower than it is played",
+	Windows: []Window{Playing},
+	When:    func(h Health) bool { return !h.Ended && h.starved() > StallWindow },
+	Kind:    Undeliverable,
+}, {
 	// Renderer accepted stream but never fetched bytes.
 	Name:    "unfetched",
 	Why:     "the renderer accepted the stream URL and was never handed a byte of what this cast produced for it",

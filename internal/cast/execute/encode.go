@@ -143,3 +143,8 @@ type encoderOutput struct {
 func (o encoderOutput) Done() <-chan struct{} { return o.ended }
 
 func (o encoderOutput) Evidence() []string { return o.proc.Evidence().Lines }
+
+func (o encoderOutput) Progress() media.Progress { return o.proc.Progress() }
+
+// Err is nil: the encoder's own failure is read once, at teardown (see encoderResult).
+func (encoderOutput) Err() error { return nil }

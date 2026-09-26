@@ -125,6 +125,9 @@ func (h Health) playable() bool { return h.Landed > 0 }
 // Provable media renderer can play; lower bound.
 func (h Health) buffer() time.Duration { return h.Delivered - h.SincePlay }
 
+// starved is how long the renderer has provably had nothing to play.
+func (h Health) starved() time.Duration { return max(-h.buffer(), 0) }
+
 // Renderer has media to play; distinguishes stop from end.
 func (h Health) buffered() bool { return h.buffer() > 0 }
 

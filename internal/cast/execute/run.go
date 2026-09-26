@@ -17,7 +17,6 @@ import (
 	"github.com/stupside/castor/internal/cast/compose"
 	"github.com/stupside/castor/internal/cast/deliver"
 	"github.com/stupside/castor/internal/cast/transcode"
-	"github.com/stupside/castor/internal/cast/watch"
 	"github.com/stupside/castor/internal/device"
 	"github.com/stupside/castor/internal/ffmpeg"
 	"github.com/stupside/castor/internal/media"
@@ -64,7 +63,7 @@ type cast struct {
 	sink     sink
 	tail     io.ReadCloser // Stdin feed for encoder (cast owns and closes).
 	evidence attempt.Evidence
-	output   watch.Producer // What writes the served bytes: the encoder, or the read standing in for it.
+	output   producer // What writes the served bytes: the encoder, or the read standing in for it.
 }
 
 // run casts attempt end to end (teardown called here, not deferred; result is cast's own).
@@ -179,7 +178,7 @@ func (c *cast) teardown() error {
 	switch {
 	case c.proc != nil:
 		encoded = encoderResult(c.ctx, c.proc, c.proc.Wait())
-	case c.output == watch.Producer(c.reader) && c.ctx.Err() == nil:
+	case c.output == producer(c.reader) && c.ctx.Err() == nil:
 		// The read stands in for the encoder, so a read that failed fails the cast as that encoder would have.
 		encoded = c.reader.Err()
 	}

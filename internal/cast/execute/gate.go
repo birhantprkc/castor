@@ -31,8 +31,14 @@ func (c *cast) playable(ctx context.Context) error {
 	}))
 }
 
+// producer is what writes the served bytes, judged by the media it has made rather than bytes a muxer pads.
+type producer interface {
+	watch.Producer
+	watch.Telemetry
+}
+
 func (c *cast) encoderMonitor(m watch.Monitor) watch.Monitor {
-	m.Producer = c.output
+	m.Producer, m.Telemetry = c.output, c.output
 	m.Landed = c.sink.Artifact().Landed
 	return m
 }
