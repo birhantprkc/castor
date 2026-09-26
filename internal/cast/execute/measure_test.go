@@ -66,3 +66,26 @@ func TestARenditionThatStartsLaterPlaysLater(t *testing.T) {
 		t.Errorf("inputs a millisecond apart were offset by %v, want them left together", same.Offsets["audio"])
 	}
 }
+
+// A transcription adds a sound-only output, which ffmpeg refuses to open over a source with no sound.
+func TestOnlyAReadSureToCarrySoundIsTranscribed(t *testing.T) {
+	program := func(optional bool) media.Program {
+		return media.Program{Tracks: []media.TrackRef{{Kind: media.TrackAudio, Input: media.PrimaryInputID, Optional: optional}}}
+	}
+	for _, tt := range []struct {
+		name    string
+		facts   facts
+		program media.Program
+		want    bool
+	}{
+		{"the probe heard sound", facts{Probe: media.ProbeInfo{AudioCodec: media.CodecAAC}, Measured: true}, program(true), true},
+		{"the probe heard silence", facts{Measured: true}, program(false), false},
+		{"unprobed, and the program may be silent", facts{}, program(true), false},
+		{"unprobed, and the program requires sound", facts{}, program(false), true},
+		{"half a probe that heard sound", facts{Probe: media.ProbeInfo{AudioCodec: media.CodecAAC}}, program(true), true},
+	} {
+		if got := tt.facts.sounds(tt.program); got != tt.want {
+			t.Errorf("%s: sounds = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}

@@ -29,6 +29,15 @@ func measure(ctx context.Context, subject string, p media.Prober) facts {
 	return facts{Probe: info, Measured: err == nil}
 }
 
+// sounds is whether program's read is sure to carry sound: heard by the probe, or required where the probe heard nothing.
+func (f facts) sounds(p media.Program) bool {
+	if f.Probe.AudioCodec != "" || f.Measured {
+		return f.Probe.AudioCodec != ""
+	}
+	track, ok := p.Track(media.TrackAudio)
+	return ok && !track.Optional
+}
+
 // probeBudget bounds probe time; ffmpeg HLS demuxer walks whole 403-playlist (199s seen).
 const probeBudget = read.BackoffMax / 2
 

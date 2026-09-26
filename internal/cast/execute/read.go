@@ -20,7 +20,7 @@ func (c *cast) read(ctx context.Context) error {
 		return err
 	}
 
-	if c.cfg.Subtitles != nil && (!facts.Measured || facts.Probe.AudioCodec != "") {
+	if c.cfg.Subtitles != nil && facts.sounds(program) {
 		c.burn = c.cfg.Subtitles(ctx, c.workDir)
 	}
 

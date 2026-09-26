@@ -128,6 +128,10 @@ func TestEveryAttemptOwnsAFreshWorkDirectoryAndLeavesNoneBehind(t *testing.T) {
 	for range 2 {
 		// No ffmpeg configured, so the read fails after the work directory exists.
 		program := programFromStream(t, candidate)
+		// Sound the read must carry, so an unprobed read is still transcribed and the hook sees its directory.
+		for i := range program.Tracks {
+			program.Tracks[i].Optional = false
+		}
 		cfg := Config{
 			Renderer:  renderer(pushOnly(), &fakeDevice{caps: dlnaLike()}),
 			Subtitles: watchDir, Addresses: fixedAddress("127.0.0.1"), Probes: probe.FFprobe(""), Timelines: direct{},
