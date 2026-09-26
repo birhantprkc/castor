@@ -14,7 +14,10 @@ func (c *cast) outcome(ctx context.Context, err error) attempt.Outcome {
 	e := c.evidence
 
 	if c.reader != nil {
-		e.ReadErr = c.readErr()
+		// A read the cast's own teardown cancelled did not fail on its own account.
+		if err := c.readErr(); !errors.Is(err, context.Canceled) {
+			e.ReadErr = err
+		}
 		e.ReadExit = c.reader.ExitStatus()
 		e.ReadIncomplete = c.reader.LostMedia()
 		e.Copied = c.reader.Copying()

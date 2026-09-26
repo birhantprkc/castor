@@ -189,6 +189,10 @@ func (c *cast) teardown() error {
 	if c.group != nil {
 		_ = c.group.Wait()
 	}
+	// The read runs outside the group, so it is joined here: its evidence settles and its spool closes before the work dir goes.
+	if c.reader != nil {
+		<-c.reader.Done()
+	}
 	// Only once every reader is gone: a timeline closed under one would read as the source failing.
 	if c.unfollow != nil {
 		_ = c.unfollow()
