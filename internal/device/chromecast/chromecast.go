@@ -28,7 +28,8 @@ const (
 )
 
 type chromecastDevice struct {
-	ch *channel
+	ch   *channel
+	name string
 
 	watchMu     sync.Mutex
 	watch       chromecastPlayback
@@ -52,7 +53,7 @@ var _ device.Family = Family{}
 func (Family) SelfFetches() bool { return true }
 
 func (Family) Connect(ctx context.Context, info device.Info) (device.Device, error) {
-	dev := &chromecastDevice{done: make(chan struct{})}
+	dev := &chromecastDevice{name: cmp.Or(info.Name, info.Address), done: make(chan struct{})}
 	dialCtx, cancel := context.WithTimeout(ctx, answerWithin)
 	defer cancel()
 	ch, err := dial(dialCtx, chromecastAddress(info.Address), dev.watchMessage)
@@ -230,6 +231,14 @@ func (c *chromecastDevice) AwaitEnd(ctx context.Context) error {
 	select {
 	case <-c.done:
 		return c.playbackErr
+	case <-c.ch.gone:
+		// A status read before the connection dropped still decides the ending.
+		select {
+		case <-c.done:
+			return c.playbackErr
+		default:
+		}
+		return &media.Gone{Renderer: c.name, Observed: "the Cast connection closed while the cast was playing"}
 	case <-ctx.Done():
 		return context.Cause(ctx)
 	}

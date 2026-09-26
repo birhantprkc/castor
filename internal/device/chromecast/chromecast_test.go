@@ -2,6 +2,7 @@ package chromecast
 
 import (
 	"encoding/json"
+	"errors"
 	"net"
 	"net/url"
 	"testing"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/stupside/castor/internal/device"
 	"github.com/stupside/castor/internal/device/devicetest"
+	"github.com/stupside/castor/internal/media"
 )
 
 func TestChromecastPlaybackState(t *testing.T) {
@@ -59,7 +61,20 @@ func TestChromecastPlaybackState(t *testing.T) {
 }
 
 func TestChromecastAnswersWhenTheCastEnds(t *testing.T) {
-	devicetest.AwaitsTheCastsEnd(t, func() device.Device { return &chromecastDevice{done: make(chan struct{})} })
+	devicetest.AwaitsTheCastsEnd(t, func() device.Device {
+		return &chromecastDevice{ch: &channel{gone: make(chan struct{})}, done: make(chan struct{})}
+	})
+}
+
+func TestAChromecastThatDropsTheConnectionIsGone(t *testing.T) {
+	near, far := net.Pipe()
+	dev := &chromecastDevice{name: "Living Room", done: make(chan struct{})}
+	dev.ch = newChannel(near, dev.watchMessage)
+	t.Cleanup(func() { _ = dev.Close() })
+	_ = far.Close()
+	if _, gone := errors.AsType[*media.Gone](dev.AwaitEnd(t.Context())); !gone {
+		t.Error("a receiver that went away mid-cast is not reported gone, so the cast outlives it")
+	}
 }
 
 // receiverAnswering is a Cast receiver on the other end of a pipe; loadAnswers says what it sends once LOAD arrives.
