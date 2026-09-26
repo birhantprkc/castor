@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/chromedp/chromedp"
 )
@@ -33,8 +32,8 @@ func detectTurnstile(ctx context.Context) bool {
 	return present
 }
 
-func solveTurnstile(ctx context.Context, solveTimeout time.Duration) bool {
-	tCtx, cancel := context.WithTimeout(ctx, solveTimeout)
+func solveTurnstile(ctx context.Context) bool {
+	tCtx, cancel := context.WithTimeout(ctx, bypassTurnstileTimeout)
 	defer cancel()
 
 	ch := make(chan struct{}, 2)
@@ -85,25 +84,25 @@ func solveTurnstile(ctx context.Context, solveTimeout time.Duration) bool {
 	}
 }
 
-func bypassTurnstile(ctx context.Context, solveTimeout, retryTimeout time.Duration) error {
+func bypassTurnstile(ctx context.Context) error {
 	if !detectTurnstile(ctx) {
 		return nil
 	}
 
-	if solveTurnstile(ctx, solveTimeout) {
+	if solveTurnstile(ctx) {
 		return nil
 	} else {
 		slog.DebugContext(ctx, "initial turnstile solve attempt failed, retrying after reload")
 	}
 
-	retryCtx, retryCancel := context.WithTimeout(ctx, retryTimeout)
+	retryCtx, retryCancel := context.WithTimeout(ctx, turnstileRetryTimeout)
 	defer retryCancel()
 	if err := chromedp.Run(retryCtx, chromedp.Reload(), chromedp.WaitReady("body")); err != nil {
 		return fmt.Errorf("turnstile reload failed: %w", err)
 	}
 
 	if detectTurnstile(ctx) {
-		if !solveTurnstile(ctx, solveTimeout) {
+		if !solveTurnstile(ctx) {
 			return fmt.Errorf("turnstile solve failed after retry")
 		}
 		slog.DebugContext(ctx, "turnstile solved after retry")

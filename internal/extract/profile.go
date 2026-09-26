@@ -25,8 +25,6 @@ type profile struct {
 	DeviceMemory        int
 	ScreenWidth         int
 	ScreenHeight        int
-	CenterX             float64 // ScreenWidth/2, pre-computed for MouseClickXY
-	CenterY             float64 // ScreenHeight/2, pre-computed for MouseClickXY
 	ColorDepth          int
 	WebGLVendor         string
 	WebGLRenderer       string
@@ -160,8 +158,6 @@ func newProfile() *profile {
 		DeviceMemory:        devMem,
 		ScreenWidth:         scr.width,
 		ScreenHeight:        scr.height,
-		CenterX:             float64(scr.width) / 2,
-		CenterY:             float64(scr.height) / 2,
 		ColorDepth:          24,
 		WebGLVendor:         webgl.vendor,
 		WebGLRenderer:       webgl.renderer,

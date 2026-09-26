@@ -39,11 +39,8 @@ func (e *Extractor) extract(ctx context.Context, targetURL string) ([]*source.Ca
 	return streams, nil
 }
 
+// ExtractAll extracts every url at once, within the parallelism the config allows.
 func (e *Extractor) ExtractAll(ctx context.Context, urls []string) ([]*source.Candidate, error) {
-	return e.extractAll(ctx, urls, e.extract)
-}
-
-func (e *Extractor) extractAll(ctx context.Context, urls []string, one func(context.Context, string) ([]*source.Candidate, error)) ([]*source.Candidate, error) {
 	slog.InfoContext(ctx, "extracting streams", "urls", len(urls))
 
 	var wg sync.WaitGroup
@@ -58,7 +55,7 @@ func (e *Extractor) extractAll(ctx context.Context, urls []string, one func(cont
 
 			slog.DebugContext(ctx, "extracting", "url", targetURL, "index", i+1, "total", len(urls))
 
-			streams, err := one(ctx, targetURL)
+			streams, err := e.extract(ctx, targetURL)
 			if err != nil {
 				slog.WarnContext(ctx, "extraction failed", "url", targetURL, "error", err)
 				failures[i] = fmt.Errorf("%s: %w", targetURL, err)

@@ -5,7 +5,6 @@ import (
 	_ "embed"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
@@ -17,11 +16,11 @@ import (
 var iframeSrcJS string
 
 // navigateIframe polls for largest iframe and navigates; repeat until leaf.
-func navigateIframe(ctx context.Context, timeout time.Duration, maxDepth int) error {
-	iframeCtx, cancel := context.WithTimeout(ctx, timeout)
+func navigateIframe(ctx context.Context) error {
+	iframeCtx, cancel := context.WithTimeout(ctx, navigateIframeTimeout)
 	defer cancel()
 
-	for depth := range maxDepth {
+	for depth := range navigateIframeMaxDepth {
 		var iframeSrc, parent string
 
 		err := chromedp.Run(iframeCtx,

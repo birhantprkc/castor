@@ -35,8 +35,8 @@ func newSession(ctx context.Context, cfg BrowserConfig, documents source.Formats
 		ctx:         taskCtx,
 		cancel:      taskCancel,
 		allocCancel: allocCancel,
-		centerX:     profile.CenterX,
-		centerY:     profile.CenterY,
+		centerX:     float64(profile.ScreenWidth) / 2,
+		centerY:     float64(profile.ScreenHeight) / 2,
 		snapshotDir: filepath.Join(os.TempDir(), "castor-debug", sanitize(targetURL)),
 	}
 	s.collector = newCollector(documents, s.readBody, graceAfterActions, collectionWindow, preRollWindow)
@@ -97,32 +97,27 @@ func (s *session) RunActions() {
 	actions := []action{
 		{"click", func() error { return click(s.ctx, s.centerX, s.centerY) }},
 		{"navigate iframe", func() error {
-			return navigateIframe(s.ctx, navigateIframeTimeout, navigateIframeMaxDepth)
+			return navigateIframe(s.ctx)
 		}},
 		{"bypass turnstile", func() error {
-			return bypassTurnstile(s.ctx, bypassTurnstileTimeout, turnstileRetryTimeout)
+			return bypassTurnstile(s.ctx)
 		}},
 		{"click", func() error { return click(s.ctx, s.centerX, s.centerY) }},
 	}
 
-	ran := runActions(s.ctx, s.collector, actions, func(i int) {
-		snapshot(s.ctx, s.snapshotDir, fmt.Sprintf("step_%d", i))
-	})
-
-	slog.DebugContext(s.ctx, "action pipeline finished", "actions_run", ran, "actions", len(actions))
-}
-
-func runActions(ctx context.Context, c *collector, actions []action, observe func(i int)) int {
+	ran := len(actions)
 	for i, a := range actions {
-		if c.hasMaster() {
-			return i
+		// A master playlist is what the page was driven for, so nothing further is asked of it.
+		if s.collector.hasMaster() {
+			ran = i
+			break
 		}
 		if err := a.do(); err != nil {
-			slog.DebugContext(ctx, a.name+" failed", "error", err)
+			slog.DebugContext(s.ctx, a.name+" failed", "error", err)
 		}
-		observe(i)
+		snapshot(s.ctx, s.snapshotDir, fmt.Sprintf("step_%d", i))
 	}
-	return len(actions)
+	slog.DebugContext(s.ctx, "action pipeline finished", "actions_run", ran, "actions", len(actions))
 }
 
 func (s *session) Close() {
