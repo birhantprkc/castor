@@ -108,9 +108,23 @@ Castor runs best as a **native binary**: it shares your TV's network, which devi
 brew install --cask stupside/tap/castor
 ```
 
+### Windows
+
+Download `castor_<version>_windows_amd64.zip` (or `_arm64.zip` for Windows on ARM) from the [latest release](https://github.com/stupside/castor/releases/latest), extract `castor.exe` into a folder on your `PATH`, and install the tools:
+
+```powershell
+winget install Gyan.FFmpeg     # ffmpeg + ffprobe
+winget install Google.Chrome   # skip if Chrome is already installed
+```
+
+Two prompts on first run, both expected:
+
+- **SmartScreen** may block the download since the binary is unsigned: choose *More info*, then *Run anyway*.
+- **Windows Defender Firewall** asks whether castor may use the network: allow it on **private** networks. The TV fetches the stream from Castor and answers discovery over the LAN, so a blocked castor finds no devices and casts nothing.
+
 ### Build from source
 
-Needs **Go 1.26+** and **cmake**. Clone with submodules, then `make`:
+On macOS or Linux, with **Go 1.26+** and **cmake**. Clone with submodules, then `make`:
 
 ```sh
 git clone --recurse-submodules https://github.com/stupside/castor.git
@@ -283,7 +297,7 @@ The prebuilt `ghcr.io/stupside/castor` image bundles Chrome, ffmpeg, and ffprobe
 > [!WARNING]
 > `--network host` is required: discovery (SSDP multicast) and the TV streaming back both need the container on your real LAN.
 >
-> On Docker Desktop (macOS/Windows) that flag is a no-op, so the container never reaches your TV and `scan` finds nothing. Use the [native binary](#homebrew-macos) there instead.
+> On Docker Desktop (macOS/Windows) that flag is a no-op, so the container never reaches your TV and `scan` finds nothing. Use the native binary there instead ([macOS](#homebrew-macos), [Windows](#windows)).
 
 ```sh
 # Discover devices (no config needed)
