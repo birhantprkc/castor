@@ -33,8 +33,6 @@ const (
 	promptMaxChars = 200
 )
 
-type word = subtitle.Word
-
 // transcriber: whisper wrapper (streams committed words, not reusable).
 type transcriber struct {
 	language     subtitle.Language
@@ -52,7 +50,7 @@ func newTranscriber(ctx context.Context, cfg subtitle.Whisper) (*transcriber, er
 	if err != nil {
 		return nil, err
 	}
-	vadModelPath, err := ensureVADModel(ctx)
+	vadModelPath, err := ensure(ctx, vadModelName, vadModelBaseURL)
 	if err != nil {
 		return nil, err
 	}
@@ -103,12 +101,12 @@ func (t *transcriber) Run(ctx context.Context, pcm io.Reader, sink *subtitle.Bui
 
 	step := make([]byte, stepSeconds*bytesPerSec)
 	var (
-		buf      []float32 // working audio window
-		bufStart float64   // absolute time of buf[0], in seconds
-		prev     []word    // uncommitted tail of the previous hypothesis
-		history  []word    // committed words still inside the buffer
-		prompt   string    // committed text already trimmed out of the buffer
-		frontier float64   // absolute end time of the last committed word
+		buf      []float32       // working audio window
+		bufStart float64         // absolute time of buf[0], in seconds
+		prev     []subtitle.Word // uncommitted tail of the previous hypothesis
+		history  []subtitle.Word // committed words still inside the buffer
+		prompt   string          // committed text already trimmed out of the buffer
+		frontier float64         // absolute end time of the last committed word
 	)
 	lastProgress := time.Now()
 
@@ -129,7 +127,7 @@ func (t *transcriber) Run(ctx context.Context, pcm io.Reader, sink *subtitle.Bui
 			prev = dropCommitted(prev, bufStart)
 		}
 
-		var agreed []word
+		var agreed []subtitle.Word
 		// Whisper needs 100ms+ (skip if shorter at EOF).
 		if len(buf) >= subtitle.SampleRate/10 {
 			agreed, prev = t.confirm(ctx, model, buf, bufStart, prompt, prev, frontier, atEOF)
@@ -175,7 +173,7 @@ func readStep(pcm io.Reader, step []byte) (int, bool, error) {
 	return n, atEOF, nil
 }
 
-func (t *transcriber) confirm(ctx context.Context, model wcpp.Model, buf []float32, bufStart float64, prompt string, prev []word, frontier float64, atEOF bool) (agreed, tail []word) {
+func (t *transcriber) confirm(ctx context.Context, model wcpp.Model, buf []float32, bufStart float64, prompt string, prev []subtitle.Word, frontier float64, atEOF bool) (agreed, tail []subtitle.Word) {
 	words, err := t.transcribeBuffer(ctx, model, buf, bufStart, prompt)
 	if err != nil {
 		slog.WarnContext(ctx, "whisper inference failed", "error", err)
@@ -191,7 +189,7 @@ func (t *transcriber) confirm(ctx context.Context, model wcpp.Model, buf []float
 }
 
 // settledTo: settlement limit (tail=frontier, no tail=buffer end).
-func settledTo(frontier, bufStart float64, buf []float32, tail []word) float64 {
+func settledTo(frontier, bufStart float64, buf []float32, tail []subtitle.Word) float64 {
 	if len(tail) == 0 {
 		return bufStart + float64(len(buf))/subtitle.SampleRate
 	}
@@ -199,7 +197,7 @@ func settledTo(frontier, bufStart float64, buf []float32, tail []word) float64 {
 }
 
 // transcribeBuffer: run whisper on buffer, one word per segment, shift by offset.
-func (t *transcriber) transcribeBuffer(ctx context.Context, model wcpp.Model, samples []float32, offset float64, prompt string) ([]word, error) {
+func (t *transcriber) transcribeBuffer(ctx context.Context, model wcpp.Model, samples []float32, offset float64, prompt string) ([]subtitle.Word, error) {
 	wctx, err := model.NewContext()
 	if err != nil {
 		return nil, fmt.Errorf("new whisper context: %w", err)
@@ -229,7 +227,7 @@ func (t *transcriber) transcribeBuffer(ctx context.Context, model wcpp.Model, sa
 		return nil, fmt.Errorf("whisper process: %w", err)
 	}
 
-	var words []word
+	var words []subtitle.Word
 	for {
 		seg, err := wctx.NextSegment()
 		if errors.Is(err, io.EOF) {
@@ -241,7 +239,7 @@ func (t *transcriber) transcribeBuffer(ctx context.Context, model wcpp.Model, sa
 		if isNoise(seg.Text) {
 			continue
 		}
-		words = append(words, word{
+		words = append(words, subtitle.Word{
 			Start: seg.Start.Seconds() + offset,
 			End:   seg.End.Seconds() + offset,
 			Text:  seg.Text,
@@ -251,7 +249,7 @@ func (t *transcriber) transcribeBuffer(ctx context.Context, model wcpp.Model, sa
 }
 
 // dropCommitted skips words before cutoff (committed or trimmed).
-func dropCommitted(words []word, cutoff float64) []word {
+func dropCommitted(words []subtitle.Word, cutoff float64) []subtitle.Word {
 	i := 0
 	for i < len(words) && (words[i].Start+words[i].End)/2 < cutoff {
 		i++
@@ -260,7 +258,7 @@ func dropCommitted(words []word, cutoff float64) []word {
 }
 
 // agreedPrefix: longest agreed prefix (return current for fresher timestamps).
-func agreedPrefix(prev, cur []word) []word {
+func agreedPrefix(prev, cur []subtitle.Word) []subtitle.Word {
 	i := 0
 	for i < min(len(prev), len(cur)) && sameWord(prev[i], cur[i]) {
 		i++
@@ -268,7 +266,7 @@ func agreedPrefix(prev, cur []word) []word {
 	return cur[:i]
 }
 
-func sameWord(a, b word) bool {
+func sameWord(a, b subtitle.Word) bool {
 	na, nb := normalizeWord(a.Text), normalizeWord(b.Text)
 	if na == "" && nb == "" {
 		return a.Text == b.Text
@@ -292,7 +290,7 @@ func isNoise(s string) bool {
 }
 
 // trimBuffer drops old audio at sentence boundary or hard cap; text to prompt.
-func trimBuffer(ctx context.Context, buf []float32, bufStart float64, history []word, prompt string, frontier float64) ([]float32, float64, []word, string) {
+func trimBuffer(ctx context.Context, buf []float32, bufStart float64, history []subtitle.Word, prompt string, frontier float64) ([]float32, float64, []subtitle.Word, string) {
 	dur := float64(len(buf)) / subtitle.SampleRate
 	if dur <= trimAfterSeconds {
 		return buf, bufStart, history, prompt

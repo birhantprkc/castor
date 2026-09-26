@@ -45,10 +45,6 @@ func ensureModel(ctx context.Context, configured string) (string, error) {
 	return ensure(ctx, defaultModelName, modelBaseURL)
 }
 
-func ensureVADModel(ctx context.Context) (string, error) {
-	return ensure(ctx, vadModelName, vadModelBaseURL)
-}
-
 func ensure(ctx context.Context, name, baseURL string) (string, error) {
 	dir, err := cacheDir()
 	if err != nil {

@@ -1,14 +1,18 @@
 package whisper
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stupside/castor/internal/subtitle"
+)
 
 func TestAgreedPrefix(t *testing.T) {
-	prev := []word{
+	prev := []subtitle.Word{
 		{Start: 1.0, End: 1.3, Text: "Hello,"},
 		{Start: 1.4, End: 1.8, Text: "world"},
 		{Start: 1.9, End: 2.2, Text: "again"},
 	}
-	cur := []word{
+	cur := []subtitle.Word{
 		{Start: 1.1, End: 1.4, Text: "hello"}, // case/punct differ, times within tolerance
 		{Start: 1.5, End: 1.9, Text: "world"},
 		{Start: 2.0, End: 2.3, Text: "against"}, // text mismatch stops the prefix
@@ -26,7 +30,7 @@ func TestAgreedPrefix(t *testing.T) {
 }
 
 func TestDropCommitted(t *testing.T) {
-	words := []word{
+	words := []subtitle.Word{
 		{Start: 0.0, End: 0.5, Text: "old"},
 		{Start: 0.6, End: 1.0, Text: "boundary"},
 		{Start: 1.2, End: 1.6, Text: "new"},
