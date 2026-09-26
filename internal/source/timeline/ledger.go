@@ -113,7 +113,8 @@ func (l *Ledger) trim() {
 	if over <= 0 {
 		return
 	}
-	for _, e := range l.entries[:over] {
+	// Render tags a seam only past the first entry, so a seam's tag leaves when its segment becomes first.
+	for _, e := range l.entries[1:min(over+1, len(l.entries))] {
 		if e.Seam {
 			l.dropped++
 		}

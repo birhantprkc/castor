@@ -2,6 +2,7 @@ package timeline
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -106,6 +107,19 @@ func TestTheLedgerKeepsAsMuchAsTheOriginsLongestWindow(t *testing.T) {
 	}
 	if !strings.Contains(string(l.Render(nil)), "#EXT-X-MEDIA-SEQUENCE:13\n") {
 		t.Errorf("the sequence did not move forward with the trim:\n%s", l.Render(nil))
+	}
+}
+
+func TestASeamKeepsItsDiscontinuityNumberOnceItsTagScrollsOff(t *testing.T) {
+	var l Ledger
+	l.Merge(listed("a", 0, 2))
+	for n := int64(0); n <= 2; n++ {
+		l.Merge(listed("b", n, n))
+	}
+	// b000 now opens the playlist, so the tag in front of it is gone and the sequence must count it.
+	lines := playlist(&l)
+	if slices.Contains(lines, "#EXT-X-DISCONTINUITY") || count(lines, "#EXT-X-DISCONTINUITY-SEQUENCE:1") != 1 {
+		t.Errorf("the seam whose tag scrolled off is not counted, so its segments' discontinuity number went back:\n%s", l.Render(nil))
 	}
 }
 
