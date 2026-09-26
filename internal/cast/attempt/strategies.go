@@ -87,7 +87,7 @@ var degradeRendition = strategy{
 		resolved, err := c.Resolver.RefetchProgram(ctx, &source, rung)
 		if err != nil {
 			slog.WarnContext(ctx, "the lighter rendition's documents could not be read; declining an unsafe fallback",
-				"url", rung.URL.String(), "error", err)
+				"url", source.URL.String(), "representation", rung.Representation, "error", err)
 			return a, false
 		}
 
