@@ -35,6 +35,7 @@ var actions = map[verdict]action{
 	{Kind: Dead, Window: BeforePlay}:          revise,
 	{Kind: Dead, Window: Opening}:             revise,
 	{Kind: Stalled, Window: BeforePlay}:       revise,
+	{Kind: Stalled, Window: Opening}:          revise,
 	{Kind: Undeliverable, Window: BeforePlay}: revise,
 
 	{Kind: Stalled, Window: Playing}:       abandon,
@@ -80,6 +81,13 @@ var rules = []rule{{
 	Windows: []Window{Opening},
 	When:    func(h Health) bool { return h.Ended && !h.playable() },
 	Kind:    Dead,
+}, {
+	// A delivery with no patience of its own would otherwise wait on a silent upstream forever.
+	Name:    "produced-nothing-yet",
+	Why:     "the producer is still running but has written nothing a renderer could fetch for the whole stall window; the likeliest cause is an upstream that accepted the connection and never sent a byte",
+	Windows: []Window{Opening},
+	When:    func(h Health) bool { return !h.Ended && !h.playable() && h.SinceGrowth > StallWindow },
+	Kind:    Stalled,
 }, {
 	// Producer stopped, renderer exhausted buffer (likely expired playlist).
 	Name:    "stalled",

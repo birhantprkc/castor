@@ -30,6 +30,8 @@ func TestVerdicts(t *testing.T) {
 		{"a delivery without its artifact waits", Opening, Health{}, Starting},
 		{"a delivery past its patience proceeds", Opening, Health{Overdue: true}, Ready},
 		{"a producer that ended with no artifact is dead", Opening, Health{Ended: true}, Dead},
+		{"a producer silent past the stall window with no artifact is stalled", Opening, Health{SinceGrowth: past}, Stalled},
+		{"a delivery whose artifact landed is not stalled by later quiet", Opening, Health{Landed: 1, SinceGrowth: past}, Ready},
 		{"a playing cast with nothing against it is healthy", Playing, Health{Landed: 1 << 20, Handed: 1 << 20, Speed: 2, Headroom: 2, Samples: 100}, Healthy},
 		{"a renderer handed nothing past the fetch window is unfetched", Playing, Health{Landed: 8 << 20, SinceFetch: fetchWindow + time.Second, Delivered: 30 * time.Minute}, Unfetched},
 		{"a renderer that fetched and went quiet is not a verdict", Playing, Health{Landed: 8 << 20, Handed: 4 << 20, SinceFetch: past}, Healthy},

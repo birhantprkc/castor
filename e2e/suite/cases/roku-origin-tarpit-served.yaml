@@ -1,0 +1,14 @@
+# A served remux whose origin accepts segment requests and never answers them is ended by the stall window, not left waiting for a first playlist.
+stream:
+  packaging: hls-fmp4
+  video: {codec: h264, height: 360}
+  audio: {codec: aac, channels: 2}
+  seconds: 20
+origin:
+  tarpit: {}
+receiver:
+  device: roku
+castor:
+  cast:
+    delivery: serve
+outcome: refused
