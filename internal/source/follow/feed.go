@@ -77,7 +77,8 @@ func (f *feed) decide(ctx context.Context, w timeline.Window) error {
 	f.mu.Lock()
 	decided := f.repackaging != nil
 	f.mu.Unlock()
-	if decided {
+	// A window listing nothing names no MAP yet, so it is no evidence either way.
+	if decided || len(w.Segments) == 0 {
 		return nil
 	}
 	repackaging := false
