@@ -30,6 +30,8 @@ func TestClassify(t *testing.T) {
 		{"a refused URL is a refusing renderer", Evidence{PlayErr: errors.New("SOAP 714")}, RendererRefused},
 		{"a renderer that took a fraction is refusing", Evidence{Reached: PhasePlaying, Undelivered: &watch.Undelivered{Handed: 2 * time.Minute, Produced: 2 * time.Hour}}, RendererRefused},
 		{"a delivery with no artifact produced nothing", Evidence{Reached: PhaseOpening, Verdict: watch.Dead}, ProducedNothing},
+		{"a delivery silent over a proven buffer produced nothing", Evidence{Reached: PhaseOpening, Verdict: watch.Stalled, Buffered: true}, ProducedNothing},
+		{"a delivery silent over the source itself is the source stalling", Evidence{Reached: PhaseOpening, Verdict: watch.Stalled}, SourceStalled},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := classFor(tt.in).Kind; got != tt.want {

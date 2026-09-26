@@ -78,6 +78,9 @@ type Evidence struct {
 
 	Copied media.Axes
 
+	// Buffered is a delivery that read castor's own buffer, which the playback gate had already proven.
+	Buffered bool
+
 	// PlayErr is the renderer's own refusal of the URL it was handed.
 	PlayErr error
 

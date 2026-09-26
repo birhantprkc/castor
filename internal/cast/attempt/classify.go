@@ -113,9 +113,11 @@ var classes = table{rules: []classRule{{
 	},
 	Kind: RendererRefused,
 }, {
-	// Container refuses tracks at header-write time or reader's every segment answered 404.
-	Why:  "the delivery ended without producing anything a renderer could fetch",
-	When: func(e Evidence) bool { return e.Verdict == watch.Dead && e.Reached == PhaseOpening },
+	// Container refuses tracks at header-write time or reader's every segment answered 404; or it fell silent over a buffer already proven.
+	Why: "the delivery ended, or went silent over castor's own proven buffer, without producing anything a renderer could fetch",
+	When: func(e Evidence) bool {
+		return e.Reached == PhaseOpening && (e.Verdict == watch.Dead || e.Verdict == watch.Stalled && e.Buffered)
+	},
 	Kind: ProducedNothing,
 }}, total: unclassified}
 

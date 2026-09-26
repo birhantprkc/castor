@@ -141,6 +141,7 @@ func (c *cast) readOnce(ctx context.Context) error {
 	if err := c.playable(ctx); err != nil {
 		return err
 	}
+	c.evidence.Buffered = true
 	if _, err := c.connect(); err != nil {
 		return err
 	}
