@@ -84,6 +84,9 @@ type Evidence struct {
 	// Handoff is a renderer pointed at the source itself rather than at what castor serves.
 	Handoff bool
 
+	// TimelineErr is a source whose timeline castor must keep and could not read when the read was set up.
+	TimelineErr error
+
 	Undelivered error
 
 	// RendererGone is what an unplugged, crashed or switched-off set looks like from here.

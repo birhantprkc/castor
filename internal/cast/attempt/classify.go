@@ -80,6 +80,12 @@ var classes = table{rules: []classRule{{
 	When: func(e Evidence) bool { return e.RendererGone != nil },
 	Kind: RendererGone,
 }, {
+	// Only castor reads such a timeline, so no other policy on this link reads it either.
+	Name: "timeline-unreadable",
+	Why:  "castor could not read the timeline of a source it follows itself, so this link cannot be read at all",
+	When: func(e Evidence) bool { return e.TimelineErr != nil },
+	Kind: Unreachable,
+}, {
 	// Media landed then died is deliberately not unreachable; that would send a working cast to recovery.
 	Why: "the source read reached a terminal error having landed no media and never stated a speed, so nothing about this link was established",
 	When: func(e Evidence) bool {

@@ -197,6 +197,20 @@ func TestUnreadableLinksAreMovedPastInRankOrder(t *testing.T) {
 	}
 }
 
+func TestATimelineCastorCouldNotReadMovesToTheNextLink(t *testing.T) {
+	in := Intent{Candidates: candidates(t, "https://cdn.example/one.mpd", "https://other.example/two.m3u8"), Deadline: 30 * time.Second}
+	unread := errors.New("HTTP 503")
+	failed := Outcome{Err: unread, Evidence: Evidence{Reached: PhaseReading, TimelineErr: unread}}
+	run := &scriptedRunner{outcomes: []Outcome{failed, delivered}}
+
+	if err := Cast(t.Context(), in, run, &fakeProgram{}); err != nil {
+		t.Fatalf("cast: %v", err)
+	}
+	if len(run.seen) != 2 || run.seen[1].Candidate != 1 {
+		t.Fatalf("attempts = %+v, want the second link after the first's timeline could not be read", run.seen)
+	}
+}
+
 func TestACastWithNoReadableLinkRunsNothing(t *testing.T) {
 	in := Intent{Candidates: candidates(t, "https://cdn.example/one.m3u8"), Deadline: 30 * time.Second}
 	prog := &fakeProgram{answers: map[string]published{"https://cdn.example/one.m3u8": {err: errors.New("HTTP 410")}}}

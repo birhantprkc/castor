@@ -65,7 +65,7 @@ func revise(ctx context.Context, in Intent, o Outcome, f *Fault, led *ledger, re
 	return revision{}
 }
 
-// revisable answers if attempt can be retried: phase < Playing AND (judged OR URL-refused).
+// revisable answers if attempt can be retried: phase < Playing AND (judged OR URL-refused OR timeline unreadable).
 func revisable(o Outcome) bool {
 	if o.Evidence.Reached >= PhasePlaying {
 		return false
@@ -73,5 +73,5 @@ func revisable(o Outcome) bool {
 	if judged, ok := errors.AsType[*watch.Fault](o.Err); ok {
 		return judged.Revise
 	}
-	return o.Evidence.PlayErr != nil
+	return o.Evidence.PlayErr != nil || o.Evidence.TimelineErr != nil
 }

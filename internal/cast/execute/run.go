@@ -262,6 +262,7 @@ func (c *cast) workspace(ctx context.Context) error {
 func (c *cast) follow(ctx context.Context) error {
 	program, unfollow, err := c.cfg.Timelines.Republish(ctx, c.attempt.Program)
 	if err != nil {
+		c.evidence.TimelineErr = err
 		return fmt.Errorf("following the source's timeline: %w", err)
 	}
 	c.program, c.unfollow = program, unfollow
