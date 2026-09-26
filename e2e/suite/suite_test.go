@@ -43,7 +43,8 @@ func TestEveryCaseCastsWhatItsReceiverCanPlay(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), castTimeout)
 			defer cancel()
 			out, castErr := castor.Cast(ctx, launch, invocation.Args)
-			exited := time.Now()
+			// Read now: waiting on the receiver below can outlast the deadline castor itself met.
+			exited, killed := time.Now(), ctx.Err() != nil
 			t.Cleanup(func() {
 				if t.Failed() {
 					t.Logf("castor's output:\n%s", out)
@@ -53,7 +54,7 @@ func TestEveryCaseCastsWhatItsReceiverCanPlay(t *testing.T) {
 			got, handed := session.Received(t, handOff)
 			e := judge.Evidence{
 				Origin: src, Endpoint: endpoint, Viewer: p.viewer, Received: got, Handed: handed,
-				CastErr: castErr, Exited: exited, Killed: ctx.Err() != nil, Ceiling: p.ceiling,
+				CastErr: castErr, Exited: exited, Killed: killed, Ceiling: p.ceiling,
 			}
 			played := got.Played
 			t.Logf("castor exited %v; handed %q (%s): %s %dp %d-bit %s, %s %dch, %v",
