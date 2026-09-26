@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"slices"
 	"strconv"
 	"sync/atomic"
@@ -145,8 +146,11 @@ func Start(ctx context.Context, path string, command Command, opts ...StartOptio
 	cmd := exec.CommandContext(ctx, path, args...)
 	stopped := new(atomic.Bool)
 	cmd.Cancel = func() error {
-		stopped.Store(true)
-		return cmd.Process.Kill()
+		err := cmd.Process.Kill()
+		if err == nil {
+			stopped.Store(true)
+		}
+		return err
 	}
 	cmd.Stdin = cfg.stdin
 	cmd.Dir = cfg.workDir
@@ -266,17 +270,21 @@ func (p *Process) Wait() error {
 
 // Kill signals the process to stop. It is idempotent and safe after exit.
 func (p *Process) Kill() {
-	if p.cmd.Process != nil {
+	// Marked only when the kill landed, so a process that had already exited keeps its own status.
+	if p.cmd.Process != nil && p.cmd.Process.Kill() == nil {
 		p.stopped.Store(true)
-		_ = p.cmd.Process.Kill()
 	}
 }
 
-// exitStatus reads the reaped process status; only castor's own SIGKILL leaves none.
+// exitStatus reads the reaped process status; only castor's own kill leaves none.
 func (p *Process) exitStatus() int {
 	state := p.cmd.ProcessState
 	ws, ok := state.Sys().(syscall.WaitStatus)
 	if !ok || !ws.Signaled() {
+		// Windows has no signals: its kill is exit code 1, told from a failure only by castor having sent it.
+		if runtime.GOOS == "windows" && p.stopped.Load() {
+			return noExitStatus
+		}
 		return state.ExitCode()
 	}
 	// Teardown kills before it waits, so a crash already reaped still names its own signal.
