@@ -175,7 +175,7 @@ func sourceInputArgs(source ProgramSource) []string {
 		if input.offset != 0 {
 			args = append(args, "-itsoffset", formatSeconds(input.offset))
 		}
-		// A seam's timestamp jump is a discontinuity, not a gap to keep: under the default 10s ffmpeg stretches the timeline.
+		// A seam's jump is a discontinuity, not a gap (default 10s stretches it); the option is global, so it holds for every input.
 		if input.spliced {
 			args = append(args, "-dts_delta_threshold", "1")
 		}
