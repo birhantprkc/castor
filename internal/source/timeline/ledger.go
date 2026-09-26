@@ -13,11 +13,13 @@ type Ledger struct {
 	// dropped counts the seams trimmed off the front, as EXT-X-DISCONTINUITY-SEQUENCE.
 	dropped int64
 	// retain is the longest window the origin has published.
-	retain  int
-	periods map[string]bool
-	closed  bool
-	start   *Start
-	longest time.Duration
+	retain int
+	// published is every segment ever appended, so one a lagging edge lists again is never republished, however long ago it was trimmed.
+	published map[identity]bool
+	periods   map[string]bool
+	closed    bool
+	start     *Start
+	longest   time.Duration
 }
 
 type entry struct {
@@ -32,26 +34,23 @@ type Merged struct {
 
 // identity is what makes two listings the same segment, whatever number the origin gave it.
 type identity struct {
-	uri   string
-	span  Range
-	start int64
+	uri    string
+	span   Range
+	period string
+	start  int64
 }
 
-func (s Segment) identity() identity { return identity{s.URI, s.Range, s.Place.Start} }
+func (s Segment) identity() identity { return identity{s.URI, s.Range, s.Place.Period, s.Place.Start} }
 
 // Merge appends what the window lists past the last segment published.
 func (l *Ledger) Merge(w Window) Merged {
 	if l.closed {
 		return Merged{}
 	}
-	known := make(map[identity]bool, len(l.entries))
-	for _, e := range l.entries {
-		known[e.identity()] = true
-	}
 	// A window overlapping what was published continues after its last known segment; a stale one adds nothing.
 	fresh := w.Segments
 	for i, s := range w.Segments {
-		if known[s.identity()] {
+		if l.published[s.identity()] {
 			fresh = w.Segments[i+1:]
 		}
 	}
@@ -99,9 +98,10 @@ func (l *Ledger) last() (entry, bool) {
 
 func (l *Ledger) append(s Segment) {
 	if l.periods == nil {
-		l.periods = map[string]bool{}
+		l.periods, l.published = map[string]bool{}, map[identity]bool{}
 	}
 	l.periods[s.Place.Period] = true
+	l.published[s.identity()] = true
 	l.entries = append(l.entries, entry{Segment: s, sequence: l.next})
 	l.next++
 	l.longest = max(l.longest, s.Duration)

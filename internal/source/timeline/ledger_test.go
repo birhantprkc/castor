@@ -66,6 +66,18 @@ func TestAStaleEdgeServingAnOlderWindowAddsNothing(t *testing.T) {
 	}
 }
 
+// A CDN edge can lag further than castor retains, and what it lists was still published here.
+func TestAStaleWindowOlderThanWhatIsRetainedAddsNothing(t *testing.T) {
+	var l Ledger
+	for first := int64(0); first <= 7; first++ {
+		l.Merge(listed("a", first, first+2))
+	}
+	before := string(l.Render(nil))
+	if got := l.Merge(listed("a", 2, 4)); got != (Merged{}) || string(l.Render(nil)) != before {
+		t.Errorf("a window three reloads stale merged as %+v and rendered:\n%s\nwant nothing added to:\n%s", got, l.Render(nil), before)
+	}
+}
+
 func TestSegmentsTheOriginSkippedAreASeamNotASilence(t *testing.T) {
 	var l Ledger
 	l.Merge(listed("a", 0, 3))
