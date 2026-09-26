@@ -34,15 +34,11 @@ type Resolver struct {
 const sniffBytes = 64 << 10
 
 // Identify names what a link carries: its name first, else the grammar of its body, since a script serves a playlist under any name.
-func (r *Resolver) Identify(ctx context.Context, u *url.URL, h http.Header) string {
+func (r *Resolver) Identify(ctx context.Context, u *url.URL) string {
 	if ct := r.formats.ContentTypeOf(u, ""); ct != "" {
 		return ct
 	}
-	head := h.Clone()
-	if head == nil {
-		head = http.Header{}
-	}
-	head.Set("Range", timeline.Range{Length: sniffBytes}.Header())
+	head := http.Header{"Range": {timeline.Range{Length: sniffBytes}.Header()}}
 	body, _, _, err := r.env.Client.Fetch(ctx, u, head)
 	if err != nil {
 		return ""

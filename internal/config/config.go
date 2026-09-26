@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/stupside/castor/internal/browse/tmdb"
 	"github.com/stupside/castor/internal/cast"
 	"github.com/stupside/castor/internal/cast/compose"
 	"github.com/stupside/castor/internal/cast/execute"
@@ -145,16 +144,12 @@ func (c *Config) newResolver() *source.Resolver {
 
 // Identify names what a typed link carries, reading its body when its name says nothing.
 func (c *Config) Identify(ctx context.Context, u *url.URL) string {
-	return c.source().Identify(ctx, u, nil)
+	return c.source().Identify(ctx, u)
 }
 
 // newRanker binds ranking to the same measurement resolution identifies a source with.
 func (c *Config) newRanker() *rank.Ranker {
-	return rank.New(c.Resolver.Config, c.probes())
-}
-
-func (c *Config) probes() rank.Probes {
-	return probe.Candidate(c.Resolver.FFprobePath, c.Resolver.ProbeTimeout)
+	return rank.New(c.Resolver.Config, probe.Candidate(c.Resolver.FFprobePath, c.Resolver.ProbeTimeout))
 }
 
 // Extractor finds candidate streams on a page, recognising documents in every format castor reads.
@@ -165,6 +160,3 @@ func (c *Config) Extractor() *extract.Extractor {
 		Documents: Formats,
 	})
 }
-
-// TMDBClient is the client the interactive browser searches.
-func (c *Config) TMDBClient() *tmdb.Client { return tmdb.New(c.TMDB.APIKey) }

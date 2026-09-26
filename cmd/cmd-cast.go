@@ -8,6 +8,7 @@ import (
 
 	"github.com/stupside/castor/internal/browse"
 	"github.com/stupside/castor/internal/browse/picker"
+	"github.com/stupside/castor/internal/browse/tmdb"
 	"github.com/stupside/castor/internal/cast"
 	"github.com/stupside/castor/internal/config"
 	"github.com/stupside/castor/internal/device"
@@ -55,7 +56,7 @@ func (a *app) castInteractive(ctx context.Context, _ *cli.Command) error {
 		return fmt.Errorf("picking device: %w", err)
 	}
 
-	sel, err := browse.Run(ctx, cfg.TMDBClient(), target.Name, target.Type)
+	sel, err := browse.Run(ctx, tmdb.New(cfg.TMDB.APIKey), target.Name, target.Type)
 	if err != nil {
 		return fmt.Errorf("browse: %w", err)
 	}
@@ -76,18 +77,12 @@ func (a *app) castInteractive(ctx context.Context, _ *cli.Command) error {
 	return a.extractAndCast(ctx, cfg, target, urls)
 }
 
-// extractAndCast finds the streams on urls and casts the best one to target.
+// extractAndCast finds the streams on urls, then prints their ranking (-dry-run) or casts the best one to target.
 func (a *app) extractAndCast(ctx context.Context, cfg *config.Config, target device.Info, urls []string) error {
 	streams, err := cfg.Extractor().ExtractAll(ctx, urls)
 	if err != nil {
 		return fmt.Errorf("extracting streams: %w", err)
 	}
-
-	return a.handleStreams(ctx, cfg, target, streams)
-}
-
-// handleStreams ranks streams and prints order (-dry-run) or casts the best one.
-func (a *app) handleStreams(ctx context.Context, cfg *config.Config, target device.Info, streams []*source.Candidate) error {
 	ranked, err := cfg.Ranker().Rank(ctx, streams)
 	if err != nil {
 		return fmt.Errorf("ranking streams: %w", err)
