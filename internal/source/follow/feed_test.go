@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stupside/castor/internal/source/timeline"
@@ -108,4 +109,20 @@ func TestAClosedTimelineIsNeverFetchedAgain(t *testing.T) {
 	if origin.asked != 1 || !strings.HasSuffix(body, "#EXT-X-ENDLIST\n") {
 		t.Errorf("fetched the origin %d times after it closed (body %q)", origin.asked, body)
 	}
+}
+
+// A timeline castor must read before any cast starts is read again after a passing failure, never after a final no.
+func TestAFeedStartsThroughAPassingFailureButNotARefusal(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		busy := &timeline.Failure{Status: http.StatusServiceUnavailable, Err: errors.New("busy")}
+		passing := &scripted{replies: []reply{{err: busy}, {err: errors.New("connection reset")}, {window: listed("a", 0, 3)}}}
+		if err := newFeed("primary", passing, time.Second, nil).start(t.Context()); err != nil {
+			t.Errorf("start = %v after a 503 and a reset, want the window the origin answered next", err)
+		}
+
+		gone := &scripted{replies: []reply{{err: &timeline.Failure{Status: http.StatusGone, Err: errors.New("expired")}}, {window: listed("a", 0, 3)}}}
+		if err := newFeed("primary", gone, time.Second, nil).start(t.Context()); err == nil || gone.asked != 1 {
+			t.Errorf("start = %v after %d reads, want the origin's 410 at once", err, gone.asked)
+		}
+	})
 }

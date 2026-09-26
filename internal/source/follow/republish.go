@@ -35,7 +35,7 @@ func (p Republisher) Republish(ctx context.Context, program media.Program) (medi
 			continue
 		}
 		feed := newFeed(string(in.ID), src, p.patience, p.repackage)
-		if err := feed.refresh(ctx); err != nil {
+		if err := feed.start(ctx); err != nil {
 			// A representation has no reading but castor's; a playlist castor cannot follow stays ffmpeg's to read.
 			if in.Representation != "" {
 				return media.Program{}, nil, fmt.Errorf("reading the %s input's presentation: %w", in.ID, err)

@@ -72,6 +72,25 @@ func (f *feed) refresh(ctx context.Context) error {
 	return nil
 }
 
+// startTries is how often a feed's first window is asked for: an origin's passing failure must not cost the link.
+const startTries = 3
+
+// start reads the window a feed begins from, again after a passing failure, never after the origin's final no.
+func (f *feed) start(ctx context.Context) error {
+	var err error
+	for try := range startTries {
+		if err = f.refresh(ctx); err == nil || refusal(err) != 0 || try == startTries-1 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return context.Cause(ctx)
+		case <-time.After(time.Second << try):
+		}
+	}
+	return err
+}
+
 // decide settles whether this feed repackages, from the first init section it meets; undecided, nothing is rendered.
 func (f *feed) decide(ctx context.Context, w timeline.Window) error {
 	f.mu.Lock()
