@@ -144,14 +144,8 @@ func Start(ctx context.Context, path string, command Command, opts ...StartOptio
 	}
 
 	cmd := exec.CommandContext(ctx, path, args...)
-	stopped := new(atomic.Bool)
-	cmd.Cancel = func() error {
-		err := cmd.Process.Kill()
-		if err == nil {
-			stopped.Store(true)
-		}
-		return err
-	}
+	stopped, scanned := new(atomic.Bool), make(chan struct{})
+	cmd.Cancel = func() error { return kill(cmd.Process, scanned, stopped) }
 	cmd.Stdin = cfg.stdin
 	cmd.Dir = cfg.workDir
 
@@ -180,7 +174,7 @@ func Start(ctx context.Context, path string, command Command, opts ...StartOptio
 		lines:   &fanout{},
 		tail:    newTail(stderrTailCapacity),
 		markers: &markerWatch{},
-		scanned: make(chan struct{}),
+		scanned: scanned,
 		stopped: stopped,
 	}
 	p.status.Store(noExitStatus)
@@ -270,10 +264,25 @@ func (p *Process) Wait() error {
 
 // Kill signals the process to stop. It is idempotent and safe after exit.
 func (p *Process) Kill() {
-	// Marked only when the kill landed, so a process that had already exited keeps its own status.
-	if p.cmd.Process != nil && p.cmd.Process.Kill() == nil {
-		p.stopped.Store(true)
+	if p.cmd.Process != nil {
+		_ = kill(p.cmd.Process, p.scanned, p.stopped)
 	}
+}
+
+// kill marks castor's own kill only while stderr is open: an exited, unreaped process still accepts one.
+func kill(proc *os.Process, exited <-chan struct{}, stopped *atomic.Bool) error {
+	select {
+	case <-exited:
+		return os.ErrProcessDone
+	default:
+	}
+	// Set first, so a Wait reaping what this kill ended already reads it as castor's.
+	stopped.Store(true)
+	err := proc.Kill()
+	if err != nil {
+		stopped.Store(false)
+	}
+	return err
 }
 
 // exitStatus reads the reaped process status; only castor's own kill leaves none.

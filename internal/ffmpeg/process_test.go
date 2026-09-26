@@ -107,6 +107,16 @@ func TestAnExitStatusSaysWhoEndedTheProcess(t *testing.T) {
 			},
 			want: signalExitBase + int(syscall.SIGABRT),
 		},
+		{
+			// An exited, unreaped process still accepts a kill, so a crash by SIGKILL (the OOM killer's) must not read as castor's.
+			name:   "a SIGKILL of its own that castor's Kill arrives after keeps its signal",
+			script: "kill -KILL $$",
+			stop: func(p *Process, _ context.CancelFunc) {
+				<-p.scanned
+				p.Kill()
+			},
+			want: signalExitBase + int(syscall.SIGKILL),
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
