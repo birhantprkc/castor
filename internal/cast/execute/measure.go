@@ -29,10 +29,13 @@ func measure(ctx context.Context, subject string, p media.Prober) facts {
 	return facts{Probe: info, Measured: err == nil}
 }
 
-// sounds is whether program's read is sure to carry sound: heard by the probe, or required where the probe heard nothing.
+// sounds is whether program's read is sure to carry sound: heard by the probe, or else declared or required by the source.
 func (f facts) sounds(p media.Program) bool {
 	if f.Probe.AudioCodec != "" || f.Measured {
 		return f.Probe.AudioCodec != ""
+	}
+	if known, _ := p.Measurement(); known.AudioCodec != "" {
+		return true
 	}
 	track, ok := p.Track(media.TrackAudio)
 	return ok && !track.Optional

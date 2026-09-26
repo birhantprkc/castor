@@ -79,7 +79,8 @@ func (Format) Resolve(ctx context.Context, env source.Env, s source.Subject) (so
 			RequiresRelaxedInput: audioRelaxed,
 			Fetch:                audioFetch,
 		})
-		tracks[1].Input = media.AudioInputID
+		// The rendition exists only to carry sound, so its sound is no longer optional.
+		tracks[1].Input, tracks[1].Optional = media.AudioInputID, false
 		slog.InfoContext(ctx, "source publishes audio separately; both renditions will be read",
 			"video", read.String(), "audio", audioURL.String())
 	}

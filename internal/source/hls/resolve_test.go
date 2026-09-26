@@ -108,8 +108,8 @@ video.m3u8
 		t.Errorf("audio URL = %q, want the DEFAULT=YES rendition", got)
 	}
 	track, ok := resolved.Program.Track(media.TrackAudio)
-	if !ok || track.Input != media.AudioInputID {
-		t.Errorf("audio track = %+v, want it bound to the companion input", track)
+	if !ok || track.Input != media.AudioInputID || track.Optional {
+		t.Errorf("audio track = %+v, want it required of the companion input, which exists only to carry it", track)
 	}
 }
 

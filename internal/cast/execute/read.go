@@ -2,6 +2,7 @@ package execute
 
 import (
 	"context"
+	"log/slog"
 	"path/filepath"
 
 	"github.com/stupside/castor/internal/cast/attempt"
@@ -20,8 +21,12 @@ func (c *cast) read(ctx context.Context) error {
 		return err
 	}
 
-	if c.cfg.Subtitles != nil && facts.sounds(program) {
-		c.burn = c.cfg.Subtitles(ctx, c.workDir)
+	if c.cfg.Subtitles != nil {
+		if facts.sounds(program) {
+			c.burn = c.cfg.Subtitles(ctx, c.workDir)
+		} else {
+			slog.InfoContext(ctx, "no subtitles for this cast: nothing shows the source carries sound")
+		}
 	}
 
 	floor, err := plan.Floor(ctx, plan.Inputs{
