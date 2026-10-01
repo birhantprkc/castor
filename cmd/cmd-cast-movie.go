@@ -24,7 +24,11 @@ func (a *app) castMovieCommand() *cli.Command {
 				return err
 			}
 
-			return a.extractAndCast(ctx, cfg, cfg.Target(), cfg.Sources.MovieURLs(itemID))
+			target, err := cfg.Target()
+			if err != nil {
+				return err
+			}
+			return a.extractAndCast(ctx, cfg, target, cfg.Sources.MovieURLs(itemID))
 		},
 	}
 }

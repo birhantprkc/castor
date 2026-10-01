@@ -3,14 +3,14 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/urfave/cli/v3"
 
-	"github.com/stupside/castor/internal/cast"
+	castorv1 "github.com/stupside/castor/gen/castor/v1"
 	"github.com/stupside/castor/internal/config"
 	"github.com/stupside/castor/internal/device"
 	"github.com/stupside/castor/internal/device/picker"
-	"github.com/stupside/castor/internal/source"
 	"github.com/stupside/castor/internal/titles/browse"
 	"github.com/stupside/castor/internal/titles/tmdb"
 )
@@ -55,7 +55,6 @@ func (a *app) castInteractive(ctx context.Context, _ *cli.Command) error {
 	if err != nil {
 		return fmt.Errorf("picking device: %w", err)
 	}
-
 	sel, err := browse.Run(ctx, tmdb.New(cfg.TMDB.APIKey), target.Name, target.Type)
 	if err != nil {
 		return fmt.Errorf("browse: %w", err)
@@ -77,32 +76,40 @@ func (a *app) castInteractive(ctx context.Context, _ *cli.Command) error {
 	return a.extractAndCast(ctx, cfg, target, urls)
 }
 
-// extractAndCast finds the streams on urls, then prints their ranking (-dry-run) or casts the best one to target.
+// extractAndCast finds the streams on urls, then prints their ranking (-dry-run) or has the server cast them to target.
 func (a *app) extractAndCast(ctx context.Context, cfg *config.Config, target device.Info, urls []string) error {
-	streams, err := cfg.Extractor().ExtractAll(ctx, urls)
+	c, err := dial(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("extracting streams: %w", err)
+		return err
 	}
-	ranked, err := cfg.Ranker().Rank(ctx, streams)
+	slog.InfoContext(ctx, "finding streams", "pages", len(urls))
+	streams, err := c.Extract(ctx, &castorv1.ExtractRequest{Pages: urls})
 	if err != nil {
-		return fmt.Errorf("ranking streams: %w", err)
+		return err
 	}
-
+	slog.InfoContext(ctx, "streams found", "count", len(streams))
 	if a.dryRun {
+		// Ranked where it would be cast, by the server, as this cast would ask.
+		ranked, err := c.Rank(ctx, &castorv1.RankRequest{Streams: streams, Preferences: cfg.Preferences()})
+		if err != nil {
+			return err
+		}
 		for _, s := range ranked {
 			fmt.Println(dryRunRow(s))
 		}
 		return nil
 	}
-
-	// Pass all candidates; casting falls back to next if best fails instead of failing.
-	return cast.Play(ctx, playback(cfg, target), ranked, nil)
+	// Pass all streams; the server ranks them and falls back to the next if the best fails.
+	return a.cast(ctx, c, &castorv1.StartCastRequest{
+		Streams:     &castorv1.StartCastRequest_Found_{Found: &castorv1.StartCastRequest_Found{Streams: streams}},
+		Preferences: cfg.Preferences(),
+	}, target)
 }
 
 // dryRunRow formats a stream as bandwidth and URL, with "last resort" label if unmeasured.
-func dryRunRow(s *source.Stream) string {
-	row := fmt.Sprintf("%d\t%s", s.Bitrate(), s.URL)
-	if s.LastResort {
+func dryRunRow(s *castorv1.RankedStream) string {
+	row := fmt.Sprintf("%d\t%s", s.GetBitrate(), s.GetUrl())
+	if s.GetLastResort() {
 		row += "\tlast resort"
 	}
 	return row

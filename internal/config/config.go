@@ -3,10 +3,15 @@ package config
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"time"
 
+	castorv1 "github.com/stupside/castor/gen/castor/v1"
+	"github.com/stupside/castor/internal/api/client"
+	"github.com/stupside/castor/internal/api/server"
 	"github.com/stupside/castor/internal/cast"
+	"github.com/stupside/castor/internal/cast/attempt"
 	"github.com/stupside/castor/internal/cast/compose"
 	"github.com/stupside/castor/internal/cast/execute"
 	"github.com/stupside/castor/internal/cast/transcode"
@@ -28,7 +33,7 @@ import (
 )
 
 type Config struct {
-	Device    DeviceConfig          `yaml:"device" validate:"required"`
+	Device    DeviceConfig          `yaml:"device" validate:"omitempty"`
 	Cast      CastConfig            `yaml:"cast"`
 	Network   NetworkConfig         `yaml:"network" validate:"required"`
 	Browser   extract.BrowserConfig `yaml:"browser" validate:"required"`
@@ -38,17 +43,27 @@ type Config struct {
 	Transcode TranscodeConfig       `yaml:"transcode" validate:"required"`
 	Whisper   subtitle.Whisper      `yaml:"whisper"`
 	TMDB      TMDB                  `yaml:"tmdb"`
+	API       APIConfig             `yaml:"api" validate:"required"`
 
-	// client is THE origin session for this process, memoised (see defaults), so resolution and following share its cookies.
-	client func() source.Client
-	source func() *source.Resolver
-	ranker func() *rank.Ranker
+	// client is THE origin session for this process, memoised (see defaults), so every cast and identification share its cookies.
+	client     func() source.Client
+	identifier func() *source.Resolver
 }
 
 // TMDB holds settings for the TMDB browse subcommand.
 type TMDB struct {
 	APIKey string `yaml:"api_key"`
 }
+
+// APIConfig is the server this machine's commands drive, and where `castor api server` listens.
+type APIConfig struct {
+	// Endpoint is "embedded" (serve in this process) or a remote server's base URL.
+	Endpoint string `yaml:"endpoint" validate:"required,eq=embedded|http_url"`
+	Listen   string `yaml:"listen" validate:"required,hostname_port|startswith=:"`
+}
+
+// Embedded reports whether frontends serve the API in their own process.
+func (a APIConfig) Embedded() bool { return a.Endpoint == "embedded" }
 
 // TranscodeConfig is the transcode section: the ffmpeg binary, and how long one upstream read may stall.
 type TranscodeConfig struct {
@@ -80,42 +95,112 @@ type DeviceConfig struct {
 	Roku roku.Config `yaml:"roku"`
 }
 
-// Target is the device this config names, as discovery reports devices.
-func (c *Config) Target() device.Info {
-	return device.Info{Name: c.Device.Name, Type: c.Device.Type, Address: c.Device.Host}
+// Target is the device this config names, as discovery reports devices; only a cast with no picker needs one.
+func (c *Config) Target() (device.Info, error) {
+	if c.Device.Type == "" {
+		return device.Info{}, errors.New("no device to cast to: set device.name and device.type (castor scan lists them)")
+	}
+	return device.Info{Name: c.Device.Name, Type: c.Device.Type, Address: c.Device.Host}, nil
 }
 
-// Playback binds a cast to target; subs is the burn-in cmd binds, since the transcriber is cgo.
-func (c *Config) Playback(target device.Info, subs execute.Subtitles) cast.Config {
+// playback binds a cast asked as asked to renderer, serving on listeners; subs is the burn-in cmd binds, since the transcriber is cgo.
+func (c *Config) playback(asked *castorv1.Preferences, renderer execute.Renderer, listeners execute.Listeners, subs execute.Subtitles) cast.Config {
+	height := media.HeightCap(asked.GetMaxHeight())
 	return cast.Config{
-		Source:       c.source(),
-		Delivery:     c.Cast.Delivery,
+		Source:       source.NewResolver(c.client(), height, formats),
+		Delivery:     delivery(asked.GetDelivery()),
 		ReadDeadline: c.Transcode.RWTimeout,
 		Execute: execute.Config{
 			FFmpegPath: c.Transcode.FFmpegPath,
 			Binary:     ffmpeg.Inspect(c.Transcode.FFmpegPath),
 			Encoders:   transcode.Encoders(c.Transcode.FFmpegPath),
 			Probes:     probe.FFprobe(c.Resolver.FFprobePath),
-			Renderer:   configured{families: c.Devices(), target: target, timeout: c.Network.Timeout},
-			Listeners:  cast.LANAddress{Interface: c.Network.Interface},
+			Renderer:   renderer,
+			Listeners:  listeners,
 			Subtitles:  subs,
-			MaxHeight:  c.Resolver.MaxHeight,
+			MaxHeight:  height,
 			// Half the read deadline: a reload castor answers late would end ffmpeg's read like no answer.
 			Timelines: follow.New(c.client(), formats, c.Transcode.RWTimeout/2, ffmpeg.Repackager(c.Transcode.FFmpegPath)),
 		},
 	}
 }
 
-type configured struct {
+// Backend binds the API server to this config's machinery; burn is the burn-in cmd binds, since the transcriber is cgo.
+func (c *Config) Backend(burn func(subtitle.Whisper) execute.Subtitles) server.Backend {
+	return server.Backend{
+		Extractor: c.extractor(),
+		Caster: func(asked *castorv1.Preferences) server.Caster {
+			// The model is this server's; whether to transcribe, and in what language, is the cast's.
+			whisper := c.Whisper
+			whisper.Enable, whisper.Language = asked.GetSubtitles() != "", subtitle.Language(asked.GetSubtitles())
+			ranking := rank.Config{ProbeMaxConcurrency: c.Resolver.ProbeMaxConcurrency, MaxHeight: media.HeightCap(asked.GetMaxHeight())}
+			return caster{
+				Ranker: rank.New(ranking, probe.Stream(c.Resolver.FFprobePath, c.Resolver.ProbeTimeout)),
+				config: c,
+				asked:  asked,
+				subs:   burn(whisper),
+			}
+		},
+	}
+}
+
+// caster ranks and plays one cast as it was asked.
+type caster struct {
+	*rank.Ranker
+	config *Config
+	asked  *castorv1.Preferences
+	subs   execute.Subtitles
+}
+
+// Measure names what a link carries when it says nothing, then measures it.
+func (k caster) Measure(ctx context.Context, s *source.Stream) (*source.Stream, error) {
+	if s.ContentType == "" {
+		s.ContentType = k.config.identify(ctx, s.URL)
+	}
+	return k.Ranker.Measure(ctx, s)
+}
+
+func (k caster) Play(ctx context.Context, renderer execute.Renderer, listeners execute.Listeners, streams []*source.Stream, turns attempt.Turns) error {
+	return cast.Play(ctx, k.config.playback(k.asked, renderer, listeners, k.subs), streams, turns)
+}
+
+// Preferences is what this machine's operator asks of every cast it starts.
+func (c *Config) Preferences() *castorv1.Preferences {
+	asked := &castorv1.Preferences{Delivery: castorv1.Delivery_DELIVERY_AUTO, MaxHeight: int32(c.Resolver.MaxHeight)}
+	if c.Cast.Delivery == compose.DeliveryServe {
+		asked.Delivery = castorv1.Delivery_DELIVERY_SERVE
+	}
+	if c.Whisper.Enable {
+		asked.Subtitles = string(c.Whisper.Language)
+	}
+	return asked
+}
+
+// delivery is the engine's reading of what a cast asked; an unstated delivery leaves it to the evidence.
+func delivery(d castorv1.Delivery) compose.DeliveryPreference {
+	if d == castorv1.Delivery_DELIVERY_SERVE {
+		return compose.DeliveryServe
+	}
+	return compose.DeliveryAuto
+}
+
+// LAN binds a client to the renderers on this machine's network and the address they reach it at.
+func (c *Config) LAN() client.LAN {
+	return client.LAN{
+		Renderers: renderers{families: c.Devices(), timeout: c.Network.Timeout},
+		Addresses: client.LANAddress{Interface: c.Network.Interface},
+	}
+}
+
+type renderers struct {
 	families device.Registry
-	target   device.Info
 	timeout  time.Duration
 }
 
-func (c configured) Profile() media.Capabilities { return c.families.Profile(c.target.Type) }
+func (r renderers) Profile(t device.Type) media.Capabilities { return r.families.Profile(t) }
 
-func (c configured) Connect(ctx context.Context) (device.Device, error) {
-	return c.families.Connect(ctx, c.target, c.timeout)
+func (r renderers) Connect(ctx context.Context, target device.Info) (device.Device, error) {
+	return r.families.Connect(ctx, target, r.timeout)
 }
 
 // NetworkConfig: how long discovery and a device protocol are given, and which interface a local relay binds.
@@ -123,9 +208,6 @@ type NetworkConfig struct {
 	Timeout   time.Duration `yaml:"timeout" validate:"required"`
 	Interface string        `yaml:"interface"`
 }
-
-// Ranker is the one ranker this process uses, built on first call and shared by every caller after.
-func (c *Config) Ranker() *rank.Ranker { return c.ranker() }
 
 // ResolverConfig is the resolver section: what source reads, plus the adapters this root binds for it.
 type ResolverConfig struct {
@@ -137,22 +219,18 @@ type ResolverConfig struct {
 	ProbeTimeout    time.Duration `yaml:"probe_timeout" validate:"required"`
 }
 
-func (c *Config) newResolver() *source.Resolver {
+// newIdentifier only names links: it never picks a rendition, so no cast's ceiling binds it.
+func (c *Config) newIdentifier() *source.Resolver {
 	return source.NewResolver(c.client(), c.Resolver.MaxHeight, formats)
 }
 
-// Identify names what a typed link carries, reading its body when its name says nothing.
-func (c *Config) Identify(ctx context.Context, u *url.URL) string {
-	return c.source().Identify(ctx, u)
+// identify names what a typed link carries, reading its body when its name says nothing.
+func (c *Config) identify(ctx context.Context, u *url.URL) string {
+	return c.identifier().Identify(ctx, u)
 }
 
-// newRanker binds ranking to the same measurement resolution identifies a source with.
-func (c *Config) newRanker() *rank.Ranker {
-	return rank.New(c.Resolver.Config, probe.Stream(c.Resolver.FFprobePath, c.Resolver.ProbeTimeout))
-}
-
-// Extractor finds candidate streams on a page, recognising documents in every format castor reads.
-func (c *Config) Extractor() *extract.Extractor {
+// extractor finds candidate streams on a page, recognising documents in every format castor reads.
+func (c *Config) extractor() *extract.Extractor {
 	return extract.New(extract.Config{
 		Browser:   c.Browser,
 		Capture:   c.Capture,

@@ -40,7 +40,11 @@ func (a *app) castEpisodeCommand() *cli.Command {
 				return err
 			}
 
-			return a.extractAndCast(ctx, cfg, cfg.Target(), cfg.Sources.EpisodeURLs(itemID, uint(season), uint(episode)))
+			target, err := cfg.Target()
+			if err != nil {
+				return err
+			}
+			return a.extractAndCast(ctx, cfg, target, cfg.Sources.EpisodeURLs(itemID, uint(season), uint(episode)))
 		},
 	}
 }

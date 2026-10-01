@@ -4,6 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"google.golang.org/protobuf/proto"
+
+	castorv1 "github.com/stupside/castor/gen/castor/v1"
 )
 
 type loadCase struct {
@@ -33,6 +37,26 @@ func TestLoad(t *testing.T) {
 		name:    "neither a name nor a host leaves the device unaddressable",
 		yaml:    "device:\n  type: dlna\n",
 		wantErr: true,
+	}, {
+		name: "a server drives no device, so it needs no device section",
+		want: func(t *testing.T, cfg *Config) {
+			if _, err := cfg.Target(); err == nil {
+				t.Error("a config naming no device produced a cast target")
+			}
+		},
+	}, {
+		name: "a cast asks for subtitles only when they are enabled, in the language set",
+		yaml: "cast:\n  delivery: serve\nresolver:\n  max_height: 720\nwhisper:\n  language: fr\n",
+		want: func(t *testing.T, cfg *Config) {
+			want := &castorv1.Preferences{Delivery: castorv1.Delivery_DELIVERY_SERVE, MaxHeight: 720}
+			if got := cfg.Preferences(); !proto.Equal(got, want) {
+				t.Errorf("asked %v, want serve at 720p and no subtitles while whisper is off", got)
+			}
+			cfg.Whisper.Enable = true
+			if got := cfg.Preferences().GetSubtitles(); got != "fr" {
+				t.Errorf("asked for subtitles in %q, want the configured language", got)
+			}
+		},
 	}, {
 		name:    "an unknown device type is a typo, not a discovery failure",
 		yaml:    "device:\n  name: tv\n  type: firetv\n",

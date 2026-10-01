@@ -36,10 +36,10 @@ func Defaults() *Config {
 		Capture:   extract.CaptureConfig{ParallelURLs: 4},
 		Transcode: TranscodeConfig{FFmpegPath: "ffmpeg", RWTimeout: 30 * time.Second},
 		Whisper:   subtitle.Whisper{Language: "en"},
+		API:       APIConfig{Endpoint: "embedded", Listen: ":8410"},
 	}
 	cfg.client = sync.OnceValue(func() source.Client { return web.Client(cfg.Resolver.PlaylistTimeout) })
-	cfg.source = sync.OnceValue(cfg.newResolver)
-	cfg.ranker = sync.OnceValue(cfg.newRanker)
+	cfg.identifier = sync.OnceValue(cfg.newIdentifier)
 	return cfg
 }
 
@@ -82,8 +82,11 @@ func Load(path string) (*Config, error) {
 	if err := validator.New().Struct(cfg); err != nil {
 		return nil, fmt.Errorf("validating config: %w", err)
 	}
-	if err := cfg.Devices().Known(cfg.Device.Type); err != nil {
-		return nil, fmt.Errorf("validating config: device.type: %w", err)
+	// A server drives no device, so the section is checked only where it is written.
+	if cfg.Device.Type != "" {
+		if err := cfg.Devices().Known(cfg.Device.Type); err != nil {
+			return nil, fmt.Errorf("validating config: device.type: %w", err)
+		}
 	}
 	return cfg, nil
 }

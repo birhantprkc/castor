@@ -1,4 +1,4 @@
-package cast
+package client
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"net"
 )
 
-// LANAddress resolves castor's LAN address: the pinned interface's, or the default route's when none is pinned.
+// LANAddress is where this machine's renderers reach its relay: the pinned interface's address, or the default route's.
 type LANAddress struct{ Interface string }
 
 // LocalIPv4 dials a UDP socket to read the default-route address, or lists the pinned interface's addresses.
@@ -38,13 +38,4 @@ func (l LANAddress) LocalIPv4(ctx context.Context) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no IPv4 address on %s", iface.Name)
-}
-
-// Listen opens a delivery on the LAN address, where renderers on the network reach it.
-func (l LANAddress) Listen(ctx context.Context) (net.Listener, error) {
-	ip, err := l.LocalIPv4(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("resolving local relay address: %w", err)
-	}
-	return net.Listen("tcp", net.JoinHostPort(ip, "0"))
 }

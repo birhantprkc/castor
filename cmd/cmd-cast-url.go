@@ -7,8 +7,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"github.com/stupside/castor/internal/cast"
-	"github.com/stupside/castor/internal/source"
+	castorv1 "github.com/stupside/castor/gen/castor/v1"
 )
 
 func (a *app) castURLCommand() *cli.Command {
@@ -39,13 +38,19 @@ func (a *app) castURLCommand() *cli.Command {
 				return err
 			}
 
-			// Measure direct URL (not rank) to extract envelope for pass-through.
-			stream := &source.Stream{URL: urlObj, ContentType: cfg.Identify(ctx, urlObj)}
-			measured, err := cfg.Ranker().Measure(ctx, stream)
+			target, err := cfg.Target()
 			if err != nil {
-				return fmt.Errorf("measuring direct URL: %w", err)
+				return err
 			}
-			return cast.Play(ctx, playback(cfg, cfg.Target()), []*source.Stream{measured}, nil)
+			c, err := dial(ctx, cfg)
+			if err != nil {
+				return err
+			}
+			// Named, not found: the server measures it to extract the envelope for pass-through, without ranking.
+			return a.cast(ctx, c, &castorv1.StartCastRequest{
+				Streams:     &castorv1.StartCastRequest_Named{Named: &castorv1.Stream{Url: urlObj.String()}},
+				Preferences: cfg.Preferences(),
+			}, target)
 		},
 	}
 }

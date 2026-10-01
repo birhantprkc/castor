@@ -23,7 +23,11 @@ func (a *app) castPlayerCommand() *cli.Command {
 			if err != nil {
 				return err
 			}
-			return a.extractAndCast(ctx, cfg, cfg.Target(), []string{pageURL})
+			target, err := cfg.Target()
+			if err != nil {
+				return err
+			}
+			return a.extractAndCast(ctx, cfg, target, []string{pageURL})
 		},
 	}
 }

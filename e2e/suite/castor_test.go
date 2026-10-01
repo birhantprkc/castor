@@ -25,7 +25,8 @@ type binary string
 
 func (b binary) Cast(ctx context.Context, launch settings.Launch, args []string) ([]byte, error) {
 	var out bytes.Buffer
-	cmd := exec.CommandContext(ctx, string(b), slices.Concat(launch.Flags, args)...)
+	// --debug brings the engine's lines back through the watch, so a failing case shows why.
+	cmd := exec.CommandContext(ctx, string(b), slices.Concat([]string{"--debug"}, launch.Flags, args)...)
 	cmd.Dir, cmd.Env = launch.Dir, append(os.Environ(), launch.Env...)
 	cmd.Stdout, cmd.Stderr = &out, &out
 	cmd.WaitDelay = 5 * time.Second

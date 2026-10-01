@@ -85,6 +85,7 @@ See [Configuration](#configuration) for subtitles, quality, and title search.
 | `castor cast` | Browse titles and cast, interactively (needs a [TMDB key](#tmdb-key)) |
 | `castor cast movie <id>` | Resolve a movie id against your [sources](#sources) and cast |
 | `castor cast episode <id> --season N --episode N` | Same, for a TV episode |
+| `castor api server` | Do the heavy work of casts for castor on other machines ([remote server](#remote-server)) |
 
 Run `castor --help` for all flags.
 
@@ -95,7 +96,7 @@ Castor runs best as a native binary on the same network as your TV. It needs thr
 
 | Tool | Version | Used for |
 | --- | --- | --- |
-| **Chrome / Chromium** | Any recent | Headless stream extraction |
+| **Chrome / Chromium** | Any recent | Headless stream extraction, on the machine that runs the server |
 | **ffmpeg** | 7.1+ | Transcoding (and stream copy) |
 | **ffprobe** | 7.1+ | Source format detection |
 
@@ -218,6 +219,36 @@ CASTOR_CAST__DELIVERY=serve castor cast url <url>
 Any key works that way, e.g. `CASTOR_RESOLVER__MAX_HEIGHT=720`.
 
 
+### Remote server
+
+Every `castor` command drives a castor server. By default that server runs inside the same process. Point the command at another instance instead, and the heavy work (finding the streams on a page, measuring, reading, transcoding, subtitles) runs there:
+
+```sh
+castor api server   # on any machine your laptop can reach, listens on api.listen
+```
+
+```yaml
+api:
+  endpoint: http://my-server:8410   # "embedded" (the default) serves in this process
+  listen: ":8410"                   # where `castor api server` listens
+```
+
+The command you run stays the one on your TV's network. It finds the devices, controls the one you pick, and relays whatever the server streams to it. The server never connects into your network and the TV never connects to the server, so the server can sit anywhere, behind any NAT. Keep the command running for the whole cast.
+
+What you ask of a cast travels with it: `cast.delivery`, `resolver.max_height`, and whether to burn in subtitles (`whisper.enable`, `whisper.language`) are read from the machine you cast from. The server's own config only says how it does the work (ffmpeg, timeouts, the whisper model).
+
+Your terminal shows the cast's progress and how it ended. `castor --debug` adds the server's own lines for your cast, marked `from=server`, wherever the server runs; they are sent live and never stored.
+
+The server answers gRPC health checks and reflection on the same port, so standard tools work against it:
+
+```sh
+buf curl --protocol grpc --http2-prior-knowledge http://my-server:8410/grpc.health.v1.Health/Check
+buf curl --protocol grpc --http2-prior-knowledge --list-methods http://my-server:8410
+```
+
+A server outside your home finds and reads streams from its own IP address, so the machine you cast from needs no Chrome. A site that locks its links to the address that found them still plays when the server relays them, but the TV may be refused when it fetches such a link itself. The API has no authentication, so only expose it on a network you trust.
+
+
 ## Supported devices
 
 Run `castor scan` to list what is on your network.
@@ -304,6 +335,7 @@ docker run --rm --network host --device /dev/dri \
 - `--device /dev/dri` lets Castor encode on an Intel GPU (VA-API). Without it, Castor encodes in software. Video your TV already plays is copied, not encoded.
 - Run from the directory holding your [`config.yaml`](config.yaml).
 - The `castor-cache` volume keeps downloaded whisper models.
+- `docker run -d -p 8410:8410 ghcr.io/stupside/castor:latest api server` runs the image as a [remote server](#remote-server) for castor on your laptop. It needs no `--network host`: only the laptop talks to the TV.
 
 | Tag | Build |
 | --- | --- |
