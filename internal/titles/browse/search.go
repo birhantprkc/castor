@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/stupside/castor/internal/titles/tmdb"
 )
 
@@ -25,7 +25,7 @@ type searchDoneMsg struct {
 	err error
 }
 
-func loadTopCmd(ctx context.Context, c *tmdb.Client, t tabID) tea.Cmd {
+func loadTopCmd(ctx context.Context, c Catalog, t tabID) tea.Cmd {
 	return func() tea.Msg {
 		res, err := t.fetch(ctx, c)
 		return topsLoadedMsg{tab: t, res: res, err: err}
@@ -38,7 +38,7 @@ func searchTickCmd(tok int, query string) tea.Cmd {
 	})
 }
 
-func searchCmd(ctx context.Context, c *tmdb.Client, tok int, q string) tea.Cmd {
+func searchCmd(ctx context.Context, c Catalog, tok int, q string) tea.Cmd {
 	return func() tea.Msg {
 		res, err := c.Search(ctx, q)
 		return searchDoneMsg{tok: tok, res: res, err: err}

@@ -3,14 +3,14 @@ module github.com/stupside/castor
 go 1.27.0
 
 require (
+	charm.land/bubbles/v2 v2.2.1
+	charm.land/bubbletea/v2 v2.0.10
+	charm.land/lipgloss/v2 v2.0.6
+	charm.land/log/v2 v2.0.1
 	github.com/Eyevinn/dash-mpd v0.18.1
 	github.com/Eyevinn/hls-m3u8 v0.6.5
 	github.com/Eyevinn/mp4ff v0.57.0
 	github.com/at-wat/ebml-go v0.19.4
-	github.com/charmbracelet/bubbles v1.0.0
-	github.com/charmbracelet/bubbletea v1.3.10
-	github.com/charmbracelet/lipgloss v1.1.0
-	github.com/charmbracelet/log v1.0.0
 	github.com/chromedp/cdproto v0.0.0-20260922220944-a19bff23514f
 	github.com/chromedp/chromedp v0.16.0
 	github.com/eliukblau/pixterm v1.3.3
@@ -38,19 +38,19 @@ replace github.com/ggerganov/whisper.cpp/bindings/go => ./third_party/whisper.cp
 
 require (
 	github.com/atotto/clipboard v0.1.4 // indirect
-	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/barkimedes/go-deepcopy v0.0.0-20220514131651-17c30cfc62df // indirect
 	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/cenkalti/backoff v2.2.1+incompatible // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
-	github.com/charmbracelet/x/ansi v0.11.7 // indirect
-	github.com/charmbracelet/x/cellbuf v0.0.15 // indirect
+	github.com/charmbracelet/ultraviolet v0.0.0-20260811164956-006e29f97886 // indirect
+	github.com/charmbracelet/x/ansi v0.11.8 // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
+	github.com/charmbracelet/x/termios v0.1.1 // indirect
+	github.com/charmbracelet/x/windows v0.2.2 // indirect
 	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/disintegration/imaging v1.6.2 // indirect
-	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.15 // indirect
 	github.com/go-json-experiment/json v0.0.0-20260820222146-c27c302e5fc3 // indirect
@@ -64,15 +64,11 @@ require (
 	github.com/knadh/koanf/maps v0.1.3 // indirect
 	github.com/leodido/go-urn v1.5.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.1 // indirect
-	github.com/mattn/go-isatty v0.0.23 // indirect
-	github.com/mattn/go-localereader v0.0.1 // indirect
 	github.com/mattn/go-runewidth v0.0.30 // indirect
 	github.com/miekg/dns v1.1.73 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
-	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
-	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sahilm/fuzzy v0.1.3 // indirect

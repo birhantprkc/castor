@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/charmbracelet/bubbles/help"
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/stupside/castor/internal/palette"
 	"github.com/stupside/castor/internal/titles/tmdb"
@@ -20,7 +19,6 @@ import (
 type genrePicker struct {
 	list     list.Model
 	styles   styles
-	help     help.Model
 	catalog  tmdb.GenreCatalog
 	loaded   bool
 	media    string       // tmdb.MediaMovie | tmdb.MediaTV
@@ -37,8 +35,8 @@ const (
 	genreApplied                      // closed; run a discover query
 )
 
-func newGenrePicker(st styles, h help.Model) genrePicker {
-	l := list.New(nil, newGenreDelegate(), 0, 0)
+func newGenrePicker() genrePicker {
+	l := list.New(nil, list.NewDefaultDelegate(), 0, 0)
 	l.SetShowTitle(false)
 	l.SetShowStatusBar(false)
 	l.SetShowHelp(false)
@@ -49,11 +47,15 @@ func newGenrePicker(st styles, h help.Model) genrePicker {
 
 	return genrePicker{
 		list:     l,
-		styles:   st,
-		help:     h,
 		media:    tmdb.MediaMovie,
 		selected: map[int]bool{},
 	}
+}
+
+func (g *genrePicker) restyle(p palette.Palette, st styles) {
+	g.styles = st
+	g.list.SetDelegate(newGenreDelegate(p))
+	p.StyleList(&g.list)
 }
 
 // setCatalog refreshes checklist if modal is open before fetch completes.
@@ -80,7 +82,7 @@ func (g *genrePicker) resize(w, h int) {
 	g.list.SetSize(width, max(rows, 1))
 }
 
-func (g *genrePicker) update(msg tea.KeyMsg, keys keyMap, w, h int) (tea.Cmd, genreAction) {
+func (g *genrePicker) update(msg tea.KeyPressMsg, keys keyMap, w, h int) (tea.Cmd, genreAction) {
 	switch {
 	case key.Matches(msg, keys.back):
 		g.shown = false
@@ -179,7 +181,7 @@ func (g genrePicker) view(spin spinner.Model, w, h int) string {
 		count = fmt.Sprintf("%d selected", n)
 	}
 
-	hints := g.help.Styles.ShortDesc.Render(
+	hints := g.styles.muted.Render(
 		"space toggle · ↵ apply · m movies/tv · c clear · esc cancel",
 	)
 
@@ -187,11 +189,7 @@ func (g genrePicker) view(spin spinner.Model, w, h int) string {
 		title, "", body, "",
 		g.styles.muted.Render(count), hints,
 	)
-	box := lipgloss.NewStyle().
-		Padding(1, 2).
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(palette.Accent).
-		Render(content)
+	box := g.styles.box.Render(content)
 	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, box)
 }
 
@@ -211,13 +209,11 @@ func (i genreItem) Title() string {
 func (i genreItem) Description() string { return "" }
 func (i genreItem) FilterValue() string { return i.g.Name }
 
-func newGenreDelegate() list.DefaultDelegate {
+func newGenreDelegate(p palette.Palette) list.DefaultDelegate {
 	d := list.NewDefaultDelegate()
 	d.ShowDescription = false
 	d.SetSpacing(0)
-	d.Styles.NormalTitle = d.Styles.NormalTitle.Foreground(palette.FgPrimary)
-	d.Styles.SelectedTitle = d.Styles.SelectedTitle.Foreground(palette.Accent).BorderForeground(palette.Accent).Bold(true)
-	d.Styles.DimmedTitle = d.Styles.DimmedTitle.Foreground(palette.FgMuted)
+	d.Styles = p.ItemStyles()
 	return d
 }
 
@@ -226,7 +222,7 @@ type genresLoadedMsg struct {
 	err error
 }
 
-func loadGenresCmd(ctx context.Context, c *tmdb.Client) tea.Cmd {
+func loadGenresCmd(ctx context.Context, c Catalog) tea.Cmd {
 	return func() tea.Msg {
 		cat, err := c.Genres(ctx)
 		return genresLoadedMsg{cat: cat, err: err}

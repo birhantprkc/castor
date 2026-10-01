@@ -3,7 +3,7 @@ package browse
 import (
 	"context"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/stupside/castor/internal/titles/tmdb"
 )
 
@@ -23,7 +23,7 @@ func (t tabID) label() string {
 }
 
 // fetch uses discover, not TMDB's popular/top_rated lists, so unreleased titles stay out.
-func (t tabID) fetch(ctx context.Context, c *tmdb.Client) ([]tmdb.SearchResult, error) {
+func (t tabID) fetch(ctx context.Context, c Catalog) ([]tmdb.SearchResult, error) {
 	var p tmdb.DiscoverParams
 	switch t {
 	case tabPopularMovies:

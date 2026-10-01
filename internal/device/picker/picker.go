@@ -4,13 +4,15 @@ package picker
 import (
 	"context"
 	"fmt"
+	"image/color"
+	"os"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/stupside/castor/internal/device"
 	"github.com/stupside/castor/internal/palette"
@@ -19,7 +21,9 @@ import (
 // Device blocks until device selected or quit; context cancellation doesn't interrupt raw terminal input.
 func Device(ctx context.Context, discover Discover, defaultName string) (device.Info, error) {
 	m := newModel(ctx, discover, defaultName)
-	final, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx)).Run()
+	// The first frame already matches the terminal; BackgroundColorMsg follows any later change.
+	m.restyle(lipgloss.HasDarkBackground(os.Stdin, os.Stdout))
+	final, err := tea.NewProgram(m, tea.WithContext(ctx)).Run()
 	if err != nil {
 		return device.Info{}, err
 	}
@@ -35,13 +39,12 @@ type devicesDoneMsg struct {
 	devices []device.Info
 }
 
-var pDim = lipgloss.AdaptiveColor{Light: "#D4D4D8", Dark: "#3F3F46"}
-
 type model struct {
 	// tea.Cmd is parameterless closure; context accessible only via model.
 	ctx         context.Context
 	discover    Discover
 	defaultName string
+	pal         palette.Palette
 	list        list.Model
 	spin        spinner.Model
 	loading     bool
@@ -62,46 +65,47 @@ func (i item) Description() string {
 func (i item) FilterValue() string { return i.Name }
 
 func newModel(ctx context.Context, discover Discover, defaultName string) model {
-	sp := spinner.New()
-	sp.Spinner = spinner.MiniDot
-	sp.Style = lipgloss.NewStyle().Foreground(palette.Accent)
-
-	delegate := list.NewDefaultDelegate()
-	delegate.Styles.NormalTitle = delegate.Styles.NormalTitle.Foreground(palette.FgPrimary)
-	delegate.Styles.NormalDesc = delegate.Styles.NormalDesc.Foreground(palette.FgMuted)
-	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
-		Foreground(palette.Accent).
-		BorderForeground(palette.Accent).
-		Bold(true)
-	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.
-		Foreground(palette.FgSecondary).
-		BorderForeground(palette.Accent)
-
-	l := list.New(nil, delegate, 0, 0)
+	l := list.New(nil, list.NewDefaultDelegate(), 0, 0)
 	l.SetShowTitle(false)
 	l.SetShowStatusBar(false)
 	l.SetShowHelp(false)
 	l.SetFilteringEnabled(false)
 	// Disable list quit binding; quit modal owns program exit.
 	l.DisableQuitKeybindings()
-	l.Styles.NoItems = lipgloss.NewStyle().Foreground(palette.FgMuted).Padding(0, 2)
 
-	return model{
+	m := model{
 		ctx:         ctx,
 		discover:    discover,
 		defaultName: defaultName,
-		spin:        sp,
+		spin:        spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 		list:        l,
 		loading:     true,
 	}
+	m.restyle(true)
+	return m
+}
+
+// restyle repaints for the terminal background; dark until the terminal reports it.
+func (m *model) restyle(dark bool) {
+	m.pal = palette.New(dark)
+	m.spin.Style = lipgloss.NewStyle().Foreground(m.pal.Accent)
+	d := list.NewDefaultDelegate()
+	d.Styles = m.pal.ItemStyles()
+	m.list.SetDelegate(d)
+	m.pal.StyleList(&m.list)
+	m.list.Styles.NoItems = lipgloss.NewStyle().Foreground(m.pal.FgMuted).Padding(0, 2)
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(m.spin.Tick, discoverDevicesCmd(m.ctx, m.discover))
+	return tea.Batch(tea.RequestBackgroundColor, m.spin.Tick, discoverDevicesCmd(m.ctx, m.discover))
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.BackgroundColorMsg:
+		m.restyle(msg.IsDark())
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
 		m.list.SetSize(msg.Width-4, max(msg.Height-12, 5))
@@ -129,7 +133,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if m.showQuitModal {
 			switch {
 			case key.Matches(msg, keys.enter), key.Matches(msg, keys.quit):
@@ -161,12 +165,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m model) View() string {
+func (m model) View() tea.View {
+	v := tea.NewView(m.render())
+	v.AltScreen = true
+	return v
+}
+
+func (m model) render() string {
 	if m.loading {
-		return m.spin.View() + lipgloss.NewStyle().Foreground(palette.FgMuted).Render(" Discovering devices…")
+		return m.spin.View() + lipgloss.NewStyle().Foreground(m.pal.FgMuted).Render(" Discovering devices…")
 	}
 	if m.err != nil && m.selected == (device.Info{}) {
-		return lipgloss.NewStyle().Foreground(palette.Error).Bold(true).Render("error: " + m.err.Error())
+		return lipgloss.NewStyle().Foreground(m.pal.Error).Bold(true).Render("error: " + m.err.Error())
 	}
 
 	if m.showQuitModal {
@@ -174,8 +184,8 @@ func (m model) View() string {
 	}
 
 	header := lipgloss.NewStyle().
-		Background(lipgloss.AdaptiveColor{Light: "#F4F4F5", Dark: "#27272A"}).
-		Foreground(palette.Accent).
+		Background(m.pal.Pick("#F4F4F5", "#27272A")).
+		Foreground(m.pal.Accent).
 		Bold(true).
 		Width(m.w).
 		Padding(0, 2).
@@ -184,16 +194,16 @@ func (m model) View() string {
 	body := m.list.View()
 
 	cmds := []string{
-		lipgloss.NewStyle().Foreground(palette.Accent).Bold(true).Render("j/k") + " " + lipgloss.NewStyle().Foreground(palette.FgMuted).Render("nav"),
-		lipgloss.NewStyle().Foreground(palette.Accent).Bold(true).Render("↵") + " " + lipgloss.NewStyle().Foreground(palette.FgMuted).Render("select"),
-		lipgloss.NewStyle().Foreground(palette.Accent).Bold(true).Render("q") + " " + lipgloss.NewStyle().Foreground(palette.FgMuted).Render("quit"),
+		lipgloss.NewStyle().Foreground(m.pal.Accent).Bold(true).Render("j/k") + " " + lipgloss.NewStyle().Foreground(m.pal.FgMuted).Render("nav"),
+		lipgloss.NewStyle().Foreground(m.pal.Accent).Bold(true).Render("↵") + " " + lipgloss.NewStyle().Foreground(m.pal.FgMuted).Render("select"),
+		lipgloss.NewStyle().Foreground(m.pal.Accent).Bold(true).Render("q") + " " + lipgloss.NewStyle().Foreground(m.pal.FgMuted).Render("quit"),
 	}
 	cmdBar := lipgloss.NewStyle().
-		Background(lipgloss.AdaptiveColor{Light: "#E4E4E7", Dark: "#18181B"}).
-		Foreground(palette.FgPrimary).
+		Background(m.pal.Pick("#E4E4E7", "#18181B")).
+		Foreground(m.pal.FgPrimary).
 		Width(m.w).
 		Padding(0, 2).
-		Render(strings.Join(cmds, lipgloss.NewStyle().Foreground(pDim).Render(" · ")))
+		Render(strings.Join(cmds, lipgloss.NewStyle().Foreground(m.dim()).Render(" · ")))
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", cmdBar)
 }
@@ -201,24 +211,26 @@ func (m model) View() string {
 func (m model) renderModal() string {
 	modalW := 44
 	content := lipgloss.JoinVertical(lipgloss.Center,
-		lipgloss.NewStyle().Bold(true).Foreground(palette.Accent).Render("Quit castor?"),
+		lipgloss.NewStyle().Bold(true).Foreground(m.pal.Accent).Render("Quit castor?"),
 		"",
 		lipgloss.JoinHorizontal(lipgloss.Center,
-			lipgloss.NewStyle().Foreground(palette.Error).Bold(true).Render("[ Yes ]"),
-			lipgloss.NewStyle().Foreground(palette.FgMuted).Render("  "),
-			lipgloss.NewStyle().Foreground(palette.FgMuted).Render("[ No ]"),
+			lipgloss.NewStyle().Foreground(m.pal.Error).Bold(true).Render("[ Yes ]"),
+			lipgloss.NewStyle().Foreground(m.pal.FgMuted).Render("  "),
+			lipgloss.NewStyle().Foreground(m.pal.FgMuted).Render("[ No ]"),
 		),
 		"",
-		lipgloss.NewStyle().Foreground(pDim).Render("↵ / q to quit  •  esc to go back"),
+		lipgloss.NewStyle().Foreground(m.dim()).Render("↵ / q to quit  •  esc to go back"),
 	)
 	box := lipgloss.NewStyle().
 		Width(modalW).
 		Height(9).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(palette.Accent).
+		BorderForeground(m.pal.Accent).
 		Render(content)
 	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, box)
 }
+
+func (m model) dim() color.Color { return m.pal.Pick("#D4D4D8", "#3F3F46") }
 
 type keyMap struct {
 	enter key.Binding

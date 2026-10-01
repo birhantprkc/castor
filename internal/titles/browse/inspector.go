@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/eliukblau/pixterm/pkg/ansimage"
 
 	"github.com/stupside/castor/internal/titles/tmdb"
@@ -21,7 +21,7 @@ const hoverDebounce = 120 * time.Millisecond
 // inspector manages the right-hand panel with lazy poster and metadata caches.
 type inspector struct {
 	ctx    context.Context
-	client *tmdb.Client
+	client Catalog
 	styles styles
 
 	posters       map[string]string        // posterPath -> rendered ANSI
@@ -31,11 +31,10 @@ type inspector struct {
 	tok           int // debounce token; only the latest hover settles
 }
 
-func newInspector(ctx context.Context, client *tmdb.Client, st styles) inspector {
+func newInspector(ctx context.Context, client Catalog) inspector {
 	return inspector{
 		ctx:           ctx,
 		client:        client,
-		styles:        st,
 		posters:       map[string]string{},
 		details:       map[string]*tmdb.Details{},
 		detailPending: map[string]bool{},
@@ -165,7 +164,7 @@ func hoverSettleCmd(tok int) tea.Cmd {
 	return tea.Tick(hoverDebounce, func(time.Time) tea.Msg { return hoverSettleMsg{tok: tok} })
 }
 
-func detailsCmd(ctx context.Context, c *tmdb.Client, mediaType string, id int) tea.Cmd {
+func detailsCmd(ctx context.Context, c Catalog, mediaType string, id int) tea.Cmd {
 	key := detailKey(mediaType, id)
 	return func() tea.Msg {
 		d, err := c.Details(ctx, mediaType, id)
@@ -176,7 +175,7 @@ func detailsCmd(ctx context.Context, c *tmdb.Client, mediaType string, id int) t
 func detailKey(mediaType string, id int) string { return mediaType + ":" + strconv.Itoa(id) }
 
 // fetchPosterCmd renders the poster to ANSI escapes; half-blocks show 2 pixels per cell.
-func fetchPosterCmd(ctx context.Context, c *tmdb.Client, posterPath string) tea.Cmd {
+func fetchPosterCmd(ctx context.Context, c Catalog, posterPath string) tea.Cmd {
 	return func() tea.Msg {
 		body, err := c.Poster(ctx, posterPath, "w500")
 		if err != nil {

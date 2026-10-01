@@ -3,16 +3,17 @@ package browse
 
 import (
 	"context"
+	"os"
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/help"
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/stupside/castor/internal/device"
 	"github.com/stupside/castor/internal/palette"
@@ -35,8 +36,11 @@ type Selection struct {
 	Episode uint
 }
 
-func Run(ctx context.Context, client *tmdb.Client, devName string, devType device.Type) (Selection, error) {
-	final, err := tea.NewProgram(newModel(ctx, client, devName, devType), tea.WithAltScreen(), tea.WithContext(ctx)).Run()
+func Run(ctx context.Context, client Catalog, devName string, devType device.Type) (Selection, error) {
+	m := newModel(ctx, client, devName, devType)
+	// The first frame already matches the terminal; BackgroundColorMsg follows any later change.
+	m.restyle(lipgloss.HasDarkBackground(os.Stdin, os.Stdout))
+	final, err := tea.NewProgram(m, tea.WithContext(ctx)).Run()
 	if err != nil {
 		return Selection{}, err
 	}
@@ -62,7 +66,7 @@ const (
 
 type model struct {
 	ctx    context.Context
-	client *tmdb.Client
+	client Catalog
 
 	styles styles
 	keys   keyMap
@@ -94,54 +98,67 @@ type model struct {
 	devBadge string
 }
 
-func newModel(ctx context.Context, client *tmdb.Client, devName string, devType device.Type) model {
-	st := newStyles()
-	hlp := newHelp()
-
+func newModel(ctx context.Context, client Catalog, devName string, devType device.Type) model {
 	q := textinput.New()
 	q.Placeholder = "Type to search TMDB…"
 	q.Prompt = "❯ "
-	q.PromptStyle = lipgloss.NewStyle().Foreground(palette.Accent)
-	q.PlaceholderStyle = lipgloss.NewStyle().Foreground(palette.FgMuted)
-	q.TextStyle = lipgloss.NewStyle().Foreground(palette.FgPrimary)
 	q.CharLimit = 128
 	q.Focus()
 
-	sp := spinner.New()
-	sp.Spinner = spinner.MiniDot
-	sp.Style = lipgloss.NewStyle().Foreground(palette.Accent)
-
-	delegate := newDelegate()
-
-	results := list.New(nil, delegate, 0, 0)
+	results := list.New(nil, list.NewDefaultDelegate(), 0, 0)
 	results.SetShowTitle(false)
 	results.SetShowStatusBar(false)
 	results.SetShowHelp(false)
 	results.SetFilteringEnabled(false) // the textinput owns filtering on browse
 
-	return model{
+	m := model{
 		ctx:       ctx,
 		client:    client,
-		styles:    st,
 		keys:      defaultKeys(),
-		help:      hlp,
-		spin:      sp,
+		help:      help.New(),
+		spin:      spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 		scr:       screenBrowse,
 		tab:       tabTrending,
 		mode:      modeCurated,
 		query:     q,
 		results:   results,
 		disc:      discoverState{sort: tmdb.SortPopularity},
-		inspector: newInspector(ctx, client, st),
-		picker:    newGenrePicker(st, hlp),
-		drill:     newDrilldown(ctx, client, delegate),
+		inspector: newInspector(ctx, client),
+		picker:    newGenrePicker(),
+		drill:     newDrilldown(ctx, client),
 		loading:   true,
 		devBadge:  strings.ToUpper(string(devType)) + "  " + devName,
 	}
+	m.restyle(true)
+	return m
+}
+
+// restyle repaints for the terminal background; dark until the terminal reports it.
+func (m *model) restyle(dark bool) {
+	p := palette.New(dark)
+	m.styles = newStyles(p)
+	m.help.Styles = newHelpStyles(p)
+	m.spin.Style = lipgloss.NewStyle().Foreground(p.Accent)
+	m.query.SetStyles(newQueryStyles(p))
+	m.results.SetDelegate(newDelegate(p))
+	p.StyleList(&m.results)
+	m.inspector.styles = m.styles
+	m.picker.restyle(p, m.styles)
+	m.drill.restyle(p)
+}
+
+func newQueryStyles(p palette.Palette) textinput.Styles {
+	s := textinput.DefaultStyles(p.Dark)
+	s.Focused.Prompt = lipgloss.NewStyle().Foreground(p.Accent)
+	s.Focused.Placeholder = lipgloss.NewStyle().Foreground(p.FgMuted)
+	s.Focused.Text = lipgloss.NewStyle().Foreground(p.FgPrimary)
+	s.Cursor.Color = lipgloss.NoColor{} // terminal reverse video, not v2's grey tint
+	return s
 }
 
 func (m model) Init() tea.Cmd {
 	return tea.Batch(
+		tea.RequestBackgroundColor,
 		m.spin.Tick,
 		textinput.Blink,
 		loadTopCmd(m.ctx, m.client, m.tab),
@@ -151,9 +168,13 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.BackgroundColorMsg:
+		m.restyle(msg.IsDark())
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
-		m.help.Width = msg.Width
+		m.help.SetWidth(msg.Width)
 		m.resize()
 		if m.picker.shown {
 			m.picker.resize(m.w, m.h)
@@ -165,7 +186,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spin, cmd = m.spin.Update(msg)
 		return m, cmd
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if key.Matches(msg, m.keys.quit) {
 			return m, tea.Quit
 		}
@@ -244,7 +265,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateBrowse(msg tea.Msg) (tea.Model, tea.Cmd) {
-	km, ok := msg.(tea.KeyMsg)
+	km, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return m.forwardToQuery(msg)
 	}
@@ -334,5 +355,5 @@ func (m *model) resize() {
 	h := m.bodyHeight()
 	m.results.SetSize(max(m.w-posterCols-spGutter, 30), h)
 	m.drill.setSize(m.w, h)
-	m.query.Width = max(m.w-spInline*2, 20)
+	m.query.SetWidth(max(m.w-spInline*2, 20))
 }

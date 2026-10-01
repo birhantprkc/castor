@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/stupside/castor/internal/titles/tmdb"
 )
@@ -21,7 +21,7 @@ func drive(t *testing.T, m model, msg tea.Msg) (model, tea.Cmd) {
 	return mm, cmd
 }
 
-func runes(s string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)} }
+func runes(s string) tea.KeyPressMsg { return tea.KeyPressMsg{Code: []rune(s)[0], Text: s} }
 
 func fakeResults(n int) []tmdb.SearchResult {
 	rs := make([]tmdb.SearchResult, n)
@@ -38,7 +38,7 @@ func TestGenreOverlayDoesNotQuitOnQ(t *testing.T) {
 	m, _ = drive(t, m, genresLoadedMsg{cat: tmdb.GenreCatalog{
 		Movie: []tmdb.Genre{{ID: 28, Name: "Action"}},
 	}})
-	m, _ = drive(t, m, tea.KeyMsg{Type: tea.KeyCtrlG})
+	m, _ = drive(t, m, tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
 
 	m, cmd := drive(t, m, runes("q"))
 	if !m.picker.shown {
@@ -54,7 +54,7 @@ func TestGenreOverlayDoesNotQuitOnQ(t *testing.T) {
 func TestGenreOverlayOpenedBeforeCatalogIsUsable(t *testing.T) {
 	m := newModel(t.Context(), tmdb.New("dummy"), "", "")
 	m, _ = drive(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
-	m, _ = drive(t, m, tea.KeyMsg{Type: tea.KeyCtrlG})
+	m, _ = drive(t, m, tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
 	m, _ = drive(t, m, genresLoadedMsg{cat: tmdb.GenreCatalog{
 		Movie: []tmdb.Genre{{ID: 28, Name: "Action"}, {ID: 35, Name: "Comedy"}},
 	}})
@@ -62,8 +62,8 @@ func TestGenreOverlayOpenedBeforeCatalogIsUsable(t *testing.T) {
 	if h := m.picker.list.Height(); h <= 0 {
 		t.Fatalf("overlay list height = %d after the catalogue landed", h)
 	}
-	if !strings.Contains(m.View(), "Action") {
-		t.Fatalf("overlay renders no genre rows:\n%s", m.View())
+	if !strings.Contains(m.View().Content, "Action") {
+		t.Fatalf("overlay renders no genre rows:\n%s", m.View().Content)
 	}
 }
 
@@ -74,15 +74,15 @@ func TestGenreCursorClampedOnShorterCatalogue(t *testing.T) {
 		Movie: []tmdb.Genre{{ID: 1, Name: "A"}, {ID: 2, Name: "B"}, {ID: 3, Name: "C"}},
 		TV:    []tmdb.Genre{{ID: 100, Name: "T"}},
 	}})
-	m, _ = drive(t, m, tea.KeyMsg{Type: tea.KeyCtrlG})
-	m, _ = drive(t, m, tea.KeyMsg{Type: tea.KeyDown})
-	m, _ = drive(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	m, _ = drive(t, m, tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
+	m, _ = drive(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
+	m, _ = drive(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
 
 	m, _ = drive(t, m, runes("m"))
 	if m.picker.list.SelectedItem() == nil {
 		t.Fatalf("cursor parked at %d in a %d-item catalogue", m.picker.list.Index(), len(m.picker.list.Items()))
 	}
-	m, _ = drive(t, m, tea.KeyMsg{Type: tea.KeySpace})
+	m, _ = drive(t, m, tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 	if !m.picker.selected[100] {
 		t.Fatal("space toggled nothing after the media switch")
 	}
@@ -105,7 +105,7 @@ func TestClearingQueryClearsTransientStatus(t *testing.T) {
 	}
 
 	m, tok := search(t, base)
-	m, _ = drive(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m, _ = drive(t, m, tea.KeyPressMsg{Code: tea.KeyEscape})
 	m, _ = drive(t, m, searchDoneMsg{tok: tok, res: fakeResults(9)})
 	if m.loading || m.statusLine() != "" {
 		t.Fatalf("spinner survived the cleared query: loading=%v status=%q", m.loading, m.statusLine())
@@ -113,7 +113,7 @@ func TestClearingQueryClearsTransientStatus(t *testing.T) {
 
 	m, tok = search(t, base)
 	m, _ = drive(t, m, searchDoneMsg{tok: tok, err: fmt.Errorf("boom")})
-	m, _ = drive(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m, _ = drive(t, m, tea.KeyPressMsg{Code: tea.KeyEscape})
 	if m.err != nil || m.statusLine() != "" {
 		t.Fatalf("error survived the cleared query: err=%v status=%q", m.err, m.statusLine())
 	}
@@ -128,18 +128,18 @@ func TestReturningFromDrilldownFitsTheTerminal(t *testing.T) {
 		Name:    "Show",
 		Seasons: []tmdb.Season{{SeasonNumber: 1, Name: "One", EpisodeCount: 5, AirDate: "2020-01-01"}},
 	}})
-	if got := lipgloss.Height(m.View()); got > height {
+	if got := lipgloss.Height(m.View().Content); got > height {
 		t.Fatalf("drilldown renders %d rows in a %d-row terminal", got, height)
 	}
 
 	// '?' on the drilldown sizes the shared body for the drilldown's chrome.
 	m, _ = drive(t, m, runes("?"))
 	m, _ = drive(t, m, runes("?"))
-	m, _ = drive(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m, _ = drive(t, m, tea.KeyPressMsg{Code: tea.KeyEscape})
 	if m.scr != screenBrowse {
 		t.Fatal("esc on seasons should return to browse")
 	}
-	if got := lipgloss.Height(m.View()); got > height {
+	if got := lipgloss.Height(m.View().Content); got > height {
 		t.Fatalf("browse renders %d rows in a %d-row terminal", got, height)
 	}
 }

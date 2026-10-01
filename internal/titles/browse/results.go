@@ -4,9 +4,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
 	"github.com/stupside/castor/internal/palette"
 	"github.com/stupside/castor/internal/titles/tmdb"
 )
@@ -41,15 +40,9 @@ func toResultItems(rs []tmdb.SearchResult) []list.Item {
 	return items
 }
 
-func newDelegate() list.DefaultDelegate {
+func newDelegate(p palette.Palette) list.DefaultDelegate {
 	d := list.NewDefaultDelegate()
-	d.Styles.NormalTitle = d.Styles.NormalTitle.Foreground(palette.FgPrimary)
-	d.Styles.NormalDesc = d.Styles.NormalDesc.Foreground(palette.FgMuted)
-	d.Styles.SelectedTitle = d.Styles.SelectedTitle.Foreground(palette.Accent).BorderForeground(palette.Accent).Bold(true)
-	d.Styles.SelectedDesc = d.Styles.SelectedDesc.Foreground(palette.FgSecondary).BorderForeground(palette.Accent)
-	d.Styles.DimmedTitle = d.Styles.DimmedTitle.Foreground(palette.FgMuted)
-	d.Styles.DimmedDesc = d.Styles.DimmedDesc.Foreground(palette.FgMuted)
-	d.Styles.FilterMatch = lipgloss.NewStyle().Foreground(palette.Accent).Underline(true)
+	d.Styles = p.ItemStyles()
 	return d
 }
 

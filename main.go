@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/charmbracelet/log"
+	"charm.land/log/v2"
 	"github.com/stupside/castor/cmd"
 )
 

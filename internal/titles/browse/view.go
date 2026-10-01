@@ -3,22 +3,22 @@ package browse
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/help"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/help"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/stupside/castor/internal/palette"
 )
 
-func newHelp() help.Model {
-	h := help.New()
-	h.ShowAll = false
-	h.Styles.ShortKey = h.Styles.ShortKey.Foreground(palette.FgSecondary)
-	h.Styles.ShortDesc = h.Styles.ShortDesc.Foreground(palette.FgMuted)
-	h.Styles.ShortSeparator = h.Styles.ShortSeparator.Foreground(palette.FgMuted)
-	h.Styles.FullKey = h.Styles.FullKey.Foreground(palette.FgSecondary)
-	h.Styles.FullDesc = h.Styles.FullDesc.Foreground(palette.FgMuted)
-	h.Styles.FullSeparator = h.Styles.FullSeparator.Foreground(palette.FgMuted)
-	h.Styles.Ellipsis = h.Styles.Ellipsis.Foreground(palette.FgMuted)
-	return h
+func newHelpStyles(p palette.Palette) help.Styles {
+	s := help.DefaultStyles(p.Dark)
+	s.ShortKey = s.ShortKey.Foreground(p.FgSecondary)
+	s.ShortDesc = s.ShortDesc.Foreground(p.FgMuted)
+	s.ShortSeparator = s.ShortSeparator.Foreground(p.FgMuted)
+	s.FullKey = s.FullKey.Foreground(p.FgSecondary)
+	s.FullDesc = s.FullDesc.Foreground(p.FgMuted)
+	s.FullSeparator = s.FullSeparator.Foreground(p.FgMuted)
+	s.Ellipsis = s.Ellipsis.Foreground(p.FgMuted)
+	return s
 }
 
 // bodyHeight is list/poster row height (total minus footer and chrome above).
@@ -33,7 +33,13 @@ func (m model) bodyHeight() int {
 	return max(m.h-lipgloss.Height(m.footer())-chrome, 8)
 }
 
-func (m model) View() string {
+func (m model) View() tea.View {
+	v := tea.NewView(m.content())
+	v.AltScreen = true
+	return v
+}
+
+func (m model) content() string {
 	switch {
 	case m.picker.shown:
 		return m.picker.view(m.spin, m.w, m.h)
@@ -90,14 +96,12 @@ func (m model) filterBar() string {
 }
 
 func (m model) renderTabDots() string {
-	active := lipgloss.NewStyle().Foreground(palette.Accent)
-	inactive := lipgloss.NewStyle().Foreground(palette.FgMuted)
 	parts := make([]string, tabCount)
 	for i := range tabCount {
 		if i == m.tab {
-			parts[i] = active.Render("●")
+			parts[i] = m.styles.accent.Render("●")
 		} else {
-			parts[i] = inactive.Render("○")
+			parts[i] = m.styles.muted.Render("○")
 		}
 	}
 	return strings.Join(parts, " ")

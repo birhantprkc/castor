@@ -4,7 +4,7 @@ import (
 	"context"
 	"slices"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/stupside/castor/internal/titles/tmdb"
 )
@@ -49,7 +49,7 @@ type discoverDoneMsg struct {
 	err        error
 }
 
-func discoverCmd(ctx context.Context, c *tmdb.Client, tok int, p tmdb.DiscoverParams) tea.Cmd {
+func discoverCmd(ctx context.Context, c Catalog, tok int, p tmdb.DiscoverParams) tea.Cmd {
 	return func() tea.Msg {
 		pg, err := c.Discover(ctx, p)
 		return discoverDoneMsg{tok: tok, page: p.Page, res: pg.Results, totalPages: pg.TotalPages, err: err}

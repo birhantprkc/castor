@@ -1,6 +1,6 @@
 package browse
 
-import "github.com/charmbracelet/bubbles/key"
+import "charm.land/bubbles/v2/key"
 
 // keyMap holds browse TUI bindings; j/k reserved for textinput on screenBrowse.
 type keyMap struct {
@@ -33,7 +33,7 @@ func defaultKeys() keyMap {
 		genres:       key.NewBinding(key.WithKeys("ctrl+g"), key.WithHelp("^g", "genres")),
 		sort:         key.NewBinding(key.WithKeys("ctrl+s"), key.WithHelp("^s", "sort")),
 		media:        key.NewBinding(key.WithKeys("ctrl+t"), key.WithHelp("^t", "movie/tv")),
-		space:        key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle")),
+		space:        key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "toggle")),
 		clearGenres:  key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "clear")),
 		overlayMedia: key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "movie/tv")),
 		help:         key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),

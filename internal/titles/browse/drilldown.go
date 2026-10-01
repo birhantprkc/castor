@@ -6,11 +6,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
+	"github.com/stupside/castor/internal/palette"
 	"github.com/stupside/castor/internal/titles/tmdb"
 )
 
@@ -24,7 +25,7 @@ const (
 // drilldown is a TV navigation screen (seasons then episodes) interpreting key presses.
 type drilldown struct {
 	ctx    context.Context
-	client *tmdb.Client
+	client Catalog
 
 	list         list.Model
 	mode         drillMode
@@ -34,8 +35,8 @@ type drilldown struct {
 	seasonsCache []list.Item // restore target for episodes → seasons back
 }
 
-func newDrilldown(ctx context.Context, client *tmdb.Client, delegate list.DefaultDelegate) drilldown {
-	l := list.New(nil, delegate, 0, 0)
+func newDrilldown(ctx context.Context, client Catalog) drilldown {
+	l := list.New(nil, list.NewDefaultDelegate(), 0, 0)
 	l.SetShowTitle(false)
 	l.SetShowStatusBar(false)
 	l.SetShowHelp(false)
@@ -55,6 +56,11 @@ func (d *drilldown) begin(id int, name string) tea.Cmd {
 	d.tvID = id
 	d.tvName = name
 	return tvCmd(d.ctx, d.client, id)
+}
+
+func (d *drilldown) restyle(p palette.Palette) {
+	d.list.SetDelegate(newDelegate(p))
+	p.StyleList(&d.list)
 }
 
 func (d *drilldown) setSize(w, h int) { d.list.SetSize(max(w, 30), h) }
@@ -88,7 +94,7 @@ func (d *drilldown) showEpisodes(sd *tmdb.SeasonDetails) {
 }
 
 func (d *drilldown) update(msg tea.Msg, keys keyMap) drillOutcome {
-	if km, ok := msg.(tea.KeyMsg); ok && !d.list.SettingFilter() {
+	if km, ok := msg.(tea.KeyPressMsg); ok && !d.list.SettingFilter() {
 		switch {
 		case key.Matches(km, keys.back):
 			switch d.mode {
@@ -188,14 +194,14 @@ type seasonDoneMsg struct {
 	err error
 }
 
-func tvCmd(ctx context.Context, c *tmdb.Client, id int) tea.Cmd {
+func tvCmd(ctx context.Context, c Catalog, id int) tea.Cmd {
 	return func() tea.Msg {
 		tv, err := c.TV(ctx, id)
 		return tvDoneMsg{tv: tv, err: err}
 	}
 }
 
-func seasonCmd(ctx context.Context, c *tmdb.Client, tvID, n int) tea.Cmd {
+func seasonCmd(ctx context.Context, c Catalog, tvID, n int) tea.Cmd {
 	return func() tea.Msg {
 		sd, err := c.Season(ctx, tvID, n)
 		return seasonDoneMsg{sd: sd, err: err}
