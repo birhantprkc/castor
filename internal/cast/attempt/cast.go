@@ -38,12 +38,14 @@ func Cast(ctx context.Context, in Intent, run Runner, resolver SourceResolver) e
 
 	// Track tried strategies to show failure pattern and recovery path.
 	var tried []string
+	turns := in.Turns
+	if turns == nil {
+		turns = unheard{}
+	}
 
 	for {
 		slog.InfoContext(ctx, "attempt", "try", a.Try, "candidates", len(in.Candidates), "shape", a.String())
-		if in.Turns != nil {
-			in.Turns.Attempting(a.Try)
-		}
+		turns.Attempting(a.Try)
 
 		out := run.Run(ctx, a)
 		// Attribute error to runner before cancellation check.
@@ -65,9 +67,7 @@ func Cast(ctx context.Context, in Intent, run Runner, resolver SourceResolver) e
 		}
 
 		revising(ctx, f, rev)
-		if in.Turns != nil {
-			in.Turns.Revising(rev.strategy.name, f.why)
-		}
+		turns.Revising(rev.strategy.name, f.why)
 		tried = append(tried, rev.strategy.name)
 		a = rev.attempt
 	}
