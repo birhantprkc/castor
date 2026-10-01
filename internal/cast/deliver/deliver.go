@@ -23,7 +23,7 @@ type Artifact struct {
 // Opening is everything a delivery mechanism is opened with.
 type Opening struct {
 	Format  container.FormatInfo
-	LocalIP string
+	Listen  Listen
 	Dir     string
 	Out     io.Reader
 	Headers map[string]string

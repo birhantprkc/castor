@@ -207,7 +207,7 @@ func verbatim() transcode.EncodeOptions {
 // loopback is a workspace served on the loopback address.
 func loopback(t *testing.T) workspace {
 	t.Helper()
-	return workspace{localIP: "127.0.0.1", dir: t.TempDir()}
+	return workspace{listen: fixedAddress("127.0.0.1").listen, dir: t.TempDir()}
 }
 
 func statusOf(t *testing.T, u *url.URL) int {
@@ -358,7 +358,7 @@ func openFixture(t *testing.T, contentType, workDir string) delivery {
 		Video:  plan.CopyVideo(),
 		Audio:  plan.EncodeAudio(plan.AudioEncode{Codec: media.CodecAAC}),
 	}
-	d, err := s.produce(probingRenderer{}, workspace{localIP: "127.0.0.1", dir: workDir}, feed{}, opts, nil)
+	d, err := s.produce(probingRenderer{}, workspace{listen: fixedAddress("127.0.0.1").listen, dir: workDir}, feed{}, opts, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

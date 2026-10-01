@@ -21,7 +21,7 @@ type Config struct {
 
 	Renderer Renderer
 
-	Addresses Addresses
+	Listeners Listeners
 
 	// Subtitles is bound by cmd (cgo transcriber); nil = no burn-in.
 	Subtitles Subtitles

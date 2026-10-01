@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -35,7 +36,7 @@ type fakeDevice struct {
 
 func newExecutorAt(cfg Config, acquire acquireFunc, stage Subtitles, address string) *Executor {
 	cfg.Renderer = acquiring{Renderer: cfg.Renderer, acquire: acquire}
-	cfg.Addresses = fixedAddress(address)
+	cfg.Listeners = fixedAddress(address)
 	cfg.Subtitles = stage
 	return NewExecutor(cfg)
 }
@@ -64,7 +65,11 @@ func rendererOf(static media.Capabilities, dev device.Device) Renderer {
 
 type fixedAddress string
 
-func (a fixedAddress) LocalIPv4(context.Context) (string, error) { return string(a), nil }
+func (a fixedAddress) Listen(context.Context) (net.Listener, error) { return a.listen() }
+
+func (a fixedAddress) listen() (net.Listener, error) {
+	return net.Listen("tcp", net.JoinHostPort(string(a), "0"))
+}
 
 var _ device.Device = (*fakeDevice)(nil)
 

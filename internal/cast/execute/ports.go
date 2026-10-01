@@ -3,6 +3,7 @@ package execute
 import (
 	"context"
 	"io"
+	"net"
 	"net/url"
 
 	"github.com/stupside/castor/internal/cast/deliver"
@@ -36,9 +37,9 @@ type Burn interface {
 	Follow(ctx context.Context) func(media.Progress)
 }
 
-type Addresses interface {
-	// LocalIPv4 performs a syscall Termux denies, so stays a port.
-	LocalIPv4(ctx context.Context) (string, error)
+// Listeners opens the sockets deliveries serve on; whoever binds it decides where renderers reach them.
+type Listeners interface {
+	Listen(ctx context.Context) (net.Listener, error)
 }
 
 type sink interface {

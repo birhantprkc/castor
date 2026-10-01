@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/url"
 	"os"
 	"sync"
@@ -14,12 +15,13 @@ import (
 
 	"github.com/stupside/castor/internal/cast/attempt"
 	"github.com/stupside/castor/internal/cast/compose"
+	"github.com/stupside/castor/internal/cast/deliver"
 	"github.com/stupside/castor/internal/device"
 	"github.com/stupside/castor/internal/media"
 	"github.com/stupside/castor/internal/source"
 )
 
-// Executor runs decided attempt over real machinery (varies: Attempt; fixed: binaries/renderer/address).
+// Executor runs decided attempt over real machinery (varies: Attempt; fixed: binaries/renderer/listeners).
 type Executor struct {
 	cfg Config
 }
@@ -191,23 +193,19 @@ func (s *session) compose() (compose.Row, error) {
 	return row, nil
 }
 
-// workspace is where an attempt keeps its files, and the address its renderer reaches it at.
+// workspace is where an attempt keeps its files, and how it opens what its renderer fetches.
 type workspace struct {
-	localIP string
-	dir     string
+	listen deliver.Listen
+	dir    string
 }
 
 func (s *session) workspace() (workspace, error) {
-	localIP, err := s.cfg.Addresses.LocalIPv4(s.ctx)
-	if err != nil {
-		return workspace{}, fmt.Errorf("resolving local relay address: %w", err)
-	}
 	dir, err := os.MkdirTemp("", "castor-")
 	if err != nil {
 		return workspace{}, fmt.Errorf("creating work directory: %w", err)
 	}
 	s.releases.push(func() error { _ = os.RemoveAll(dir); return nil })
-	return workspace{localIP: localIP, dir: dir}, nil
+	return workspace{listen: func() (net.Listener, error) { return s.cfg.Listeners.Listen(s.ctx) }, dir: dir}, nil
 }
 
 // follow points the inputs whose timelines castor keeps at castor's republished playlists.

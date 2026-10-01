@@ -97,7 +97,7 @@ func (c *Config) Playback(target device.Info, subs execute.Subtitles) cast.Confi
 			Encoders:   transcode.Encoders(c.Transcode.FFmpegPath),
 			Probes:     probe.FFprobe(c.Resolver.FFprobePath),
 			Renderer:   configured{families: c.Devices(), target: target, timeout: c.Network.Timeout},
-			Addresses:  cast.LANAddress{Interface: c.Network.Interface},
+			Listeners:  cast.LANAddress{Interface: c.Network.Interface},
 			Subtitles:  subs,
 			MaxHeight:  c.Resolver.MaxHeight,
 			// Half the read deadline: a reload castor answers late would end ffmpeg's read like no answer.

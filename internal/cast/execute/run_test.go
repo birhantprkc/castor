@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -20,12 +21,12 @@ import (
 	"github.com/stupside/castor/internal/source"
 )
 
-// countedAddresses is the host route port a passthrough cast must never reach.
-type countedAddresses struct{ asked *atomic.Int64 }
+// countedListeners is the delivery port a passthrough cast must never reach.
+type countedListeners struct{ asked *atomic.Int64 }
 
-func (a countedAddresses) LocalIPv4(context.Context) (string, error) {
+func (a countedListeners) Listen(context.Context) (net.Listener, error) {
 	a.asked.Add(1)
-	return "", errors.New("this host has no local route")
+	return nil, errors.New("this host has no local route")
 }
 
 func passthroughCandidate() *source.Stream {
@@ -37,13 +38,13 @@ func passthroughCandidate() *source.Stream {
 func TestPassthroughBuildsNoLocalMachinery(t *testing.T) {
 	var asked atomic.Int64
 	dev := &fakeDevice{caps: chromecastLike(media.MP4)}
-	got := NewExecutor(Config{MaxHeight: 1080, Renderer: rendererOf(selfFetching(), dev), Addresses: countedAddresses{asked: &asked}, Timelines: direct{}}).Run(t.Context(),
+	got := NewExecutor(Config{MaxHeight: 1080, Renderer: rendererOf(selfFetching(), dev), Listeners: countedListeners{asked: &asked}, Timelines: direct{}}).Run(t.Context(),
 		attempt.Attempt{Program: programFromStream(t, passthroughCandidate())})
 	if got.Err != nil {
 		t.Fatalf("passthrough depended on local relay resources: %v", got.Err)
 	}
 	if n := asked.Load(); n != 0 {
-		t.Errorf("local address resolver called %d time(s), want none for passthrough", n)
+		t.Errorf("delivery listener opened %d time(s), want none for passthrough", n)
 	}
 	if got.Evidence.Reached != attempt.PhaseDelivered {
 		t.Errorf("reached %s, want %s", got.Evidence.Reached, attempt.PhaseDelivered)
@@ -133,7 +134,7 @@ func TestEveryAttemptOwnsAFreshWorkDirectoryAndLeavesNoneBehind(t *testing.T) {
 		}
 		cfg := Config{
 			Renderer:  rendererOf(pushOnly(), &fakeDevice{caps: dlnaLike()}),
-			Subtitles: watchDir, Addresses: fixedAddress("127.0.0.1"), Probes: probe.FFprobe(""), Timelines: direct{},
+			Subtitles: watchDir, Listeners: fixedAddress("127.0.0.1"), Probes: probe.FFprobe(""), Timelines: direct{},
 		}
 		out := NewExecutor(cfg).Run(t.Context(), attempt.Attempt{Program: program, Fetch: sourceReadPlan(t, program, 30*time.Second)})
 		if out.Err == nil {
@@ -159,7 +160,7 @@ func TestABufferCopiedWholeIsServedAsItIs(t *testing.T) {
 	dev := &fakeDevice{caps: dlnaLike(), drain: true}
 	cfg := castConfig(pushOnly(), ffmpegPath, ffprobePath)
 	cfg.Renderer = rendererOf(pushOnly(), dev)
-	cfg.Addresses = fixedAddress("127.0.0.1")
+	cfg.Listeners = fixedAddress("127.0.0.1")
 	program := programFromStream(t, origin.stream())
 
 	ctx, cancel := context.WithTimeout(t.Context(), castTimeout)

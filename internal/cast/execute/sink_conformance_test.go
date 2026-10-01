@@ -56,9 +56,9 @@ func opened(t *testing.T, contentType string) (sink, *io.PipeWriter) {
 		t.Fatalf("writing the segment the mechanism serves: %v", err)
 	}
 	pr, pw := io.Pipe()
-	sink, err := sinkFor(deliver.Opening{
+	sink, err := sinkFor(t.Context(), deliver.Opening{
 		Format:        format,
-		LocalIP:       "127.0.0.1",
+		Listen:        fixedAddress("127.0.0.1").listen,
 		Dir:           dir,
 		Out:           pr,
 		IdleGrace:     50 * time.Millisecond,
@@ -85,9 +85,9 @@ func relayed(t *testing.T) (sink, *io.PipeWriter) {
 		sp.CloseWrite(err)
 	}()
 	t.Cleanup(func() { _ = pw.Close(); <-drained })
-	sink, err := spoolSink(deliver.Opening{
+	sink, err := spoolSink(t.Context(), deliver.Opening{
 		Format:        transcode.SpoolFormat,
-		LocalIP:       "127.0.0.1",
+		Listen:        fixedAddress("127.0.0.1").listen,
 		IdleGrace:     50 * time.Millisecond,
 		WriteDeadline: 300 * time.Millisecond,
 	}, sp, drained, made)

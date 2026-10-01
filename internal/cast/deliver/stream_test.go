@@ -136,9 +136,9 @@ func TestASpoolAnotherWritesIsServedWithoutBeingOwned(t *testing.T) {
 		t.Fatal(err)
 	}
 	drained := make(chan struct{})
-	srv, err := OpenSpooledStream(Opening{
+	srv, err := OpenSpooledStream(t.Context(), Opening{
 		Format:        container.FormatInfo{ContentType: media.MPEGTS, Extension: ".ts"},
-		LocalIP:       "127.0.0.1",
+		Listen:        loopback,
 		WriteDeadline: time.Minute,
 	}, sp, drained)
 	if err != nil {
@@ -175,7 +175,7 @@ func TestASpoolAnotherWritesIsServedWithoutBeingOwned(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { running.CloseWrite(nil) })
-	unowned, err := OpenSpooledStream(Opening{LocalIP: "127.0.0.1"}, running, make(chan struct{}))
+	unowned, err := OpenSpooledStream(t.Context(), Opening{Listen: loopback}, running, make(chan struct{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,13 +199,13 @@ func payload(size int) []byte {
 // spooled starts a server and returns once the whole body is in the spool.
 func spooled(t *testing.T, cfg streamConfig, body []byte) *Stream {
 	t.Helper()
-	cfg.localIP = "127.0.0.1"
+	cfg.listen = loopback
 	cfg.contentType = "video/mp4"
 	cfg.extension = ".mp4"
 	cfg.spoolPath = filepath.Join(t.TempDir(), "out.mp4")
 	cfg.writeDeadline = cmp.Or(cfg.writeDeadline, time.Minute)
 	cfg.idleGrace = cmp.Or(cfg.idleGrace, 30*time.Second)
-	srv, err := openStream(cfg, bytes.NewReader(body))
+	srv, err := openStream(t.Context(), cfg, bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,8 +222,8 @@ func spooled(t *testing.T, cfg streamConfig, body []byte) *Stream {
 func producing(t *testing.T, head []byte) *Stream {
 	t.Helper()
 	pr, pw := io.Pipe()
-	srv, err := openStream(streamConfig{
-		localIP:       "127.0.0.1",
+	srv, err := openStream(t.Context(), streamConfig{
+		listen:        loopback,
 		contentType:   "video/mp4",
 		extension:     ".mp4",
 		spoolPath:     filepath.Join(t.TempDir(), "out.mp4"),

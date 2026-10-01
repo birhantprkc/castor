@@ -58,7 +58,7 @@ func (s *session) serve(dev device.Device, ws workspace, f feed, burn Burn) (att
 }
 
 func (s *session) produce(dev device.Device, ws workspace, f feed, opts transcode.EncodeOptions, burn Burn) (delivery, error) {
-	o := opening(dev, opts, ws.localIP)
+	o := opening(dev, opts, ws.listen)
 	// A burn-in follows the encoder's progress, so only a cast without one can do without an encoder.
 	if f.buffered != nil && burn == nil && opts.Verbatim() {
 		return s.relay(o, f.buffered.reader)
@@ -94,7 +94,7 @@ func (s *session) produce(dev device.Device, ws workspace, f feed, opts transcod
 	}
 
 	o.Dir, o.Out = dir, proc.Stdout
-	sk, err := sinkFor(o, proc.Progress)
+	sk, err := sinkFor(s.ctx, o, proc.Progress)
 	// Killed first, since everything after needs it to have stopped writing; the tail before the wait, which joins its copy.
 	s.releases.push(func() error {
 		proc.Kill()
@@ -112,7 +112,7 @@ func (s *session) produce(dev device.Device, ws workspace, f feed, opts transcod
 
 // relay serves the read's own spool, the read standing in for an encoder that would rewrite it unchanged.
 func (s *session) relay(o deliver.Opening, reader *pull) (delivery, error) {
-	sk, err := spoolSink(o, reader.spool, reader.Done(), reader.Progress)
+	sk, err := spoolSink(s.ctx, o, reader.spool, reader.Done(), reader.Progress)
 	if err != nil {
 		return delivery{}, fmt.Errorf("starting the delivery: %w", err)
 	}
@@ -129,10 +129,10 @@ func (s *session) relay(o deliver.Opening, reader *pull) (delivery, error) {
 }
 
 // opening is the terms every delivery of this cast opens on.
-func opening(dev device.Device, opts transcode.EncodeOptions, localIP string) deliver.Opening {
+func opening(dev device.Device, opts transcode.EncodeOptions, listen deliver.Listen) deliver.Opening {
 	return deliver.Opening{
 		Format:        opts.Format,
-		LocalIP:       localIP,
+		Listen:        listen,
 		Headers:       dev.StreamHeaders(opts.Format.ContentType),
 		IdleGrace:     idleGrace,
 		WriteDeadline: writeDeadline,
@@ -148,16 +148,16 @@ const (
 )
 
 // sinkFor opens the mechanism the format's delivery kind names, judged against what the encoder made.
-func sinkFor(o deliver.Opening, made func() media.Progress) (sink, error) {
+func sinkFor(ctx context.Context, o deliver.Opening, made func() media.Progress) (sink, error) {
 	switch o.Format.Delivery {
 	case container.DeliverSegmented:
-		srv, err := deliver.OpenSegments(o)
+		srv, err := deliver.OpenSegments(ctx, o)
 		if err != nil {
 			return nil, err
 		}
 		return segmentedSink{Segments: srv, made: made}, nil
 	case container.DeliverStream:
-		srv, err := deliver.OpenStream(o)
+		srv, err := deliver.OpenStream(ctx, o)
 		if err != nil {
 			return nil, err
 		}
@@ -168,8 +168,8 @@ func sinkFor(o deliver.Opening, made func() media.Progress) (sink, error) {
 }
 
 // spoolSink streams a spool another writes, whole once drained closes, judged against what that writer made.
-func spoolSink(o deliver.Opening, sp *deliver.Spool, drained <-chan struct{}, made func() media.Progress) (sink, error) {
-	srv, err := deliver.OpenSpooledStream(o, sp, drained)
+func spoolSink(ctx context.Context, o deliver.Opening, sp *deliver.Spool, drained <-chan struct{}, made func() media.Progress) (sink, error) {
+	srv, err := deliver.OpenSpooledStream(ctx, o, sp, drained)
 	if err != nil {
 		return nil, err
 	}

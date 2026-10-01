@@ -26,7 +26,7 @@ const (
 )
 
 type streamConfig struct {
-	localIP     string
+	listen      Listen
 	contentType string
 	extension   string
 	headers     map[string]string
@@ -62,10 +62,10 @@ type Stream struct {
 }
 
 // OpenStream serves a single producer stream over HTTP, replaying from byte 0.
-func OpenStream(o Opening) (*Stream, error) {
+func OpenStream(ctx context.Context, o Opening) (*Stream, error) {
 	cfg := streamConfigFor(o)
 	cfg.spoolPath = filepath.Join(o.Dir, "out"+o.Format.Extension)
-	srv, err := openStream(cfg, o.Out)
+	srv, err := openStream(ctx, cfg, o.Out)
 	if err != nil {
 		return nil, fmt.Errorf("starting stream server: %w", err)
 	}
@@ -73,8 +73,8 @@ func OpenStream(o Opening) (*Stream, error) {
 }
 
 // OpenSpool serves a spool another writes, whole once drained closes; Close leaves that writer running.
-func OpenSpooledStream(o Opening, sp *Spool, drained <-chan struct{}) (*Stream, error) {
-	srv, err := listenStream(streamConfigFor(o), sp, drained)
+func OpenSpooledStream(ctx context.Context, o Opening, sp *Spool, drained <-chan struct{}) (*Stream, error) {
+	srv, err := listenStream(ctx, streamConfigFor(o), sp, drained)
 	if err != nil {
 		return nil, fmt.Errorf("starting stream server: %w", err)
 	}
@@ -83,7 +83,7 @@ func OpenSpooledStream(o Opening, sp *Spool, drained <-chan struct{}) (*Stream, 
 
 func streamConfigFor(o Opening) streamConfig {
 	return streamConfig{
-		localIP:       o.LocalIP,
+		listen:        o.Listen,
 		contentType:   o.Format.ContentType,
 		extension:     o.Format.Extension,
 		headers:       o.Headers,
@@ -93,13 +93,13 @@ func streamConfigFor(o Opening) streamConfig {
 }
 
 // openStream spools producer into cfg.spoolPath in the background and serves that spool.
-func openStream(cfg streamConfig, producer io.Reader) (*Stream, error) {
+func openStream(ctx context.Context, cfg streamConfig, producer io.Reader) (*Stream, error) {
 	sp, err := NewSpool(cfg.spoolPath)
 	if err != nil {
 		return nil, err
 	}
 	done := make(chan struct{})
-	s, err := listenStream(cfg, sp, done)
+	s, err := listenStream(ctx, cfg, sp, done)
 	if err != nil {
 		sp.CloseWrite(nil)
 		return nil, err
@@ -110,19 +110,20 @@ func openStream(cfg streamConfig, producer io.Reader) (*Stream, error) {
 		defer close(done)
 		_, copyErr := io.Copy(sp, producer)
 		sp.CloseWrite(copyErr)
-		slog.Debug("stream fully spooled", "bytes", sp.Size(), "error", copyErr)
+		slog.DebugContext(ctx, "stream fully spooled", "bytes", sp.Size(), "error", copyErr)
 	}()
 	return s, nil
 }
 
-// listenStream binds to cfg.localIP on an ephemeral port and serves sp, final once done closes.
-func listenStream(cfg streamConfig, sp *Spool, done <-chan struct{}) (*Stream, error) {
-	ln, err := Listen(cfg.localIP)
+// listenStream binds where cfg.listen says and serves sp, final once done closes.
+func listenStream(parent context.Context, cfg streamConfig, sp *Spool, done <-chan struct{}) (*Stream, error) {
+	ln, err := cfg.listen()
 	if err != nil {
 		return nil, err
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	// Close alone ends the stream; the cast lends only its values, so its lines reach its watchers.
+	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
 	s := &Stream{
 		cfg:            cfg,
 		listener:       ln,
@@ -136,7 +137,7 @@ func listenStream(cfg streamConfig, sp *Spool, done <-chan struct{}) (*Stream, e
 	mux.HandleFunc("/stream"+cfg.extension, func(w http.ResponseWriter, r *http.Request) {
 		s.handleStream(ctx, w, r)
 	})
-	s.server = Serve(ln, mux)
+	s.server = Serve(ctx, ln, mux)
 	return s, nil
 }
 

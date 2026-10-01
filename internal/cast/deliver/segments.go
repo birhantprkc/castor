@@ -19,7 +19,7 @@ import (
 )
 
 type segmentsConfig struct {
-	localIP   string
+	listen    Listen
 	dir       string            // Directory ffmpeg writes playlist and segments into.
 	playlist  string            // Media playlist filename (container.Tuning.Output).
 	headers   map[string]string // Response headers (device.StreamHeaders).
@@ -42,9 +42,9 @@ type Segments struct {
 }
 
 // OpenSegments serves a live HLS directory; no byte pacing, the client self-paces.
-func OpenSegments(o Opening) (*Segments, error) {
-	srv, err := openSegments(segmentsConfig{
-		localIP:   o.LocalIP,
+func OpenSegments(ctx context.Context, o Opening) (*Segments, error) {
+	srv, err := openSegments(ctx, segmentsConfig{
+		listen:    o.Listen,
 		dir:       o.Dir,
 		playlist:  o.Format.Tuning.Output,
 		headers:   o.Headers,
@@ -56,8 +56,8 @@ func OpenSegments(o Opening) (*Segments, error) {
 	return srv, nil
 }
 
-func openSegments(cfg segmentsConfig, producer io.Reader) (*Segments, error) {
-	ln, err := Listen(cfg.localIP)
+func openSegments(ctx context.Context, cfg segmentsConfig, producer io.Reader) (*Segments, error) {
+	ln, err := cfg.listen()
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +95,7 @@ func openSegments(cfg segmentsConfig, producer io.Reader) (*Segments, error) {
 			s.handedOver()
 		}
 	})
-	s.server = Serve(ln, mux)
+	s.server = Serve(ctx, ln, mux)
 	return s, nil
 }
 

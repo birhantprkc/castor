@@ -39,3 +39,12 @@ func (l LANAddress) LocalIPv4(ctx context.Context) (string, error) {
 	}
 	return "", fmt.Errorf("no IPv4 address on %s", iface.Name)
 }
+
+// Listen opens a delivery on the LAN address, where renderers on the network reach it.
+func (l LANAddress) Listen(ctx context.Context) (net.Listener, error) {
+	ip, err := l.LocalIPv4(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("resolving local relay address: %w", err)
+	}
+	return net.Listen("tcp", net.JoinHostPort(ip, "0"))
+}
