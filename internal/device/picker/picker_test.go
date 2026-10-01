@@ -1,12 +1,18 @@
 package picker
 
 import (
+	"bytes"
 	"context"
 	"image/color"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/exp/golden"
+	"github.com/charmbracelet/x/exp/teatest/v2"
 
 	"github.com/stupside/castor/internal/device"
 )
@@ -40,5 +46,25 @@ func TestLightBackgroundRepaints(t *testing.T) {
 	tm, _ = tm.Update(tea.BackgroundColorMsg{Color: color.White})
 	if !strings.Contains(tm.(model).View().Content, lightAccent) {
 		t.Fatal("light background did not repaint with the light accent")
+	}
+}
+
+func TestTheConfiguredDeviceIsPreselectedAndEnterCastsToIt(t *testing.T) {
+	bedroom := device.Info{Name: "Bedroom", Type: "chromecast", Address: "10.0.0.9"}
+	discover := func(context.Context) []device.Info {
+		return []device.Info{{Name: "Living room", Type: "dlna", Address: "10.0.0.2"}, bedroom}
+	}
+	tm := teatest.NewTestModel(t, newModel(t.Context(), discover, "Bedroom"),
+		teatest.WithInitialTermSize(80, 20),
+		teatest.WithProgramOptions(tea.WithColorProfile(colorprofile.Ascii)),
+	)
+	teatest.WaitFor(t, tm.Output(), func(b []byte) bool { return bytes.Contains(b, []byte("Bedroom")) }, teatest.WithDuration(5*time.Second))
+
+	tm.Send(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	final := tm.FinalModel(t, teatest.WithFinalTimeout(5*time.Second)).(model)
+	golden.RequireEqual(t, []byte(ansi.Strip(final.View().Content)))
+	if final.selected != bedroom {
+		t.Errorf("selected %+v, want the configured %+v", final.selected, bedroom)
 	}
 }
