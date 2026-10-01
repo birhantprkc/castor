@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -45,7 +46,7 @@ func (a *app) castInteractive(ctx context.Context, _ *cli.Command) error {
 
 	// Check config early to avoid discovery sweep if TMDB key is missing.
 	if cfg.TMDB.APIKey == "" {
-		return fmt.Errorf("TMDB API key missing: set tmdb.api_key in config.yaml or CASTOR_TMDB__API_KEY env var")
+		return errors.New("TMDB API key missing: set tmdb.api_key in config.yaml or CASTOR_TMDB__API_KEY env var")
 	}
 
 	discover := func(ctx context.Context) []device.Info {
