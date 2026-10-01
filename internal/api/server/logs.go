@@ -26,9 +26,6 @@ func (l *logs) subscribe(level slog.Level, ok bool) chan *castorv1.WatchResponse
 	lines := make(chan *castorv1.WatchResponse, logBuffer)
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.watchers == nil {
-		l.watchers = map[chan *castorv1.WatchResponse]slog.Level{}
-	}
 	l.watchers[lines] = level
 	return lines
 }

@@ -39,6 +39,7 @@ func newSession(ctx context.Context, id string, cancel context.CancelCauseFunc) 
 		status: newStatus(),
 		line:   newLine(),
 		relays: newRelays(id),
+		logs:   logs{watchers: map[chan *castorv1.WatchResponse]slog.Level{}},
 	}
 	// Everything the cast logs carries it, so its lines reach the watchers who asked for them.
 	s.ctx = context.WithValue(ctx, castKey{}, s)
