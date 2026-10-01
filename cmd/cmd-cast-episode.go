@@ -7,21 +7,21 @@ import (
 )
 
 func (a *app) castEpisodeCommand() *cli.Command {
-	var season int
-	var episode int
+	var season uint
+	var episode uint
 	var itemID string
 
 	return &cli.Command{
 		Name:  "episode",
 		Usage: "Cast a series episode by item ID",
 		Flags: []cli.Flag{
-			&cli.IntFlag{
+			&cli.UintFlag{
 				Name:        "season",
 				Usage:       "Season number",
 				Required:    true,
 				Destination: &season,
 			},
-			&cli.IntFlag{
+			&cli.UintFlag{
 				Name:        "episode",
 				Usage:       "Episode number",
 				Required:    true,
@@ -44,7 +44,7 @@ func (a *app) castEpisodeCommand() *cli.Command {
 			if err != nil {
 				return err
 			}
-			return a.extractAndCast(ctx, cfg, target, cfg.Sources.EpisodeURLs(itemID, uint(season), uint(episode)))
+			return a.extractAndCast(ctx, cfg, target, cfg.Sources.EpisodeURLs(itemID, season, episode))
 		},
 	}
 }
