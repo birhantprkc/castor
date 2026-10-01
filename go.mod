@@ -9,6 +9,9 @@ require (
 	charm.land/lipgloss/v2 v2.0.6
 	charm.land/log/v2 v2.0.1
 	connectrpc.com/connect v1.21.0
+	connectrpc.com/grpchealth v1.5.0
+	connectrpc.com/grpcreflect v1.3.1
+	connectrpc.com/validate v0.7.0
 	github.com/Eyevinn/dash-mpd v0.18.1
 	github.com/Eyevinn/hls-m3u8 v0.6.5
 	github.com/Eyevinn/mp4ff v0.57.0
@@ -44,6 +47,10 @@ require (
 replace github.com/ggerganov/whisper.cpp/bindings/go => ./third_party/whisper.cpp/bindings/go
 
 require (
+	buf.build/go/protovalidate v1.4.0 // indirect
+	cel.dev/cel-go v0.32.0 // indirect
+	cel.dev/expr v0.25.3 // indirect
+	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-udiff v0.4.1 // indirect
 	github.com/barkimedes/go-deepcopy v0.0.0-20220514131651-17c30cfc62df // indirect
@@ -85,6 +92,8 @@ require (
 	golang.org/x/image v0.46.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20260819154853-08b0e4226688 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260819154853-08b0e4226688 // indirect
 )
 
 tool (
