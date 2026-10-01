@@ -21,7 +21,7 @@ import (
 func testCollector(t *testing.T) *collector {
 	t.Helper()
 	unreadable := func(network.RequestID) ([]byte, error) { return nil, errors.New("no body") }
-	return newCollector(source.Formats{hls.Format{}, dash.Format{}}, unreadable, time.Second, time.Second, time.Second)
+	return newCollector(t.Context(), source.Formats{hls.Format{}, dash.Format{}}, unreadable, time.Second, time.Second, time.Second)
 }
 
 func urls(entries []*source.Stream) []string {
@@ -167,9 +167,9 @@ func featureDocument() string {
 	return b.String()
 }
 
-func timedCollector(preRoll time.Duration) *collector {
+func timedCollector(t *testing.T, preRoll time.Duration) *collector {
 	unreadable := func(network.RequestID) ([]byte, error) { return nil, errors.New("no body") }
-	return newCollector(source.Formats{hls.Format{}}, unreadable, time.Second, 50*time.Millisecond, preRoll)
+	return newCollector(t.Context(), source.Formats{hls.Format{}}, unreadable, time.Second, 50*time.Millisecond, preRoll)
 }
 
 // Collection stops at the window once anything but an ad is held, and at the pre-roll's end when nothing is.
@@ -185,7 +185,7 @@ func TestCollectionStopsOnceItHoldsMoreThanAds(t *testing.T) {
 		{"only ads end it at the pre-roll", adDocument, 400 * time.Millisecond, 700 * time.Millisecond},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			c := timedCollector(400 * time.Millisecond)
+			c := timedCollector(t, 400*time.Millisecond)
 			captureWithBody(c, "https://cdn.example/index.m3u8", "req-1", tc.body)
 			start := time.Now()
 			if _, err := c.Wait(context.Background()); err != nil {

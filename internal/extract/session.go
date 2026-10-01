@@ -39,7 +39,7 @@ func newSession(ctx context.Context, cfg BrowserConfig, documents source.Formats
 		centerY:     float64(profile.screenHeight) / 2,
 		snapshotDir: filepath.Join(os.TempDir(), "castor-debug", sanitize(targetURL)),
 	}
-	s.collector = newCollector(documents, s.readBody, graceAfterActions, collectionWindow, preRollWindow)
+	s.collector = newCollector(ctx, documents, s.readBody, graceAfterActions, collectionWindow, preRollWindow)
 	chromedp.ListenTarget(taskCtx, s.collector.listen)
 
 	// No deadline here: the first Run starts the browser, and its context is the browser's lifetime.

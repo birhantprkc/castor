@@ -38,6 +38,8 @@ type capture struct {
 
 // collector is what one page fetched that may be a stream, and what its documents said.
 type collector struct {
+	// ctx is the extraction's: what the collector logs is told as part of it.
+	ctx       context.Context
 	documents source.Formats
 	readBody  bodyReader
 	grace     time.Duration
@@ -59,8 +61,9 @@ type collector struct {
 	mastered chan struct{}
 }
 
-func newCollector(documents source.Formats, readBody bodyReader, grace, window, preRoll time.Duration) *collector {
+func newCollector(ctx context.Context, documents source.Formats, readBody bodyReader, grace, window, preRoll time.Duration) *collector {
 	return &collector{
+		ctx:            ctx,
 		documents:      documents,
 		readBody:       readBody,
 		grace:          grace,
@@ -111,16 +114,16 @@ func (c *collector) add(raw string, u *url.URL, reqID network.RequestID, content
 	if i := c.index(raw); i >= 0 {
 		if c.captures[i].reqID == "" && reqID != "" {
 			c.captures[i].reqID = reqID
-			slog.Debug("attached request headers to captured URL", "url", raw)
+			slog.DebugContext(c.ctx, "attached request headers to captured URL", "url", raw)
 		}
 		return
 	}
 	if len(c.captures) >= maxCaptures {
-		slog.Debug("capture limit reached, skipping URL", "url", raw)
+		slog.DebugContext(c.ctx, "capture limit reached, skipping URL", "url", raw)
 		return
 	}
 
-	slog.Info("captured stream", "url", raw, "content_type", contentType)
+	slog.InfoContext(c.ctx, "captured stream", "url", raw, "content_type", contentType)
 	c.captures = append(c.captures, capture{raw: raw, url: u, reqID: reqID, contentType: contentType})
 	close(c.added)
 	c.added = make(chan struct{})
@@ -186,7 +189,7 @@ func (c *collector) askForDocument(reqID network.RequestID, size float64) {
 	c.reads.Go(func() {
 		body, err := c.readBody(reqID)
 		if err != nil {
-			slog.Debug("response body unavailable, renditions unknown", "request", reqID, "error", err)
+			slog.DebugContext(c.ctx, "response body unavailable, renditions unknown", "request", reqID, "error", err)
 			return
 		}
 		c.noteDocument(reqID, string(body))
@@ -265,7 +268,7 @@ func (c *collector) noteDocument(reqID network.RequestID, body string) {
 	if doc.Ladder == source.LadderMultivariant {
 		closeOnce(c.mastered)
 	}
-	slog.Info("read captured document", "url", c.captures[i].raw, "renditions", doc.Ladder, "names", len(doc.Names), "runtime", doc.Runtime)
+	slog.InfoContext(c.ctx, "read captured document", "url", c.captures[i].raw, "renditions", doc.Ladder, "names", len(doc.Names), "runtime", doc.Runtime)
 }
 
 // Wait gives the page its grace, then a window per capture to fetch a master, and while it holds only ads, its pre-roll.
