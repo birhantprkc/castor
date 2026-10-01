@@ -56,3 +56,20 @@ jobs:
       - run: |
           unformatted=$(gofmt -s -l cmd internal e2e main.go)
           [ -z "$unformatted" ] || { printf 'unformatted:\n%s\n' "$unformatted"; exit 1; }
+
+  # The contract: lint and format the protos, refuse breaking changes against
+  # main, and fail when the committed gen/ differs from what the protos produce.
+  proto:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: bufbuild/buf-action@85aebf73123b5c15fd5528aaecbf9129cddf7fa7 # v1.6.0
+        with:
+          version: 1.73.0
+          setup_only: true
+      - run: buf lint && buf format -d --exit-code
+      - run: buf breaking --against "https://github.com/${GITHUB_REPOSITORY}.git#branch=main"
+      - run: make generate && test -z "$(git status --porcelain -- gen)"
