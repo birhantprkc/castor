@@ -139,7 +139,7 @@ func TestEncoderFailureFailsTheCast(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), castTimeout)
 	defer cancel()
-	err = castOnce(ctx, t, castConfig(selfFetching(), ffmpegPath, ffprobePath), connectTo(dev), &source.Candidate{URL: sourceURL, ContentType: media.MP4})
+	err = castOnce(ctx, t, castConfig(selfFetching(), ffmpegPath, ffprobePath), connectTo(dev), &source.Stream{URL: sourceURL, ContentType: media.MP4})
 	if err == nil {
 		t.Fatal("the cast reported success though its encoder died before producing anything")
 	}
@@ -156,7 +156,7 @@ func TestADeadReadIsReportedAsTheReadsOwnFailure(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(t.Context(), castTimeout)
 	defer cancel()
-	program := programFromStream(t, &source.Candidate{URL: sourceURL, ContentType: media.MP4})
+	program := programFromStream(t, &source.Stream{URL: sourceURL, ContentType: media.MP4})
 	out := newExecutorAt(castConfig(pushOnly(), ffmpegPath, ffprobePath), connectTo(&fakeDevice{caps: dlnaLike()}), noStage, "127.0.0.1").
 		Run(ctx, attempt.Attempt{Try: 1, Program: program, Fetch: sourceReadPlan(t, program, testReadDeadline)})
 
@@ -177,7 +177,7 @@ func TestADeadReadIsReportedAsTheReadsOwnFailure(t *testing.T) {
 // testReadDeadline is the mid-read stall bound every cast in this suite reads with.
 const testReadDeadline = 30 * time.Second
 
-func castOnce(ctx context.Context, t *testing.T, cfg Config, connect acquireFunc, candidate *source.Candidate) error {
+func castOnce(ctx context.Context, t *testing.T, cfg Config, connect acquireFunc, candidate *source.Stream) error {
 	t.Helper()
 	program := programFromStream(t, candidate)
 	return newExecutorAt(cfg, connect, noStage, "127.0.0.1").Run(ctx, attempt.Attempt{
@@ -227,9 +227,9 @@ type fixtureOrigin struct {
 	contentType string
 }
 
-func (o fixtureOrigin) stream() *source.Candidate {
+func (o fixtureOrigin) stream() *source.Stream {
 	u, _ := url.Parse(o.server.URL + o.path)
-	return &source.Candidate{URL: u, ContentType: o.contentType}
+	return &source.Stream{URL: u, ContentType: o.contentType}
 }
 
 // serveFixture serves a one-second H.264/AAC mp4.
@@ -292,7 +292,7 @@ func requireFFmpegTools(t *testing.T) (ffmpeg, ffprobe string) {
 	return ffmpeg, ffprobe
 }
 
-func programFromStream(t *testing.T, stream *source.Candidate) media.Program {
+func programFromStream(t *testing.T, stream *source.Stream) media.Program {
 	t.Helper()
 	program, err := source.ProgramFor(stream)
 	if err != nil {

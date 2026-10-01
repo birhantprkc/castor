@@ -23,7 +23,7 @@ func New(cfg Config) *Extractor {
 	return &Extractor{browser: cfg.Browser, parallel: cfg.Capture.ParallelURLs, documents: cfg.Documents}
 }
 
-func (e *Extractor) extract(ctx context.Context, targetURL string) ([]*source.Candidate, error) {
+func (e *Extractor) extract(ctx context.Context, targetURL string) ([]*source.Stream, error) {
 	session, err := newSession(ctx, e.browser, e.documents, targetURL)
 	if err != nil {
 		return nil, fmt.Errorf("creating session for %s: %w", targetURL, err)
@@ -40,12 +40,12 @@ func (e *Extractor) extract(ctx context.Context, targetURL string) ([]*source.Ca
 }
 
 // ExtractAll extracts every url at once, within the parallelism the config allows.
-func (e *Extractor) ExtractAll(ctx context.Context, urls []string) ([]*source.Candidate, error) {
+func (e *Extractor) ExtractAll(ctx context.Context, urls []string) ([]*source.Stream, error) {
 	slog.InfoContext(ctx, "extracting streams", "urls", len(urls))
 
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, e.parallel)
-	results := make([][]*source.Candidate, len(urls))
+	results := make([][]*source.Stream, len(urls))
 	failures := make([]error, len(urls))
 
 	for i, targetURL := range urls {
@@ -76,9 +76,9 @@ func (e *Extractor) ExtractAll(ctx context.Context, urls []string) ([]*source.Ca
 	return deduped, nil
 }
 
-func deduplicateStreams(streams []*source.Candidate) []*source.Candidate {
+func deduplicateStreams(streams []*source.Stream) []*source.Stream {
 	seen := make(map[string]struct{}, len(streams))
-	return slices.DeleteFunc(slices.Clone(streams), func(s *source.Candidate) bool {
+	return slices.DeleteFunc(slices.Clone(streams), func(s *source.Stream) bool {
 		key := s.URL.String()
 		if _, ok := seen[key]; ok {
 			return true

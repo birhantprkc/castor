@@ -13,7 +13,7 @@ import (
 )
 
 // resolveHLS narrows an HLS source to the single rendition to read and returns what the source published.
-func resolveHLS(ctx context.Context, env source.Env, stream source.Candidate, origin source.Origin) (source.Origin, source.Rendition, bool) {
+func resolveHLS(ctx context.Context, env source.Env, stream source.Stream, origin source.Origin) (source.Origin, source.Rendition, bool) {
 	doc, status, err := readPlaylist(ctx, env.Client, stream.URL, stream.Headers)
 	if err != nil {
 		slog.WarnContext(ctx, "HLS playlist resolution failed, using original", "error", err, "status", status)

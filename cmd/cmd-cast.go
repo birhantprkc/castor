@@ -100,7 +100,7 @@ func (a *app) extractAndCast(ctx context.Context, cfg *config.Config, target dev
 }
 
 // dryRunRow formats a stream as bandwidth and URL, with "last resort" label if unmeasured.
-func dryRunRow(s *source.Candidate) string {
+func dryRunRow(s *source.Stream) string {
 	row := fmt.Sprintf("%d\t%s", s.Bitrate(), s.URL)
 	if s.LastResort {
 		row += "\tlast resort"

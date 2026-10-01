@@ -48,7 +48,7 @@ type Env struct {
 }
 
 type Subject struct {
-	Stream Candidate
+	Stream Stream
 	Origin Origin
 	Chosen Rendition
 }

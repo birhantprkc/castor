@@ -19,7 +19,7 @@ type Runner interface {
 
 // SourceResolver resolves link answering on copy (preserves ordering) and whole rung (preserves codec info).
 type SourceResolver interface {
-	RefetchProgram(ctx context.Context, s *source.Candidate, chosen source.Rendition) (source.Resolution, error)
+	RefetchProgram(ctx context.Context, s *source.Stream, chosen source.Rendition) (source.Resolution, error)
 }
 
 // Cast runs cast to verdict, revising attempts while faults answerable, refusing when not.

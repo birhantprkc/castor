@@ -16,7 +16,7 @@ import (
 // Intent is what a cast has; immutable during run, so attempt count is inherent.
 type Intent struct {
 	// Candidates: ranked by rank.Ranker; each is resolved when an attempt first reaches it.
-	Candidates []*source.Candidate
+	Candidates []*source.Stream
 
 	// Deadline is the mid-read stall bound every read plan is derived with.
 	Deadline time.Duration

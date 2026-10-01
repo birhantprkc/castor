@@ -28,8 +28,8 @@ func (a countedAddresses) LocalIPv4(context.Context) (string, error) {
 	return "", errors.New("this host has no local route")
 }
 
-func passthroughCandidate() *source.Candidate {
-	c := &source.Candidate{URL: &url.URL{Scheme: "https", Host: "cdn.example", Path: "/movie.mp4"}, ContentType: media.MP4}
+func passthroughCandidate() *source.Stream {
+	c := &source.Stream{URL: &url.URL{Scheme: "https", Host: "cdn.example", Path: "/movie.mp4"}, ContentType: media.MP4}
 	c.Probe = &media.ProbeInfo{VideoCodec: media.CodecH264, VideoBitDepth: 8, AudioCodec: media.CodecAAC, AudioChannels: 2}
 	return c
 }
@@ -97,7 +97,7 @@ func TestAReadOnceCastConnectsWhileItReads(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		done <- castOnce(ctx, t, castConfig(pushOnly(), ffmpegPath, ffprobePath), connect, &source.Candidate{URL: sourceURL, ContentType: media.MP4})
+		done <- castOnce(ctx, t, castConfig(pushOnly(), ffmpegPath, ffprobePath), connect, &source.Stream{URL: sourceURL, ContentType: media.MP4})
 	}()
 
 	select {
@@ -123,7 +123,7 @@ func TestEveryAttemptOwnsAFreshWorkDirectoryAndLeavesNoneBehind(t *testing.T) {
 		return nil
 	}
 
-	candidate := &source.Candidate{URL: &url.URL{Scheme: "https", Host: "cdn.example"}, ContentType: media.MP4}
+	candidate := &source.Stream{URL: &url.URL{Scheme: "https", Host: "cdn.example"}, ContentType: media.MP4}
 	for range 2 {
 		// No ffmpeg configured, so the read fails after the work directory exists.
 		program := programFromStream(t, candidate)

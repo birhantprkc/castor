@@ -8,7 +8,7 @@ import (
 	"github.com/stupside/castor/internal/media"
 )
 
-type Candidate struct {
+type Stream struct {
 	URL *url.URL
 
 	Ladder Ladder
@@ -22,8 +22,8 @@ type Candidate struct {
 	ContentType string
 }
 
-// Bitrate is the rate a measurement established for this candidate, 0 when none did.
-func (c *Candidate) Bitrate() media.Bitrate {
+// Bitrate is the rate a measurement established for this stream, 0 when none did.
+func (c *Stream) Bitrate() media.Bitrate {
 	if c.Probe == nil {
 		return 0
 	}

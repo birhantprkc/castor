@@ -45,7 +45,7 @@ func TestTheCompositionARendererGets(t *testing.T) {
 		{"the serve preference relays what could have been handed over", selfFetching, media.MP4, DeliveryServe, "remux", true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			candidate := &source.Candidate{
+			candidate := &source.Stream{
 				URL:         &url.URL{Scheme: "https", Host: "cdn.example", Path: "/movie"},
 				ContentType: tt.sourceCT,
 				Probe:       &media.ProbeInfo{VideoCodec: media.CodecH264, VideoBitDepth: 8, AudioCodec: media.CodecAAC, AudioChannels: 2},

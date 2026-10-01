@@ -108,7 +108,7 @@ func TestTheBufferedEncodeIsMeasuredFromTheBufferAndNotTheSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A source nothing can measure: nothing is listening on that port.
-	s.attempt.Program = programFromStream(t, &source.Candidate{URL: &url.URL{Scheme: "http", Host: "127.0.0.1:1", Path: "/gone.mp4"}, ContentType: media.MP4})
+	s.attempt.Program = programFromStream(t, &source.Stream{URL: &url.URL{Scheme: "http", Host: "127.0.0.1:1", Path: "/gone.mp4"}, ContentType: media.MP4})
 
 	opts, err := s.encode(&fakeDevice{caps: dlnaLike()}, feed{buffered: buf}, nil)
 	if err != nil {
@@ -181,7 +181,7 @@ func TestReleasingAReadStopsItsTranscriptionBeforeTheWorkDirGoes(t *testing.T) {
 // A read released while its source still answers is stopped, not waited out to the source's end or deadline.
 func TestReleasingAReadStopsItWhileItsSourceStillAnswers(t *testing.T) {
 	ffmpegPath, ffprobePath := requireFFmpegTools(t)
-	stream := &source.Candidate{URL: quietOrigin(t, programHead(t, ffmpegPath)), ContentType: media.MPEGTS}
+	stream := &source.Stream{URL: quietOrigin(t, programHead(t, ffmpegPath)), ContentType: media.MPEGTS}
 	program := programFromStream(t, stream)
 	s := readingSession(t, castConfig(pushOnly(), ffmpegPath, ffprobePath), attempt.Attempt{Program: program, Fetch: sourceReadPlan(t, program, time.Hour)})
 

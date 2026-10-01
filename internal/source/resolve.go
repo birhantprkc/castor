@@ -55,7 +55,7 @@ func NewResolver(client Client, maxHeight media.HeightCap, formats Formats) *Res
 }
 
 // RefetchProgram resolves a link, narrowed to chosen when a rung was already picked (zero for none).
-func (r *Resolver) RefetchProgram(ctx context.Context, stream *Candidate, chosen Rendition) (Resolution, error) {
+func (r *Resolver) RefetchProgram(ctx context.Context, stream *Stream, chosen Rendition) (Resolution, error) {
 	if stream == nil || stream.URL == nil {
 		return Resolution{}, fmt.Errorf("source has no URL")
 	}
@@ -78,17 +78,17 @@ func (r *Resolver) RefetchProgram(ctx context.Context, stream *Candidate, chosen
 	return resolved, nil
 }
 
-// ProgramFor expands one opaque candidate into a single-input program (format builds richer graph).
-func ProgramFor(candidate *Candidate) (media.Program, error) {
-	if candidate == nil {
-		return media.Program{}, fmt.Errorf("source candidate is nil")
+// ProgramFor expands one opaque stream into a single-input program (format builds richer graph).
+func ProgramFor(stream *Stream) (media.Program, error) {
+	if stream == nil {
+		return media.Program{}, fmt.Errorf("source stream is nil")
 	}
 
-	// Source candidate has only container-level fetch metadata; preserve only container-level facts.
-	fetch := media.Fetch{Segmented: media.IsSegmented(candidate.ContentType)}
+	// A stream has only container-level fetch metadata; preserve only container-level facts.
+	fetch := media.Fetch{Segmented: media.IsSegmented(stream.ContentType)}
 	inputs := []media.Input{{
-		ID: media.PrimaryInputID, URL: candidate.URL, Headers: candidate.Headers,
-		ContentType: candidate.ContentType, Fetch: fetch,
+		ID: media.PrimaryInputID, URL: stream.URL, Headers: stream.Headers,
+		ContentType: stream.ContentType, Fetch: fetch,
 	}}
 	tracks := []media.TrackRef{
 		{Input: media.PrimaryInputID, Kind: media.TrackVideo, Optional: true},
@@ -102,8 +102,8 @@ func ProgramFor(candidate *Candidate) (media.Program, error) {
 	if err != nil {
 		return media.Program{}, err
 	}
-	if candidate.Probe != nil {
-		program.SetMeasurement(*candidate.Probe)
+	if stream.Probe != nil {
+		program.SetMeasurement(*stream.Probe)
 	}
 	return program, nil
 }

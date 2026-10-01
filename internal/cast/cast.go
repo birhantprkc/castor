@@ -23,7 +23,7 @@ type Config struct {
 }
 
 // Play casts the ranked links, head first; the rest are what recovery switches to.
-func Play(ctx context.Context, cfg Config, candidates []*source.Candidate) error {
+func Play(ctx context.Context, cfg Config, candidates []*source.Stream) error {
 	return attempt.Cast(ctx, attempt.Intent{
 		Candidates: slices.Clone(candidates),
 		Deadline:   cfg.ReadDeadline,

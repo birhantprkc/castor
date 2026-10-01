@@ -131,16 +131,16 @@ func (c *collector) index(raw string) int {
 }
 
 // entries is every capture in the order it was made, less those another capture's document names.
-func (c *collector) entries() []*source.Candidate {
+func (c *collector) entries() []*source.Stream {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	var out []*source.Candidate
+	var out []*source.Stream
 	for _, cp := range c.captures {
 		if _, part := c.named[cp.raw]; part {
 			continue
 		}
-		out = append(out, &source.Candidate{
+		out = append(out, &source.Stream{
 			URL: cp.url,
 			// Normalized under the lock: the listener keeps merging into this map while the caller reads it.
 			Headers:     source.NormalizeStreamHeaders(c.requestHeaders[cp.reqID]),
@@ -269,7 +269,7 @@ func (c *collector) noteDocument(reqID network.RequestID, body string) {
 }
 
 // Wait gives the page its grace, then a window per capture to fetch a master, and while it holds only ads, its pre-roll.
-func (c *collector) Wait(ctx context.Context) ([]*source.Candidate, error) {
+func (c *collector) Wait(ctx context.Context) ([]*source.Stream, error) {
 	preRoll := time.After(c.preRoll)
 	if hits, _, next := c.progress(); !hits {
 		select {

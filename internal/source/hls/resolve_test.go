@@ -19,7 +19,7 @@ func newTestResolver(playlists source.Client) *source.Resolver {
 
 const mediaPlaylist = "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4.0,\nseg0.ts\n#EXT-X-ENDLIST\n"
 
-func resolve(t *testing.T, playlists source.Client, stream *source.Candidate) source.Resolution {
+func resolve(t *testing.T, playlists source.Client, stream *source.Stream) source.Resolution {
 	t.Helper()
 	resolved, err := newTestResolver(playlists).RefetchProgram(t.Context(), stream, source.Rendition{})
 	if err != nil {
@@ -28,9 +28,9 @@ func resolve(t *testing.T, playlists source.Client, stream *source.Candidate) so
 	return resolved
 }
 
-func hlsAt(t *testing.T, raw string) *source.Candidate {
+func hlsAt(t *testing.T, raw string) *source.Stream {
 	t.Helper()
-	return &source.Candidate{URL: sourcetest.URL(t, raw), ContentType: media.HLS}
+	return &source.Stream{URL: sourcetest.URL(t, raw), ContentType: media.HLS}
 }
 
 func TestResolveNarrowsAMasterToTheRungUnderTheCap(t *testing.T) {

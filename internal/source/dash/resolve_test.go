@@ -30,7 +30,7 @@ const ffmpegPresentation = `<?xml version="1.0" encoding="utf-8"?>
 func resolveWith(t *testing.T, body string, chosen source.Rendition, ceiling media.HeightCap) source.Resolution {
 	t.Helper()
 	resolver := source.NewResolver(&sourcetest.Playlist{Body: body, Status: http.StatusOK}, ceiling, source.Formats{Format{}})
-	stream := &source.Candidate{URL: sourcetest.URL(t, "https://origin.example/manifest.mpd"), ContentType: media.DASH}
+	stream := &source.Stream{URL: sourcetest.URL(t, "https://origin.example/manifest.mpd"), ContentType: media.DASH}
 	resolved, err := resolver.RefetchProgram(t.Context(), stream, chosen)
 	if err != nil {
 		t.Fatalf("RefetchProgram: %v", err)
@@ -119,7 +119,7 @@ func TestAPresentationUnderDRMIsRefused(t *testing.T) {
     <Representation id="hd" mimeType="video/mp4" codecs="avc1.640028" bandwidth="6941000" height="1080"/>
   </AdaptationSet></Period></MPD>`
 	resolver := source.NewResolver(&sourcetest.Playlist{Body: body, Status: http.StatusOK}, 1080, source.Formats{Format{}})
-	stream := &source.Candidate{URL: sourcetest.URL(t, "https://origin.example/manifest.mpd"), ContentType: media.DASH}
+	stream := &source.Stream{URL: sourcetest.URL(t, "https://origin.example/manifest.mpd"), ContentType: media.DASH}
 	if _, err := resolver.RefetchProgram(t.Context(), stream, source.Rendition{}); err == nil || !strings.Contains(err.Error(), "cenc") {
 		t.Errorf("RefetchProgram = %v, want a refusal naming the protection", err)
 	}

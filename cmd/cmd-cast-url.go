@@ -40,12 +40,12 @@ func (a *app) castURLCommand() *cli.Command {
 			}
 
 			// Measure direct URL (not rank) to extract envelope for pass-through.
-			stream := &source.Candidate{URL: urlObj, ContentType: cfg.Identify(ctx, urlObj)}
+			stream := &source.Stream{URL: urlObj, ContentType: cfg.Identify(ctx, urlObj)}
 			measured, err := cfg.Ranker().Measure(ctx, stream)
 			if err != nil {
 				return fmt.Errorf("measuring direct URL: %w", err)
 			}
-			return cast.Play(ctx, playback(cfg, cfg.Target()), []*source.Candidate{measured})
+			return cast.Play(ctx, playback(cfg, cfg.Target()), []*source.Stream{measured})
 		},
 	}
 }

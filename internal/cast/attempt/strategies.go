@@ -81,7 +81,7 @@ var degradeRendition = strategy{
 		if !ok || (rung.URL == nil && rung.Representation == "") {
 			return a, false
 		}
-		source := source.Candidate{
+		source := source.Stream{
 			URL: cmp.Or(rung.URL, primary.URL), Headers: primary.Headers.Clone(), ContentType: primary.ContentType,
 		}
 		resolved, err := c.resolver.RefetchProgram(ctx, &source, rung)

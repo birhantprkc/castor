@@ -14,7 +14,7 @@ import (
 )
 
 // Probes measures one candidate.
-type Probes func(*source.Candidate) media.Prober
+type Probes func(*source.Stream) media.Prober
 
 type Ranker struct {
 	cfg    Config
@@ -27,12 +27,12 @@ func New(cfg Config, probes Probes) *Ranker {
 }
 
 // Rank measures every candidate and returns the order a cast walks them in, best first.
-func (r *Ranker) Rank(ctx context.Context, streams []*source.Candidate) ([]*source.Candidate, error) {
+func (r *Ranker) Rank(ctx context.Context, streams []*source.Stream) ([]*source.Stream, error) {
 	slog.InfoContext(ctx, "ranking streams", "count", len(streams))
 	if len(streams) == 0 {
 		return nil, fmt.Errorf("no streams to rank")
 	}
-	valid := make([]*source.Candidate, 0, len(streams))
+	valid := make([]*source.Stream, 0, len(streams))
 	for _, stream := range streams {
 		if stream != nil && stream.URL != nil {
 			valid = append(valid, stream)
@@ -47,9 +47,9 @@ func (r *Ranker) Rank(ctx context.Context, streams []*source.Candidate) ([]*sour
 	streams = valid
 	streams = limitPerHost(ctx, streams)
 
-	pool := make([]*source.Candidate, 0, len(streams))
+	pool := make([]*source.Stream, 0, len(streams))
 	rejected := make(map[reason]int)
-	reasons := make(map[*source.Candidate]reason, len(streams))
+	reasons := make(map[*source.Stream]reason, len(streams))
 	for _, m := range r.measureAll(ctx, streams) {
 		v := admit(m)
 		if !v.admit {
@@ -57,8 +57,8 @@ func (r *Ranker) Rank(ctx context.Context, streams []*source.Candidate) ([]*sour
 			logRejection(ctx, m, v)
 			continue
 		}
-		m.LastResort, reasons[m.Candidate] = v.lastResort, v.reason
-		pool = append(pool, m.Candidate)
+		m.LastResort, reasons[m.Stream] = v.lastResort, v.reason
+		pool = append(pool, m.Stream)
 	}
 	if len(pool) == 0 {
 		return nil, fmt.Errorf("no castable stream: none of %d candidates was admitted (%s)", len(streams), tally(rejected))
@@ -77,26 +77,26 @@ func (r *Ranker) Rank(ctx context.Context, streams []*source.Candidate) ([]*sour
 }
 
 // Measure is the other half of Rank, for the one link an operator named themselves.
-func (r *Ranker) Measure(ctx context.Context, stream *source.Candidate) (*source.Candidate, error) {
+func (r *Ranker) Measure(ctx context.Context, stream *source.Stream) (*source.Stream, error) {
 	if stream == nil || stream.URL == nil {
 		return nil, fmt.Errorf("no stream with a URL to measure")
 	}
-	one := r.measureAll(ctx, []*source.Candidate{stream})[0]
+	one := r.measureAll(ctx, []*source.Stream{stream})[0]
 	// The operator named it, so nothing is ranked against it: only the admission is overruled.
 	verdict := admit(one)
 	one.LastResort = verdict.lastResort
 	slog.InfoContext(ctx, "direct link measured", "url", one.URL.String(),
-		"bitrate", int64(one.Bitrate()), "height", height(one.Candidate),
+		"bitrate", int64(one.Bitrate()), "height", height(one.Stream),
 		"reason", string(verdict.reason), "last_resort", one.LastResort)
-	return one.Candidate, nil
+	return one.Stream, nil
 }
 
 const maxProbePerHost = 5
 
 // limitPerHost measures at most maxProbePerHost links per host, the ones whose documents promise a ladder first.
-func limitPerHost(ctx context.Context, streams []*source.Candidate) []*source.Candidate {
+func limitPerHost(ctx context.Context, streams []*source.Stream) []*source.Stream {
 	seen := make(map[string]int, len(streams))
-	kept := make([]*source.Candidate, 0, len(streams))
+	kept := make([]*source.Stream, 0, len(streams))
 	dropped := 0
 	for _, s := range slices.SortedStableFunc(slices.Values(streams), byLadderEvidence) {
 		host := s.URL.Hostname()
@@ -116,12 +116,12 @@ func limitPerHost(ctx context.Context, streams []*source.Candidate) []*source.Ca
 
 // measured is a candidate as its measurement left it, with how far the origin let that measurement get.
 type measured struct {
-	*source.Candidate
+	*source.Stream
 	reach media.Reach
 }
 
 // measureAll measures every candidate concurrently, bounded by the configured fan-out.
-func (r *Ranker) measureAll(ctx context.Context, streams []*source.Candidate) []measured {
+func (r *Ranker) measureAll(ctx context.Context, streams []*source.Stream) []measured {
 	out := make([]measured, len(streams))
 	sem := make(chan struct{}, r.cfg.ProbeMaxConcurrency)
 
@@ -142,7 +142,7 @@ func (r *Ranker) measureAll(ctx context.Context, streams []*source.Candidate) []
 				// A container the URL did not name is one the probe just established.
 				contentType = cmp.Or(contentType, info.ContentType)
 			}
-			out[i] = measured{Candidate: &source.Candidate{
+			out[i] = measured{Stream: &source.Stream{
 				URL:         s.URL,
 				Headers:     s.Headers,
 				ContentType: contentType,

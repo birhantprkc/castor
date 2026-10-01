@@ -45,7 +45,7 @@ type published struct {
 	err    error
 }
 
-func (p *fakeProgram) RefetchProgram(_ context.Context, s *source.Candidate, chosen source.Rendition) (source.Resolution, error) {
+func (p *fakeProgram) RefetchProgram(_ context.Context, s *source.Stream, chosen source.Rendition) (source.Resolution, error) {
 	p.asked = append(p.asked, s.URL.String())
 	if !reflect.ValueOf(chosen).IsZero() {
 		p.narrowed = append(p.narrowed, chosen)
@@ -73,7 +73,7 @@ func (p *fakeProgram) RefetchProgram(_ context.Context, s *source.Candidate, cho
 	return source.Resolution{Program: program, Origin: answer.origin, Rendition: answer.rung}, err
 }
 
-func publishing(head *source.Candidate, origin source.Origin, chosen source.Rendition) *fakeProgram {
+func publishing(head *source.Stream, origin source.Origin, chosen source.Rendition) *fakeProgram {
 	return &fakeProgram{answers: map[string]published{head.URL.String(): {origin: origin, rung: chosen}}}
 }
 
@@ -90,16 +90,16 @@ var delivered = Outcome{Evidence: Evidence{Reached: PhaseDelivered}}
 // starving is an observed run: 33KB and 1s of media in 30s.
 var starving = health.Health{Landed: 33088, Position: time.Second, Speed: 0.159, Headroom: 2, Samples: 4}
 
-func link(t *testing.T, raw string) *source.Candidate {
+func link(t *testing.T, raw string) *source.Stream {
 	t.Helper()
 	u, err := url.Parse(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &source.Candidate{URL: u, ContentType: media.HLS, Headers: http.Header{"Referer": {"https://player.example/"}}}
+	return &source.Stream{URL: u, ContentType: media.HLS, Headers: http.Header{"Referer": {"https://player.example/"}}}
 }
 
-func programForStream(stream *source.Candidate, audio *url.URL) (media.Program, error) {
+func programForStream(stream *source.Stream, audio *url.URL) (media.Program, error) {
 	if audio == nil {
 		return source.ProgramFor(stream)
 	}
@@ -130,9 +130,9 @@ func rung(t *testing.T, raw string, bitrate media.Bitrate, height int) source.Re
 	return source.Rendition{URL: link(t, raw).URL, Bitrate: bitrate, Height: height}
 }
 
-func candidates(t *testing.T, raws ...string) []*source.Candidate {
+func candidates(t *testing.T, raws ...string) []*source.Stream {
 	t.Helper()
-	var out []*source.Candidate
+	var out []*source.Stream
 	for _, raw := range raws {
 		out = append(out, link(t, raw))
 	}
@@ -257,7 +257,7 @@ func TestCastDegradesToTheHeaviestRungTheLinkCarried(t *testing.T) {
 	low.AudioURL = link(t, "https://cdn.example/audio/low.m3u8").URL
 	head := link(t, "https://cdn.example/2160.m3u8")
 	head.Probe = &media.ProbeInfo{VideoHeight: 2160}
-	in := Intent{Candidates: []*source.Candidate{head}, Deadline: 30 * time.Second}
+	in := Intent{Candidates: []*source.Stream{head}, Deadline: 30 * time.Second}
 	run := &scriptedRunner{outcomes: []Outcome{judged(health.Undeliverable, PhaseReading, starving), delivered}}
 	resolver := publishing(head, ladder(top, mid, low), top)
 
@@ -364,7 +364,7 @@ func TestAFailureNobodyJudgedIsAbandonedRatherThanRetried(t *testing.T) {
 
 func TestARendererThatIsGoneIsNotRetried(t *testing.T) {
 	head := link(t, "https://cdn.example/2160.m3u8")
-	in := Intent{Candidates: []*source.Candidate{head, link(t, "https://cdn.example/two.m3u8")}, Deadline: 30 * time.Second}
+	in := Intent{Candidates: []*source.Stream{head, link(t, "https://cdn.example/two.m3u8")}, Deadline: 30 * time.Second}
 	origin := ladder(rung(t, "https://cdn.example/2160.m3u8", 6941000, 2160), rung(t, "https://cdn.example/720.m3u8", 1000000, 720))
 	gone := &media.Gone{Renderer: "Living Room TV", Err: errors.New("connect: no route to host")}
 	// Unstarted with a play error is revisable, so only the empty playbook entry refuses it.

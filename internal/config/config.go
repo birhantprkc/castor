@@ -148,7 +148,7 @@ func (c *Config) Identify(ctx context.Context, u *url.URL) string {
 
 // newRanker binds ranking to the same measurement resolution identifies a source with.
 func (c *Config) newRanker() *rank.Ranker {
-	return rank.New(c.Resolver.Config, probe.Candidate(c.Resolver.FFprobePath, c.Resolver.ProbeTimeout))
+	return rank.New(c.Resolver.Config, probe.Stream(c.Resolver.FFprobePath, c.Resolver.ProbeTimeout))
 }
 
 // Extractor finds candidate streams on a page, recognising documents in every format castor reads.

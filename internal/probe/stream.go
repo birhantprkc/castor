@@ -12,20 +12,20 @@ import (
 	"github.com/stupside/castor/internal/source/rank"
 )
 
-func Candidate(ffprobePath string, timeout time.Duration) rank.Probes {
-	return func(s *source.Candidate) media.Prober {
-		return candidateProber{ffprobePath: ffprobePath, timeout: timeout, candidate: s}
+func Stream(ffprobePath string, timeout time.Duration) rank.Probes {
+	return func(s *source.Stream) media.Prober {
+		return streamProber{ffprobePath: ffprobePath, timeout: timeout, stream: s}
 	}
 }
 
-type candidateProber struct {
+type streamProber struct {
 	ffprobePath string
 	timeout     time.Duration
-	candidate   *source.Candidate
+	stream      *source.Stream
 }
 
-func (p candidateProber) Probe(ctx context.Context) (media.ProbeInfo, media.Reach, error) {
-	s := p.candidate
+func (p streamProber) Probe(ctx context.Context) (media.ProbeInfo, media.Reach, error) {
+	s := p.stream
 	if s == nil || s.URL == nil {
 		return media.ProbeInfo{}, media.ReachUnproven, fmt.Errorf("probing source: no URL")
 	}

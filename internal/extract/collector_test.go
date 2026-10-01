@@ -24,7 +24,7 @@ func testCollector(t *testing.T) *collector {
 	return newCollector(source.Formats{hls.Format{}, dash.Format{}}, unreadable, time.Second, time.Second, time.Second)
 }
 
-func urls(entries []*source.Candidate) []string {
+func urls(entries []*source.Stream) []string {
 	out := make([]string, len(entries))
 	for i, e := range entries {
 		out[i] = e.URL.String()

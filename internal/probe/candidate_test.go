@@ -22,9 +22,9 @@ func requireFFprobe(t *testing.T) string {
 	return path
 }
 
-func streamAt(t *testing.T, raw string) *source.Candidate {
+func streamAt(t *testing.T, raw string) *source.Stream {
 	t.Helper()
-	return &source.Candidate{URL: mustURL(t, raw)}
+	return &source.Stream{URL: mustURL(t, raw)}
 }
 
 func mustURL(t *testing.T, raw string) *url.URL {
@@ -38,7 +38,7 @@ func mustURL(t *testing.T, raw string) *url.URL {
 
 // Refusals ffprobe names only at warning level must still classify as refused.
 func TestMeasureCarriesTheOriginsRefusal(t *testing.T) {
-	probes := Candidate(requireFFprobe(t), 30*time.Second)
+	probes := Stream(requireFFprobe(t), 30*time.Second)
 	const mediaPlaylist = "#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXTINF:2.0,\nseg0.ts\n#EXTINF:2.0,\nseg1.ts\n#EXT-X-ENDLIST\n"
 	const masterPlaylist = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\nvariant.m3u8\n"
 
@@ -89,7 +89,7 @@ func TestMeasureReportsATarpitAsUnproven(t *testing.T) {
 	}))
 	t.Cleanup(origin.Close)
 
-	_, reach, err := Candidate(requireFFprobe(t), 300*time.Millisecond)(streamAt(t, origin.URL+"/slow.m3u8")).Probe(t.Context())
+	_, reach, err := Stream(requireFFprobe(t), 300*time.Millisecond)(streamAt(t, origin.URL+"/slow.m3u8")).Probe(t.Context())
 	if err == nil || reach != media.ReachUnproven {
 		t.Errorf("Probe = (%s, %v), want an unproven failure", reach, err)
 	}
