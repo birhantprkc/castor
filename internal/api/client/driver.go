@@ -41,18 +41,29 @@ type driver struct {
 	castID string
 	lent   device.Info
 
-	relay func() (*relay, error)
-
 	mu      sync.Mutex
+	relayed *relay
 	devices map[string]device.Device
 	running map[string]context.CancelFunc
 	wg      sync.WaitGroup
 }
 
 func newDriver(ctx context.Context, c *Client, castID string, target device.Info) *driver {
-	d := &driver{ctx: ctx, c: c, castID: castID, lent: target, devices: map[string]device.Device{}, running: map[string]context.CancelFunc{}}
-	d.relay = sync.OnceValues(func() (*relay, error) { return openRelay(ctx, c.base, c.lan.Address) })
-	return d
+	return &driver{ctx: ctx, c: c, castID: castID, lent: target, devices: map[string]device.Device{}, running: map[string]context.CancelFunc{}}
+}
+
+// relay is this drive's relay, opened by the first play that needs one.
+func (d *driver) relay() (*relay, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.relayed == nil {
+		r, err := openRelay(d.ctx, d.c.base, d.c.lan.Address)
+		if err != nil {
+			return nil, err
+		}
+		d.relayed = r
+	}
+	return d.relayed, nil
 }
 
 func (d *driver) run(cmd *castorv1.DeviceCommand) {
@@ -167,10 +178,10 @@ func (d *driver) release() {
 		_ = dev.Close()
 		delete(d.devices, handle)
 	}
-	d.mu.Unlock()
-	if r, err := d.relay(); err == nil {
-		r.close()
+	if d.relayed != nil {
+		d.relayed.close()
 	}
+	d.mu.Unlock()
 }
 
 func outcome(err error) *castorv1.AnswerRequest {
