@@ -42,12 +42,12 @@ func (a *app) castURLCommand() *cli.Command {
 			if err != nil {
 				return err
 			}
-			c, err := dial(ctx, cfg)
+			c, err := a.dial(ctx, cfg)
 			if err != nil {
 				return err
 			}
 			// Named, not found: the server measures it to extract the envelope for pass-through, without ranking.
-			return a.cast(ctx, c, &castorv1.StartCastRequest{
+			return a.cast(ctx, cfg, c, &castorv1.StartCastRequest{
 				Streams:     &castorv1.StartCastRequest_Named{Named: &castorv1.Stream{Url: urlObj.String()}},
 				Preferences: cfg.Preferences(),
 			}, target)

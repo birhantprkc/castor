@@ -23,7 +23,7 @@ cast:
   #   auto  (the default) hand the source URL to a device that fetches for itself,
   #         but only where Castor has established that it can: the checks are
   #         several and they change, so they are not listed here. Every cast logs
-  #         which path it took and why, on the "cast composition" line.
+  #         which path it took and why on the "cast composition" line (--debug).
   #   serve relay always, for a source a device refuses for some reason Castor
   #         cannot see. This spends this machine's bandwidth and CPU on every
   #         cast, so it stays opt-in.

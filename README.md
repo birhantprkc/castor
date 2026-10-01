@@ -203,7 +203,7 @@ tmdb:
 
 ### Forcing a relay
 
-Castor decides per source whether the device fetches the stream itself or Castor relays it, and logs the choice and why on its `cast composition` line. Set `delivery: serve` to always relay, for a source a device refuses for a reason Castor can't see:
+Castor decides per source whether the device fetches the stream itself or Castor relays it, and logs the choice and why on its `cast composition` line, shown with `--debug`. Set `delivery: serve` to always relay, for a source a device refuses for a reason Castor can't see:
 
 ```yaml
 cast:

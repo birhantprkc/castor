@@ -185,10 +185,15 @@ func cast(t *testing.T, c *client.Client, req *castorv1.StartCastRequest) error 
 	return follow(t, c, id, &progress{}, nil)
 }
 
-// follow watches cast id, then lends it the renderer, and returns its outcome.
-func follow(t *testing.T, c *client.Client, id string, shown client.Progress, logs slog.Handler) error {
+// follow watches cast id, its lines going to logs at logs' level, then lends it the renderer, and returns its outcome.
+func follow(t *testing.T, c *client.Client, id string, shown client.Progress, logs *recorder) error {
 	t.Helper()
-	w, err := c.Watch(t.Context(), id, shown, logs)
+	var lines slog.Handler
+	var level slog.Level
+	if logs != nil {
+		lines, level = logs, logs.level
+	}
+	w, err := c.Watch(t.Context(), id, shown, lines, level)
 	if err != nil {
 		return err
 	}
@@ -406,11 +411,7 @@ func TestTheServersLinesForACastReachOnlyTheWatchersThatAskedForThem(t *testing.
 		if err != nil {
 			t.Fatal(err)
 		}
-		var logs slog.Handler
-		if tc.asked != nil {
-			logs = tc.asked
-		}
-		if err := follow(t, c, id, &progress{}, logs); err != nil {
+		if err := follow(t, c, id, &progress{}, tc.asked); err != nil {
 			t.Fatal(err)
 		}
 		if tc.asked == nil {
@@ -601,7 +602,7 @@ func TestACastHasOneDeviceAndFailsWhenTheClientLendingItLeaves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w, err := c.Watch(t.Context(), id, &progress{}, nil)
+	w, err := c.Watch(t.Context(), id, &progress{}, nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -632,11 +633,11 @@ func TestWatchingNeverDrivesAndTheCastStartsWithItsDriver(t *testing.T) {
 		t.Fatal(err)
 	}
 	shown := &progress{}
-	w, err := c.Watch(t.Context(), id, shown, nil)
+	w, err := c.Watch(t.Context(), id, shown, nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	onlooker, err := c.Watch(t.Context(), id, &progress{}, nil)
+	onlooker, err := c.Watch(t.Context(), id, &progress{}, nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

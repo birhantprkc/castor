@@ -84,7 +84,7 @@ func (a *app) castInteractive(ctx context.Context, _ *cli.Command) error {
 
 // extractAndCast finds the streams on urls, then prints their ranking (-dry-run) or has the server cast them to target.
 func (a *app) extractAndCast(ctx context.Context, cfg *config.Config, target device.Info, urls []string) error {
-	c, err := dial(ctx, cfg)
+	c, err := a.dial(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -106,7 +106,7 @@ func (a *app) extractAndCast(ctx context.Context, cfg *config.Config, target dev
 		return nil
 	}
 	// Pass all streams; the server ranks them and falls back to the next if the best fails.
-	return a.cast(ctx, c, &castorv1.StartCastRequest{
+	return a.cast(ctx, cfg, c, &castorv1.StartCastRequest{
 		Streams:     &castorv1.StartCastRequest_Found_{Found: &castorv1.StartCastRequest_Found{Streams: streams}},
 		Preferences: cfg.Preferences(),
 	}, target)

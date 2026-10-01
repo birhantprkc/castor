@@ -102,12 +102,16 @@ func infoCommand() *cli.Command {
 }
 
 // dial is a client of the server every cast command drives: one in this process, or the one config names.
-func dial(ctx context.Context, cfg *config.Config) (*client.Client, error) {
+func (a *app) dial(ctx context.Context, cfg *config.Config) (*client.Client, error) {
 	if !cfg.API.Embedded() {
 		return client.New(cfg.API.Endpoint, cfg.LAN()), nil
 	}
-	// The embedded engine writes nothing here itself: its lines arrive through the watch, as a remote server's do.
-	slog.SetDefault(slog.New(server.Logs(slog.Default().Handler(), slog.DiscardHandler)))
+	// The embedded engine's own lines are written here only under --debug; its casts' warnings come through their watch.
+	engine := slog.DiscardHandler
+	if a.debug {
+		engine = fromServer(slog.Default().Handler())
+	}
+	slog.SetDefault(slog.New(server.Logs(slog.Default().Handler(), engine)))
 	base, err := server.Embedded(ctx, backend(cfg))
 	if err != nil {
 		return nil, err
@@ -115,19 +119,26 @@ func dial(ctx context.Context, cfg *config.Config) (*client.Client, error) {
 	return client.New(base, cfg.LAN()), nil
 }
 
+func fromServer(h slog.Handler) slog.Handler {
+	return h.WithAttrs([]slog.Attr{slog.String("from", "server")})
+}
+
 // cast starts the cast req asks for, watches it, and lends it target; cancelling ctx stops it.
-func (a *app) cast(ctx context.Context, c *client.Client, req *castorv1.StartCastRequest, target device.Info) error {
+func (a *app) cast(ctx context.Context, cfg *config.Config, c *client.Client, req *castorv1.StartCastRequest, target device.Info) error {
 	id, err := c.Start(ctx, req)
 	if err != nil {
 		return err
 	}
-	// The engine's own lines are detail: shown under --debug only, marked as the server's.
-	var engine slog.Handler
-	if a.debug {
-		engine = slog.Default().Handler().WithAttrs([]slog.Attr{slog.String("from", "server")})
+	// A cast's warnings always show, its detail under --debug; an embedded engine under --debug already writes both.
+	engine, level := fromServer(slog.Default().Handler()), slog.LevelWarn
+	switch {
+	case a.debug && cfg.API.Embedded():
+		engine = nil
+	case a.debug:
+		level = slog.LevelDebug
 	}
 	// Watched before the device is lent: the cast starts with it, so nothing it says goes unseen.
-	w, err := c.Watch(ctx, id, &logged{ctx: ctx}, engine)
+	w, err := c.Watch(ctx, id, &logged{ctx: ctx}, engine, level)
 	if err != nil {
 		stop(ctx, c, id)
 		return err

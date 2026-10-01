@@ -25,11 +25,9 @@ type Watch struct {
 	logs     slog.Handler
 }
 
-// Watch opens an observation of cast id and returns once its current status is shown, so a device lent after misses nothing.
-// The server's lines for the cast go to logs at the least severe level it takes; nil asks for none.
-func (c *Client) Watch(ctx context.Context, id string, progress Progress, logs slog.Handler) (*Watch, error) {
-	level, logged := floor(ctx, logs)
-	stream, err := c.logger.Watch(ctx, &castorv1.WatchRequest{CastId: id, Logs: wire.LogLevel(level, logged)})
+// Watch observes cast id, its lines from level on going to logs (nil asks none), and returns once its status is shown.
+func (c *Client) Watch(ctx context.Context, id string, progress Progress, logs slog.Handler, level slog.Level) (*Watch, error) {
+	stream, err := c.logger.Watch(ctx, &castorv1.WatchRequest{CastId: id, Logs: wire.LogLevel(level, logs != nil)})
 	if err != nil {
 		return nil, fmt.Errorf("watching cast: %w", err)
 	}
@@ -76,17 +74,4 @@ func (w *Watch) outcome() error {
 		return errors.New(failed.Message())
 	}
 	return fmt.Errorf("watching cast: %w", err)
-}
-
-// floor is the least severe level h takes, ok false when there is no h.
-func floor(ctx context.Context, h slog.Handler) (slog.Level, bool) {
-	if h == nil {
-		return 0, false
-	}
-	for _, level := range []slog.Level{slog.LevelDebug, slog.LevelInfo, slog.LevelWarn} {
-		if h.Enabled(ctx, level) {
-			return level, true
-		}
-	}
-	return slog.LevelError, true
 }
