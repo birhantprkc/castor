@@ -51,13 +51,19 @@ func (a *app) castInteractive(ctx context.Context, _ *cli.Command) error {
 	discover := func(ctx context.Context) []device.Info {
 		return cfg.Devices().Discover(ctx, cfg.Network.Timeout)
 	}
-	target, err := picker.Device(ctx, discover, cfg.Device.Name)
+	var target device.Info
+	var sel browse.Selection
+	err = held(func() (err error) {
+		if target, err = picker.Device(ctx, discover, cfg.Device.Name); err != nil {
+			return fmt.Errorf("picking device: %w", err)
+		}
+		if sel, err = browse.Run(ctx, tmdb.New(cfg.TMDB.APIKey), target.Name, target.Type); err != nil {
+			return fmt.Errorf("browse: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		return fmt.Errorf("picking device: %w", err)
-	}
-	sel, err := browse.Run(ctx, tmdb.New(cfg.TMDB.APIKey), target.Name, target.Type)
-	if err != nil {
-		return fmt.Errorf("browse: %w", err)
+		return err
 	}
 	if sel.Kind == browse.KindNone {
 		return nil
