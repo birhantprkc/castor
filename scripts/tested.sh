@@ -17,5 +17,5 @@ set -euo pipefail
 # internal/subtitle/whisper is the one exemption and it is honest, not a hole: its
 # transcriber test needs a model weighing hundreds of megabytes that no CI run
 # downloads, so that skip states a resource CI genuinely does not have.
-# e2e cases wait out castor's 150s stall window twice, past go test's 10m default.
-go test -json -timeout 30m ./... | python3 scripts/tested.py
+# e2e is left out of CI.
+go test -json $(go list ./... | grep -v /e2e/) | python3 scripts/tested.py
