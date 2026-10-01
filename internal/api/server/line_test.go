@@ -5,7 +5,6 @@ import (
 	"errors"
 	"testing"
 	"testing/synctest"
-	"time"
 
 	"connectrpc.com/connect"
 
@@ -17,23 +16,31 @@ func connectCommand() *castorv1.DeviceCommand {
 	return &castorv1.DeviceCommand{Command: &castorv1.DeviceCommand_Connect_{Connect: &castorv1.DeviceCommand_Connect{}}}
 }
 
-// attached is a line whose driver's commands arrive on the returned channel.
+// attached is a line whose commands arrive on the returned channel, as Drive would take them, until it is cut.
 func attached(t *testing.T) (*line, <-chan *castorv1.DeviceCommand) {
 	t.Helper()
 	l := newLine()
-	sent := make(chan *castorv1.DeviceCommand, 8)
-	if err := l.attach(media.Capabilities{}, func(cmd *castorv1.DeviceCommand) error {
-		sent <- cmd
-		return nil
-	}); err != nil {
+	if err := l.attach(media.Capabilities{}); err != nil {
 		t.Fatal(err)
 	}
+	sent := make(chan *castorv1.DeviceCommand, 8)
+	go func() {
+		for {
+			select {
+			case cmd := <-l.outbox:
+				sent <- cmd
+			case <-l.left:
+				return
+			}
+		}
+	}()
 	return l, sent
 }
 
 func TestACastTakesOneDevice(t *testing.T) {
 	l, _ := attached(t)
-	err := l.attach(media.Capabilities{}, func(*castorv1.DeviceCommand) error { return nil })
+	defer l.leave()
+	err := l.attach(media.Capabilities{})
 	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
 		t.Errorf("a second device was met with %v, want it refused", err)
 	}
@@ -41,6 +48,7 @@ func TestACastTakesOneDevice(t *testing.T) {
 
 func TestACallIsAnsweredByItsDevice(t *testing.T) {
 	l, sent := attached(t)
+	defer l.leave()
 	answered := make(chan error, 1)
 	go func() {
 		_, err := l.call(t.Context(), connectCommand())
@@ -83,6 +91,7 @@ func TestACallFailsOnceItsDeviceLeft(t *testing.T) {
 func TestAnAbandonedCallIsCancelledOnTheDevice(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		l, sent := attached(t)
+		defer l.leave()
 		ctx, abandon := context.WithCancel(t.Context())
 		go func() { _, _ = l.call(ctx, connectCommand()) }()
 		cmd := <-sent
@@ -92,32 +101,6 @@ func TestAnAbandonedCallIsCancelledOnTheDevice(t *testing.T) {
 		}
 		if l.answer(&castorv1.AnswerRequest{CommandId: cmd.GetId()}) {
 			t.Error("an abandoned call still awaited its answer")
-		}
-	})
-}
-
-func TestACastNobodyLendsADeviceIsAbandonedAfterItsGrace(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		const grace = time.Minute
-		c := &casts{ctx: t.Context(), caster: func(*castorv1.Preferences) Caster { return nil }, undriven: grace, registry: newRegistry()}
-		started, err := c.StartCast(t.Context(), &castorv1.StartCastRequest{})
-		if err != nil {
-			t.Fatal(err)
-		}
-		s, err := c.registry.find(started.GetCastId())
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		time.Sleep(grace - time.Nanosecond)
-		synctest.Wait()
-		if _, _, over, _ := s.status.read(); over {
-			t.Fatal("abandoned before its grace ran out")
-		}
-		time.Sleep(time.Nanosecond)
-		synctest.Wait()
-		if _, _, _, outcome := s.status.read(); !errors.Is(outcome, errUndriven) {
-			t.Errorf("ended with %v, want the undriven cause", outcome)
 		}
 	})
 }

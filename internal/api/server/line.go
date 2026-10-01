@@ -12,44 +12,44 @@ import (
 	"github.com/stupside/castor/internal/media"
 )
 
-// line is a cast's one link to its device: the Drive stream its calls go down, and the calls awaiting answers.
+// line is a cast's one link to its device: the calls Drive sends down its stream, and those awaiting answers.
 type line struct {
 	attached chan struct{}
 	left     chan struct{}
+	// outbox hands each command to the Drive handler, the only goroutine that sends on its stream.
+	outbox chan *castorv1.DeviceCommand
 
 	mu       sync.Mutex
-	driven   bool
 	profile  media.Capabilities
 	next     int
 	awaiting map[string]chan *castorv1.AnswerRequest
-
-	// writing serialises sends, and keeps any from landing once the stream has left.
-	writing sync.Mutex
-	send    func(*castorv1.DeviceCommand) error
 }
 
 func newLine() *line {
-	return &line{attached: make(chan struct{}), left: make(chan struct{}), awaiting: map[string]chan *castorv1.AnswerRequest{}}
+	return &line{
+		attached: make(chan struct{}),
+		left:     make(chan struct{}),
+		outbox:   make(chan *castorv1.DeviceCommand),
+		awaiting: map[string]chan *castorv1.AnswerRequest{},
+	}
 }
 
-// attach makes send the line to the device profile describes; a cast takes one device, so a second is refused.
-func (l *line) attach(profile media.Capabilities, send func(*castorv1.DeviceCommand) error) error {
+// attach lends the line the device profile describes; a cast takes one device, so a second is refused.
+func (l *line) attach(profile media.Capabilities) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.driven {
+	select {
+	case <-l.attached:
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("this cast already has its device"))
+	default:
 	}
-	l.driven, l.profile, l.send = true, profile, send
+	l.profile = profile
 	close(l.attached)
 	return nil
 }
 
-// leave cuts the line: every call on it fails from now on, and nothing more is sent.
-func (l *line) leave() {
-	l.writing.Lock()
-	defer l.writing.Unlock()
-	close(l.left)
-}
+// leave cuts the line: every call on it fails from now on.
+func (l *line) leave() { close(l.left) }
 
 func (l *line) lent() media.Capabilities {
 	l.mu.Lock()
@@ -67,7 +67,7 @@ func (l *line) call(ctx context.Context, cmd *castorv1.DeviceCommand) (*castorv1
 	l.mu.Unlock()
 	defer l.forget(cmd.Id)
 
-	if err := l.write(cmd); err != nil {
+	if err := l.send(ctx, cmd); err != nil {
 		return nil, err
 	}
 	select {
@@ -76,20 +76,23 @@ func (l *line) call(ctx context.Context, cmd *castorv1.DeviceCommand) (*castorv1
 	case <-l.left:
 		return nil, errDriverLeft
 	case <-ctx.Done():
-		_ = l.write(&castorv1.DeviceCommand{Command: &castorv1.DeviceCommand_Cancel_{Cancel: &castorv1.DeviceCommand_Cancel{CommandId: cmd.Id}}})
+		// The cancel waits for the stream, never the caller: it goes once Drive takes it, or never once the line is cut.
+		go func() {
+			_ = l.send(context.Background(), &castorv1.DeviceCommand{Command: &castorv1.DeviceCommand_Cancel_{Cancel: &castorv1.DeviceCommand_Cancel{CommandId: cmd.Id}}})
+		}()
 		return nil, ctx.Err()
 	}
 }
 
-func (l *line) write(cmd *castorv1.DeviceCommand) error {
-	l.writing.Lock()
-	defer l.writing.Unlock()
+func (l *line) send(ctx context.Context, cmd *castorv1.DeviceCommand) error {
 	select {
+	case l.outbox <- cmd:
+		return nil
 	case <-l.left:
 		return errDriverLeft
-	default:
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-	return l.send(cmd)
 }
 
 // answer hands a to the call awaiting it, reporting whether one was.

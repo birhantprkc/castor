@@ -20,20 +20,24 @@ func (d devices) Drive(ctx context.Context, req *castorv1.DriveRequest, out *con
 	if err != nil {
 		return err
 	}
-	err = s.line.attach(wire.FromCapabilities(req.GetProfile()), func(cmd *castorv1.DeviceCommand) error {
-		return out.Send(&castorv1.DriveResponse{Command: cmd})
-	})
-	if err != nil {
+	if err := s.line.attach(wire.FromCapabilities(req.GetProfile())); err != nil {
 		return err
 	}
 	defer s.line.leave()
 	slog.InfoContext(s.ctx, "device lent", "name", req.GetDevice().GetName(), "type", req.GetDevice().GetType())
-	select {
-	case <-s.ended:
-		return nil
-	case <-ctx.Done():
-		s.cancel(errDriverLeft)
-		return ctx.Err()
+	for {
+		select {
+		case cmd := <-s.line.outbox:
+			if err := out.Send(&castorv1.DriveResponse{Command: cmd}); err != nil {
+				s.cancel(errDriverLeft)
+				return err
+			}
+		case <-s.ended:
+			return nil
+		case <-ctx.Done():
+			s.cancel(errDriverLeft)
+			return ctx.Err()
+		}
 	}
 }
 
