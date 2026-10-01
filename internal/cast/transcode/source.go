@@ -50,7 +50,6 @@ func (s ProgramSource) inputs() []sourceInput {
 			contentType: input.ContentType,
 			read:        s.plan[input.ID],
 			offset:      s.program.Offsets[input.ID],
-			spliced:     input.Fetch.Seamed(),
 		})
 	}
 	return inputs
@@ -95,7 +94,6 @@ type sourceInput struct {
 	contentType string
 	read        read.Policy
 	offset      time.Duration
-	spliced     bool
 }
 
 type sourceTrack struct {
@@ -155,6 +153,10 @@ var demuxFlags = []string{"-fflags", "+genpts+discardcorrupt"}
 // sourceInputArgs renders each input with its fetch policy, headers, and pace.
 func sourceInputArgs(source ProgramSource) []string {
 	var args []string
+	// A seam's jump is a discontinuity, not a gap (the default 10s stretches it); ffmpeg holds it for the whole read.
+	if source.program.Seamed() {
+		args = append(args, "-dts_delta_threshold", "1")
+	}
 	for _, input := range source.inputs() {
 		args = append(args, demuxFlags...)
 		args = append(args, paceArgs(input.read.Pace, source.binary)...)
@@ -163,10 +165,6 @@ func sourceInputArgs(source ProgramSource) []string {
 		args = append(args, ffmpeg.AdaptiveInputArgs(input.contentType, input.read.SegmentRetries)...)
 		if input.offset != 0 {
 			args = append(args, "-itsoffset", formatSeconds(input.offset))
-		}
-		// A seam's jump is a discontinuity, not a gap (default 10s stretches it); the option is global, so it holds for every input.
-		if input.spliced {
-			args = append(args, "-dts_delta_threshold", "1")
 		}
 		args = append(args, "-i", input.url.String())
 	}

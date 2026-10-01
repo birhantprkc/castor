@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -157,4 +158,35 @@ func muxedSource(t *testing.T, u *url.URL, contentType string, policy read.Polic
 		EndPolicy:  media.EndAtLongest,
 	})
 	return mustProgramSource(t, program, read.Plan{media.PrimaryInputID: policy})
+}
+
+// ffmpeg holds the discontinuity threshold for the whole read, so a program states it once or not at all.
+func TestAProgramWithASeamDeclaresItsDiscontinuityThresholdOnce(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		fetch []media.Fetch
+		want  int
+	}{
+		{"no input seamed", []media.Fetch{{}, {}}, 0},
+		{"one input seamed", []media.Fetch{{Spliced: true}, {}}, 1},
+		{"every input seamed", []media.Fetch{{Spliced: true}, {Live: true}}, 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			program := mustProgram(t, media.Program{Inputs: []media.Input{
+				{ID: "picture", URL: mustURL(t, "https://video.test/master.m3u8"), ContentType: media.HLS, Fetch: tt.fetch[0]},
+				{ID: "sound", URL: mustURL(t, "https://audio.test/sound.m3u8"), ContentType: media.HLS, Fetch: tt.fetch[1]},
+			}, Tracks: []media.TrackRef{
+				{Input: "picture", Kind: media.TrackVideo},
+				{Input: "sound", Kind: media.TrackAudio},
+			}, ClockInput: "picture", EndPolicy: media.EndAtLongest})
+			args := mustPullArgs(t, copyingPull(mustProgramSource(t, program, read.Plan{"picture": {}, "sound": {}})))
+			at := slices.Index(args, "-dts_delta_threshold")
+			if got := strings.Count(strings.Join(args, " "), "-dts_delta_threshold"); got != tt.want {
+				t.Fatalf("the threshold is declared %d times, want %d: %v", got, tt.want, args)
+			}
+			if tt.want > 0 && at > slices.Index(args, "-i") {
+				t.Errorf("the threshold follows an input it holds for: %v", args)
+			}
+		})
+	}
 }
