@@ -35,6 +35,22 @@ func TestEscDoesNotQuit(t *testing.T) {
 	}
 }
 
+// q leaves at once, asking nothing, and selects nothing.
+func TestQQuitsWithoutSelecting(t *testing.T) {
+	m := newModel(t.Context(), func(context.Context) []device.Info { return nil }, "")
+	tm, _ := m.Update(devicesDoneMsg{devices: []device.Info{{Name: "TV", Type: "dlna", Address: "10.0.0.2"}}})
+	tm, cmd := tm.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
+	if cmd == nil {
+		t.Fatal("q asked before quitting")
+	}
+	if _, isQuit := cmd().(tea.QuitMsg); !isQuit {
+		t.Fatal("q did not quit")
+	}
+	if m := tm.(model); m.err == nil || m.selected != (device.Info{}) {
+		t.Errorf("q left %+v selected with %v, want a cancel", m.selected, m.err)
+	}
+}
+
 // A light terminal repaints the screen with the light palette's accent (#6366F1).
 func TestLightBackgroundRepaints(t *testing.T) {
 	m := newModel(t.Context(), func(context.Context) []device.Info { return nil }, "")
