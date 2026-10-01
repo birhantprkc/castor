@@ -46,13 +46,10 @@ jobs:
           eval "$(make env)"
           dead=$(go run golang.org/x/tools/cmd/deadcode@v0.50.0 -test ./... 2>&1 | grep -v '^internal/subtitle/whisper/nativelog.go:[0-9]*:[0-9]*: unreachable func: castorNativeLog$' || true)
           [ -z "$dead" ] || { printf 'unreachable:\n%s\n' "$dead"; exit 1; }
-      # go fix carries the modernizers since Go 1.26, so the gate moves with the
-      # toolchain go.mod pins instead of a second version to keep in step. Any
-      # suggested rewrite fails the job: run `go fix ./...` and commit it.
-      - run: |
-          eval "$(make env)"
-          fixes=$(go fix -diff ./... 2>&1)
-          [ -z "$fixes" ] || { printf 'go fix:\n%s\n' "$fixes"; exit 1; }
+      # go fix carries the modernizers since Go 1.26, so the gate follows the
+      # toolchain go.mod pins. It exits non-zero with the diff it suggests: run
+      # `go fix ./...` and commit it.
+      - run: eval "$(make env)" && go fix -diff ./...
       - run: |
           unformatted=$(gofmt -s -l cmd internal e2e main.go)
           [ -z "$unformatted" ] || { printf 'unformatted:\n%s\n' "$unformatted"; exit 1; }
