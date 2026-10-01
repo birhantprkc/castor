@@ -67,8 +67,8 @@ func (c *Config) Devices() device.Registry {
 	return device.Registry{dlna.Family{}, chromecast.Family{}, roku.Family{Config: c.Device.Roku}}
 }
 
-// Formats is every source format castor reads, in the order a source is offered to them.
-var Formats = source.Formats{hls.Format{}, dash.Format{}}
+// formats is every source format castor reads, in the order a source is offered to them.
+var formats = source.Formats{hls.Format{}, dash.Format{}}
 
 // DeviceConfig is the generic cast target plus each device family's optional connect settings.
 type DeviceConfig struct {
@@ -102,7 +102,7 @@ func (c *Config) Playback(target device.Info, subs execute.Subtitles) cast.Confi
 			Subtitles:  subs,
 			MaxHeight:  c.Resolver.MaxHeight,
 			// Half the read deadline: a reload castor answers late would end ffmpeg's read like no answer.
-			Timelines: follow.New(c.client(), Formats, c.Transcode.RWTimeout/2, ffmpeg.Repackager(c.Transcode.FFmpegPath)),
+			Timelines: follow.New(c.client(), formats, c.Transcode.RWTimeout/2, ffmpeg.Repackager(c.Transcode.FFmpegPath)),
 		},
 	}
 }
@@ -139,7 +139,7 @@ type ResolverConfig struct {
 }
 
 func (c *Config) newResolver() *source.Resolver {
-	return source.NewResolver(c.client(), c.Resolver.MaxHeight, Formats)
+	return source.NewResolver(c.client(), c.Resolver.MaxHeight, formats)
 }
 
 // Identify names what a typed link carries, reading its body when its name says nothing.
@@ -157,6 +157,6 @@ func (c *Config) Extractor() *extract.Extractor {
 	return extract.New(extract.Config{
 		Browser:   c.Browser,
 		Capture:   c.Capture,
-		Documents: Formats,
+		Documents: formats,
 	})
 }

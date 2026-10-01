@@ -26,16 +26,16 @@ type Word struct {
 	Text       string
 }
 
-// Cue is one subtitle line with absolute timestamps in seconds.
-type Cue struct {
-	Start, End float64
-	Text       string
+// cue is one subtitle line with absolute timestamps in seconds.
+type cue struct {
+	start, end float64
+	text       string
 }
 
 // Builder folds a stream of committed words into display cues.
 type Builder struct {
 	mu   sync.Mutex
-	cues []Cue
+	cues []cue
 
 	pending []Word // committed words not yet closed into a cue (Commit-only)
 }
@@ -53,27 +53,20 @@ func (b *Builder) Close() {
 	b.pending = b.closeCues(b.pending, true)
 }
 
-// CueAt returns the text of the cue covering time tSec, or "" if none does.
-func (b *Builder) CueAt(tSec float64) string {
+// cueAt returns the text of the cue covering time tSec, or "" if none does.
+func (b *Builder) cueAt(tSec float64) string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	i, _ := slices.BinarySearchFunc(b.cues, tSec, func(c Cue, t float64) int {
-		if c.Start > t {
+	i, _ := slices.BinarySearchFunc(b.cues, tSec, func(c cue, t float64) int {
+		if c.start > t {
 			return 1
 		}
 		return -1
 	})
-	if i > 0 && b.cues[i-1].End > tSec {
-		return b.cues[i-1].Text
+	if i > 0 && b.cues[i-1].end > tSec {
+		return b.cues[i-1].text
 	}
 	return ""
-}
-
-// Cues returns a snapshot copy of the cues committed so far.
-func (b *Builder) Cues() []Cue {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return slices.Clone(b.cues)
 }
 
 func (b *Builder) closeCues(pending []Word, final bool) []Word {
@@ -100,7 +93,7 @@ func (b *Builder) appendCue(words []Word) {
 		sb.WriteString(w.Text)
 	}
 	start, end := trimCueEdges(words[0].Start, words[len(words)-1].End)
-	cue := Cue{Start: start, End: end, Text: sb.String()}
+	cue := cue{start: start, end: end, text: sb.String()}
 
 	b.mu.Lock()
 	defer b.mu.Unlock()

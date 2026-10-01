@@ -12,27 +12,27 @@ import (
 
 // change provides everything a strategy needs to decide what to try next.
 type change struct {
-	Intent   Intent
-	Attempt  Attempt
-	Outcome  Outcome
-	Resolver SourceResolver // Re-establishes media URL; only I/O provider here.
+	intent   Intent
+	attempt  Attempt
+	outcome  Outcome
+	resolver SourceResolver // Re-establishes media URL; only I/O provider here.
 }
 
 // strategy is one named recovery; applicability is fact not condition.
 type strategy struct {
-	Name  string                                        // Identifies strategy in revision line and refusal list.
-	Why   string                                        // Describes intended change benefit.
-	Apply func(context.Context, change) (Attempt, bool) // Moves attempt strictly DOWN finite order.
+	name  string                                        // Identifies strategy in revision line and refusal list.
+	why   string                                        // Describes intended change benefit.
+	apply func(context.Context, change) (Attempt, bool) // Moves attempt strictly DOWN finite order.
 }
 
 // switchCandidate reads the next link the ranker admitted (load-bearing recovery).
 var switchCandidate = strategy{
-	Name: "switch-candidate",
-	Why:  "read the next link the ranker admitted, which was measured and opened like this one",
-	Apply: func(ctx context.Context, c change) (Attempt, bool) {
-		a, ok := nextReadable(ctx, c.Intent, c.Resolver, c.Attempt)
+	name: "switch-candidate",
+	why:  "read the next link the ranker admitted, which was measured and opened like this one",
+	apply: func(ctx context.Context, c change) (Attempt, bool) {
+		a, ok := nextReadable(ctx, c.intent, c.resolver, c.attempt)
 		if !ok {
-			return c.Attempt, false
+			return c.attempt, false
 		}
 		// Different bitstream, so clear decode axes (packets from last link can't condemn this one).
 		a.Decode = media.Axes{}
@@ -42,7 +42,7 @@ var switchCandidate = strategy{
 
 // nextReadable resolves the links after a's in rank order, moving past any that cannot be resolved.
 func nextReadable(ctx context.Context, in Intent, resolver SourceResolver, a Attempt) (Attempt, bool) {
-	for next := a.Candidate + 1; next < len(in.Candidates); next++ {
+	for next := a.candidate + 1; next < len(in.Candidates); next++ {
 		link := in.Candidates[next]
 		resolved, err := resolver.RefetchProgram(ctx, link, source.Rendition{})
 		if err != nil {
@@ -50,7 +50,7 @@ func nextReadable(ctx context.Context, in Intent, resolver SourceResolver, a Att
 				"url", link.URL.String(), "error", err)
 			continue
 		}
-		a.Candidate = next
+		a.candidate = next
 		return a.reading(resolved, in.Deadline), true
 	}
 	return a, false
@@ -58,12 +58,12 @@ func nextReadable(ctx context.Context, in Intent, resolver SourceResolver, a Att
 
 // degradeRendition reads the heaviest rung measured to be achievable (not just one lower).
 var degradeRendition = strategy{
-	Name: "degrade-rendition",
-	Why:  "read the heaviest rung of the same program the measured link can carry",
-	Apply: func(ctx context.Context, c change) (Attempt, bool) {
+	name: "degrade-rendition",
+	why:  "read the heaviest rung of the same program the measured link can carry",
+	apply: func(ctx context.Context, c change) (Attempt, bool) {
 		// Stated upfront; the three ways this recovery fails are its whole contract.
-		a := c.Attempt
-		speed := c.Outcome.Evidence.Health.Speed
+		a := c.attempt
+		speed := c.outcome.Evidence.Health.Speed
 		if a.Origin.Sole() || a.Rendition.Bitrate <= 0 || speed <= 0 {
 			return a, false
 		}
@@ -84,7 +84,7 @@ var degradeRendition = strategy{
 		source := source.Candidate{
 			URL: cmp.Or(rung.URL, primary.URL), Headers: primary.Headers.Clone(), ContentType: primary.ContentType,
 		}
-		resolved, err := c.Resolver.RefetchProgram(ctx, &source, rung)
+		resolved, err := c.resolver.RefetchProgram(ctx, &source, rung)
 		if err != nil {
 			slog.WarnContext(ctx, "the lighter rendition's documents could not be read; declining an unsafe fallback",
 				"url", source.URL.String(), "representation", rung.Representation, "error", err)
@@ -100,7 +100,7 @@ var degradeRendition = strategy{
 			origin.Duration = a.Origin.Duration
 		}
 
-		a = a.reading(resolved, c.Intent.Deadline)
+		a = a.reading(resolved, c.intent.Deadline)
 		a.Origin, a.Rendition = origin, rung
 		return a, true
 	},
@@ -108,11 +108,11 @@ var degradeRendition = strategy{
 
 // decodeAxis stops copying packets reader failed on and decodes instead (recovery for unresumed bitstreams).
 var decodeAxis = strategy{
-	Name: "decode-axis",
-	Why:  "stop copying the packets the reader died on and decode them, which is what a truncated bitstream needs",
-	Apply: func(_ context.Context, c change) (Attempt, bool) {
-		a := c.Attempt
-		next := a.Decode.Or(c.Outcome.Evidence.Copied)
+	name: "decode-axis",
+	why:  "stop copying the packets the reader died on and decode them, which is what a truncated bitstream needs",
+	apply: func(_ context.Context, c change) (Attempt, bool) {
+		a := c.attempt
+		next := a.Decode.Or(c.outcome.Evidence.Copied)
 		if next == a.Decode {
 			return a, false
 		}
@@ -123,10 +123,10 @@ var decodeAxis = strategy{
 
 // relaxRead asks for same link at playback pace with no wire-speed burst (recovery for tarpit stalls).
 var relaxRead = strategy{
-	Name: "relax-read",
-	Why:  "ask for the same link at playback pace with no wire-speed burst, in case the burst is what it stopped answering",
-	Apply: func(_ context.Context, c change) (Attempt, bool) {
-		a := c.Attempt
+	name: "relax-read",
+	why:  "ask for the same link at playback pace with no wire-speed burst, in case the burst is what it stopped answering",
+	apply: func(_ context.Context, c change) (Attempt, bool) {
+		a := c.attempt
 		plan, ok := a.Read.Cautious()
 		if !ok {
 			return a, false
@@ -138,12 +138,12 @@ var relaxRead = strategy{
 
 // serveInstead serves local stream instead of handing URL (recovery for renderer refusal).
 var serveInstead = strategy{
-	Name: "serve-instead",
-	Why:  "read the source and serve it locally, since the renderer would not fetch it itself",
-	Apply: func(_ context.Context, c change) (Attempt, bool) {
-		a := c.Attempt
+	name: "serve-instead",
+	why:  "read the source and serve it locally, since the renderer would not fetch it itself",
+	apply: func(_ context.Context, c change) (Attempt, bool) {
+		a := c.attempt
 		// A renderer already served would refuse the next attempt's identical serve.
-		if a.Delivery == compose.DeliveryServe || !c.Outcome.Evidence.Handoff {
+		if a.Delivery == compose.DeliveryServe || !c.outcome.Evidence.Handoff {
 			return a, false
 		}
 		a.Delivery = compose.DeliveryServe

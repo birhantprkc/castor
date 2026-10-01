@@ -11,9 +11,9 @@ import (
 	"github.com/stupside/castor/internal/media"
 )
 
-var videoCarriageRefusals = []refusal{{
+var videoCarriageRefusals = []refusalRule{{
 	// Container carriage asks whether ffmpeg's muxer has a stream type for the codec.
-	reason: ReasonContainerVideo,
+	reason: reasonContainerVideo,
 	why: func(in Inputs) string {
 		why, _ := container.Reason(in.Probe, in.Into)
 		return why
@@ -21,42 +21,42 @@ var videoCarriageRefusals = []refusal{{
 	when: func(in Inputs) bool { return container.Known(in.Probe, in.Into).Video },
 }, {
 	// One encoder gives the renderer one stream: a copy keeps each piece's own size and timestamps.
-	reason: ReasonSpliced,
+	reason: reasonSpliced,
 	why:    says("the source is stitched from pieces encoded apart, whose parameters change at each seam"),
 	when:   func(in Inputs) bool { return in.Spliced },
 }, {
 	// ffmpeg turns the frames when it decodes them, so only a re-encode lands upright.
-	reason: ReasonRotated,
+	reason: reasonRotated,
 	why:    says("the source is turned by a display matrix, which no container castor writes carries"),
 	when:   func(in Inputs) bool { return in.Probe.VideoRotation != 0 },
 }, {
 	// Kept apart from container's refusal because they are different failures with different lifetimes.
-	reason: ReasonVideoCopyFailed,
+	reason: reasonVideoCopyFailed,
 	why:    says("a previous attempt's copy of this video track broke upstream, so it is decoded instead"),
 	when:   func(in Inputs) bool { return in.Decode.Video },
 }}
 
-var videoRefusals = slices.Concat([]refusal{{
+var videoRefusals = slices.Concat([]refusalRule{{
 	// The renderer's advertised envelope is the only thing that makes a copy safe at all.
-	reason: ReasonRendererVideo,
+	reason: reasonRendererVideo,
 	why:    says("the renderer never advertised this video envelope"),
 	when:   func(in Inputs) bool { return !in.Caps.CanCopyVideo(in.Probe) },
-}}, videoCarriageRefusals, []refusal{{
+}}, videoCarriageRefusals, []refusalRule{{
 	// The ceiling is the user's request and may not be bypassed; cost is stated after encoder is known.
-	reason: ReasonHeightLimit,
+	reason: reasonHeightLimit,
 	why:    says("the source picture is taller than this cast's ceiling admits"),
 	when:   func(in Inputs) bool { return !in.MaxHeight.Admits(in.Probe.VideoHeight) },
 }, {
-	reason: ReasonInterlaced,
+	reason: reasonInterlaced,
 	why:    says("the picture is coded as fields and the renderer does not deinterlace"),
 	when:   func(in Inputs) bool { return in.Probe.VideoInterlaced && !in.Caps.Deinterlaces },
 }, {
-	reason: ReasonHDRPolicy,
+	reason: reasonHDRPolicy,
 	why:    says("nothing establishes that an arbitrary set engages HDR on a stream it was handed"),
 	when:   func(in Inputs) bool { return in.Probe.VideoHDR },
 }, {
 	// A cue drawn into the picture needs decoded frames; a copy has no frames to draw on.
-	reason: ReasonSubtitleBurnIn,
+	reason: reasonSubtitleBurnIn,
 	why:    says("this leg burns subtitles into the picture, which needs decoded frames to draw on"),
 	when:   func(in Inputs) bool { return in.BurnIn != "" },
 }})

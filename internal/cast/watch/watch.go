@@ -57,10 +57,10 @@ func Watch(ctx context.Context, m Monitor) error {
 		case open:
 			slog.InfoContext(ctx, "watch cleared",
 				"gate", m.Subject,
-				"rule", r.Name,
+				"rule", r.name,
 				"waited", time.Since(t.start).Round(time.Millisecond),
 				"landed_bytes", h.Landed,
-				"transcribed_lead_seconds", int(h.Lead),
+				"transcribed_lead_seconds", int(h.lead),
 			)
 			return nil
 		case revise, abandon:
@@ -82,7 +82,7 @@ func Watch(ctx context.Context, m Monitor) error {
 type Fault struct {
 	// Kind is the verdict; Why is the row's reasoning.
 	Kind Kind
-	Why  string
+	why  string
 
 	// Revise: reached before the renderer held the URL, so the attempt may change.
 	Revise bool
@@ -101,7 +101,7 @@ type Fault struct {
 }
 
 func (f *Fault) Error() string {
-	msg := fmt.Sprintf("%s: %s (%s)", f.Subject, f.Why, f.Health)
+	msg := fmt.Sprintf("%s: %s (%s)", f.Subject, f.why, f.Health)
 	if f.Err != nil {
 		return msg + ": " + f.Err.Error()
 	}
@@ -136,14 +136,14 @@ type tracker struct {
 
 // read takes one reading of every port and folds it into judge-able Health.
 func (t *tracker) read() Health {
-	h := Health{Headroom: t.m.Headroom, Subtitles: t.m.Lead != nil}
+	h := Health{Headroom: t.m.Headroom, subtitles: t.m.Lead != nil}
 
 	if t.m.Landed != nil {
 		h.Landed = t.m.Landed()
 	}
 
 	if l := t.m.Lead; l != nil {
-		h.Lead, h.LeadDone = l.LatestEnd(), l.Done()
+		h.lead, h.leadDone = l.LatestEnd(), l.Done()
 	}
 
 	if tm := t.m.Telemetry; tm != nil {
@@ -164,15 +164,15 @@ func (t *tracker) read() Health {
 	if grew {
 		t.landed, t.grew = h.Landed, time.Now()
 	}
-	h.SinceGrowth = time.Since(t.grew)
+	h.sinceGrowth = time.Since(t.grew)
 
 	if p := t.m.Producer; p != nil {
 		select {
 		case <-p.Done():
-			h.Ended = true
+			h.ended = true
 			// Asked only of ended producer (terminal error published with Done, not before).
 			if tm := t.m.Telemetry; tm != nil {
-				h.Failed = tm.Err() != nil
+				h.failed = tm.Err() != nil
 			}
 		default:
 		}
@@ -180,22 +180,22 @@ func (t *tracker) read() Health {
 
 	if a := t.m.Audience; a != nil {
 		handed, last := a.Handed()
-		h.Handed = handed
+		h.handed = handed
 		// Renderer fetch measured from watch start (zero time = "eternity ago" before watch opened).
-		h.SinceFetch = time.Since(cmp.Or(last, t.start))
+		h.sinceFetch = time.Since(cmp.Or(last, t.start))
 		// Watch is the clock (starts at Play return); buffers before first frame understates media on hand.
-		h.Delivered, h.SincePlay = a.Buffered(), time.Since(t.start)
+		h.delivered, h.sincePlay = a.Buffered(), time.Since(t.start)
 	}
 
 	if t.m.Grace > 0 {
-		h.Overdue = time.Since(t.start) > t.m.Grace
+		h.overdue = time.Since(t.start) > t.m.Grace
 	}
 
 	if h.starving() {
 		if t.deficitFrom.IsZero() {
 			t.deficitFrom = time.Now()
 		}
-		h.SinceDeficit = time.Since(t.deficitFrom)
+		h.sinceDeficit = time.Since(t.deficitFrom)
 	} else {
 		t.deficitFrom = time.Time{}
 	}
@@ -221,18 +221,18 @@ func (t *tracker) keepsPace(now time.Time, position time.Duration) bool {
 // fault ends the watch with producer's own words (stderr dumped only while NOT ended).
 func (t *tracker) fault(ctx context.Context, r rule, act action, h Health) error {
 	f := &Fault{
-		Kind:    r.Kind,
-		Why:     r.Why,
+		Kind:    r.kind,
+		why:     r.why,
 		Revise:  act == revise,
 		Subject: t.m.Subject,
 		Health:  h,
 	}
-	if r.Blames == theProducer && t.m.Producer != nil {
+	if r.blames == theProducer && t.m.Producer != nil {
 		if tm := t.m.Telemetry; tm != nil {
 			f.Err = tm.Err()
 		}
 		f.Evidence = t.m.Producer.Evidence()
-		if !h.Ended {
+		if !h.ended {
 			if len(f.Evidence) > 0 {
 				for _, line := range f.Evidence {
 					slog.WarnContext(ctx, "producer stderr", "gate", t.m.Subject, "line", line)
@@ -245,8 +245,8 @@ func (t *tracker) fault(ctx context.Context, r rule, act action, h Health) error
 	slog.WarnContext(ctx, "cast abandoned",
 		"gate", t.m.Subject,
 		"window", t.m.Window.String(),
-		"verdict", r.Kind.String(),
-		"rule", r.Name,
+		"verdict", r.kind.String(),
+		"rule", r.name,
 		"revisable", f.Revise,
 		"health", h.String(),
 	)
@@ -263,15 +263,15 @@ func (t *tracker) report(ctx context.Context, r rule, h Health) {
 	slog.InfoContext(ctx, "watch",
 		"gate", t.m.Subject,
 		"window", t.m.Window.String(),
-		"verdict", r.Kind.String(),
-		"rule", r.Name,
+		"verdict", r.kind.String(),
+		"rule", r.name,
 		"landed_bytes", h.Landed,
 		"media_position", h.Position.Round(time.Second),
 		"speed", float64(h.Speed),
 		"readrate", h.Headroom,
 		"speed_samples", h.Samples,
-		"under_playback_rate_for", h.SinceDeficit.Round(time.Second),
-		"transcribed_lead_seconds", int(h.Lead),
+		"under_playback_rate_for", h.sinceDeficit.Round(time.Second),
+		"transcribed_lead_seconds", int(h.lead),
 		"need_lead_seconds", transcriptionLeadSeconds,
 	)
 }

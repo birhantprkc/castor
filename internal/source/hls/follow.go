@@ -36,5 +36,5 @@ func (f follower) Window(ctx context.Context) (timeline.Window, error) {
 	if err != nil {
 		return timeline.Window{}, err
 	}
-	return timeline.Window{Segments: listed.Segments, Closed: listed.Closed, Start: listed.Start}, nil
+	return timeline.Window{Segments: listed.segments, Closed: listed.closed, Start: listed.start}, nil
 }

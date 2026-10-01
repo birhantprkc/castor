@@ -20,7 +20,7 @@ func resolveHLS(ctx context.Context, env source.Env, stream source.Candidate, or
 		// TRUE: unknown capabilities do not license self-fetch or handing to a fetch-only renderer.
 		return origin, source.Rendition{}, true
 	}
-	if len(doc.Variants) == 0 {
+	if len(doc.variants) == 0 {
 		// A master listing nothing but I-frame playlists reduces to no castable rendition.
 		slog.WarnContext(ctx, "playlist offers no castable rendition, using original", "url", stream.URL.String())
 		return origin, source.Rendition{}, true
@@ -31,7 +31,7 @@ func resolveHLS(ctx context.Context, env source.Env, stream source.Candidate, or
 
 	// Segment facts are stated by the document that LISTS the segments (chosen variant's own playlist).
 	segments := doc
-	if doc.Multivariant {
+	if doc.multivariant {
 		segments, status, err = readPlaylist(ctx, env.Client, chosen.URL, stream.Headers)
 		if err != nil {
 			slog.WarnContext(ctx, "the chosen rendition's playlist could not be read; the source's own facts stay unknown",
@@ -40,22 +40,22 @@ func resolveHLS(ctx context.Context, env source.Env, stream source.Candidate, or
 			return origin, chosen, true
 		}
 		// A rung naming another master states nothing about segments.
-		if segments.Multivariant {
+		if segments.multivariant {
 			slog.WarnContext(ctx, "the chosen rendition names another multivariant playlist; the source's own facts stay unknown",
 				"url", chosen.URL.String())
 			return origin, chosen, true
 		}
 	}
-	origin.Framing = segments.Framing
-	origin.Protection = segments.Protection
-	origin.Spliced = segments.Spliced
+	origin.Framing = segments.framing
+	origin.Protection = segments.protection
+	origin.Spliced = segments.spliced
 	// The document that LISTS the segments decides liveness (EXT-X-ENDLIST is proof).
-	origin.Live = segments.Live
-	if segments.Duration > 0 {
+	origin.Live = segments.live
+	if segments.duration > 0 {
 		// The EXTINF sum wins: ffprobe reports no duration for most playlists.
-		origin.Duration = segments.Duration
+		origin.Duration = segments.duration
 	}
-	return origin, chosen, segments.RequiresRelaxedInput
+	return origin, chosen, segments.requiresRelaxedInput
 }
 
 // readPlaylist fetches one HLS document and reduces it to the facts it states.
@@ -76,12 +76,12 @@ func byBitrate(a, b source.Rendition) int {
 
 // castable narrows a variant list to those that carry video (audio-only variants must not be picked).
 func castable(doc hlsDocument) []hlsVariant {
-	withVideo := slices.DeleteFunc(slices.Clone(doc.Variants), func(v hlsVariant) bool {
-		audio := doc.AudioFor(v)
-		return !v.HasVideo || (audio != nil && v.URL.String() == audio.String())
+	withVideo := slices.DeleteFunc(slices.Clone(doc.variants), func(v hlsVariant) bool {
+		audio := doc.audioFor(v)
+		return !v.hasVideo || (audio != nil && v.url.String() == audio.String())
 	})
 	if len(withVideo) == 0 {
-		return doc.Variants
+		return doc.variants
 	}
 	return withVideo
 }
@@ -92,20 +92,20 @@ func ladder(doc hlsDocument, probe *media.ProbeInfo) []source.Rendition {
 	rungs := castable(doc)
 	out := make([]source.Rendition, len(rungs))
 	for i, v := range rungs {
-		out[i] = rendition(doc, v, measured[v.Program])
+		out[i] = rendition(doc, v, measured[v.program])
 	}
 	return out
 }
 
 // measuredHeights is each variant's picture as a probe of this very master measured it, by program.
 func measuredHeights(doc hlsDocument, probe *media.ProbeInfo) map[int]int {
-	if probe == nil || !doc.Multivariant {
+	if probe == nil || !doc.multivariant {
 		return nil
 	}
 	// A probe that saw another program count read another document than the one parsed.
 	variants := 0
-	for _, v := range doc.Variants {
-		variants = max(variants, v.Program+1)
+	for _, v := range doc.variants {
+		variants = max(variants, v.program+1)
 	}
 	if len(probe.ProgramHeights) != variants {
 		return nil
@@ -115,17 +115,17 @@ func measuredHeights(doc hlsDocument, probe *media.ProbeInfo) map[int]int {
 
 // rendition translates one HLS variant without dropping its companion audio; measurement wins over RESOLUTION.
 func rendition(doc hlsDocument, v hlsVariant, measured int) source.Rendition {
-	height := cmp.Or(measured, v.Height)
-	declared := v.Declared
+	height := cmp.Or(measured, v.height)
+	declared := v.declared
 	if declared != nil && declared.VideoHeight != height {
 		stated := declared.Clone()
 		stated.VideoHeight = height
 		declared = &stated
 	}
 	return source.Rendition{
-		URL:      v.URL,
-		AudioURL: doc.AudioFor(v),
-		Bitrate:  media.Bitrate(v.Bandwidth),
+		URL:      v.url,
+		AudioURL: doc.audioFor(v),
+		Bitrate:  media.Bitrate(v.bandwidth),
 		Height:   height,
 		Declared: declared,
 	}

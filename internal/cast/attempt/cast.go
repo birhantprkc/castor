@@ -27,7 +27,7 @@ func Cast(ctx context.Context, in Intent, run Runner, resolver SourceResolver) e
 	if err := validate(in, resolver); err != nil {
 		return err
 	}
-	a, ok := nextReadable(ctx, in, resolver, Attempt{Try: 1, Candidate: -1, Delivery: in.Delivery})
+	a, ok := nextReadable(ctx, in, resolver, Attempt{Try: 1, candidate: -1, Delivery: in.Delivery})
 	if !ok {
 		return fmt.Errorf("none of the %d links could be resolved", len(in.Candidates))
 	}
@@ -50,20 +50,20 @@ func Cast(ctx context.Context, in Intent, run Runner, resolver SourceResolver) e
 		}
 
 		f := classify(in, a, out, tried)
-		if f.Kind == Cancelled {
+		if f.kind == cancelled {
 			// Prefer context.Cause (cancellation reason) over attempt error (pipe break).
 			return cmp.Or(context.Cause(ctx), out.Err)
 		}
 
 		rev := revise(ctx, in, out, f, led, resolver)
-		if !rev.Offered {
+		if !rev.offered {
 			refused(ctx, in, a, out, f, tried)
 			return f
 		}
 
 		revising(ctx, f, rev)
-		tried = append(tried, rev.Strategy.Name)
-		a = rev.Attempt
+		tried = append(tried, rev.strategy.name)
+		a = rev.attempt
 	}
 }
 
@@ -87,7 +87,7 @@ func validate(in Intent, resolver SourceResolver) error {
 func announce(ctx context.Context, in Intent, a Attempt) {
 	slog.InfoContext(ctx, "source program",
 		"candidates", len(in.Candidates),
-		"candidate", a.Candidate+1,
+		"candidate", a.candidate+1,
 		"renditions", len(a.Origin.Renditions),
 		"sole", a.Origin.Sole(),
 		"segmented", a.Origin.Segmented,
@@ -108,29 +108,29 @@ func announce(ctx context.Context, in Intent, a Attempt) {
 	)
 }
 
-func refused(ctx context.Context, in Intent, a Attempt, out Outcome, f *Fault, tried []string) {
+func refused(ctx context.Context, in Intent, a Attempt, out Outcome, f *fault, tried []string) {
 	// Arithmetic in both error and log for user readability.
 	slog.WarnContext(ctx, "cast refused",
-		"verdict", f.Kind.String(),
-		"rule", f.Rule,
-		"why", f.Why,
+		"verdict", f.kind.String(),
+		"rule", f.rule,
+		"why", f.why,
 		"reached", out.Evidence.Reached.String(),
-		"health", f.Evidence.Health.String(),
-		"candidate", a.Candidate+1,
+		"health", f.evidence.Health.String(),
+		"candidate", a.candidate+1,
 		"candidates", len(in.Candidates),
 		"arithmetic", strings.Join(f.arithmetic(), "; "),
 		"tried", tried,
 	)
 }
 
-func revising(ctx context.Context, f *Fault, rev revision) {
+func revising(ctx context.Context, f *fault, rev revision) {
 	slog.WarnContext(ctx, "revising the cast",
-		"verdict", f.Kind.String(),
-		"why", f.Why,
-		"strategy", rev.Strategy.Name,
-		"expecting", rev.Strategy.Why,
-		"health", f.Evidence.Health.String(),
-		"next", rev.Attempt.String(),
+		"verdict", f.kind.String(),
+		"why", f.why,
+		"strategy", rev.strategy.name,
+		"expecting", rev.strategy.why,
+		"health", f.evidence.Health.String(),
+		"next", rev.attempt.String(),
 	)
 }
 

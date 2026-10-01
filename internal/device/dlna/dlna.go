@@ -61,10 +61,10 @@ var _ device.Device = (*dlnaDevice)(nil)
 // Family: UPnP AVTransport strategy (renderers don't self-fetch).
 type Family struct{}
 
-// Type is the name config.yaml selects this family by.
-const Type device.Type = "dlna"
+// familyType is the name config.yaml selects this family by.
+const familyType device.Type = "dlna"
 
-func (Family) Type() device.Type { return Type }
+func (Family) Type() device.Type { return familyType }
 
 var _ device.Family = Family{}
 
@@ -104,7 +104,7 @@ func dlnaInfo(result goupnp.MaybeRootDevice) (device.Info, bool) {
 
 	return device.Info{
 		Name:    result.Root.Device.FriendlyName,
-		Type:    Type,
+		Type:    familyType,
 		Address: result.Location.String(),
 	}, true
 }

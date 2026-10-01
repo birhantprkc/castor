@@ -43,17 +43,17 @@ func TestEverySegmentCarriesTheTagsThatApplyToIt(t *testing.T) {
 		{URI: "https://cdn.example/live/v/clear.mp4", Duration: 1500 * time.Millisecond, Map: init,
 			Place: timeline.Place{Start: 44, End: 45}},
 	}
-	if len(got.Segments) != len(want) {
-		t.Fatalf("read %d segments, want %d: %+v", len(got.Segments), len(want), got.Segments)
+	if len(got.segments) != len(want) {
+		t.Fatalf("read %d segments, want %d: %+v", len(got.segments), len(want), got.segments)
 	}
 	for i := range want {
-		g, w := got.Segments[i], want[i]
+		g, w := got.segments[i], want[i]
 		if g.URI != w.URI || g.Duration != w.Duration || g.Range != w.Range || *g.Map != *w.Map || g.Key != w.Key || g.Seam != w.Seam || g.Place != w.Place {
 			t.Errorf("segment %d = %+v (map %+v), want %+v", i, g, *g.Map, w)
 		}
 	}
-	if !got.Closed || got.Start == nil || *got.Start != (timeline.Start{Offset: -6500 * time.Millisecond, Precise: true}) {
-		t.Errorf("closed %v, start %+v", got.Closed, got.Start)
+	if !got.closed || got.start == nil || *got.start != (timeline.Start{Offset: -6500 * time.Millisecond, Precise: true}) {
+		t.Errorf("closed %v, start %+v", got.closed, got.start)
 	}
 }
 

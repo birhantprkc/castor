@@ -30,8 +30,8 @@ type Attempt struct {
 	// Try counts within cast from 1; without it, different tries look identical.
 	Try int
 
-	// Candidate is an index into Intent.Candidates. Program is the resolved graph read for it.
-	Candidate int
+	// candidate is an index into Intent.Candidates. Program is the resolved graph read for it.
+	candidate int
 	Program   media.Program
 
 	// Origin travels with candidate; one link's facts don't apply to another's.
@@ -52,32 +52,32 @@ type Attempt struct {
 
 // identity is exactly the fields a strategy can change; used by both log and ledger.
 type identity struct {
-	Candidate int
-	Program   string
-	Bitrate   media.Bitrate
-	Height    int
-	Read      string
-	Delivery  compose.DeliveryPreference
-	Decode    media.Axes
+	candidate int
+	program   string
+	bitrate   media.Bitrate
+	height    int
+	read      string
+	delivery  compose.DeliveryPreference
+	decode    media.Axes
 }
 
 // identify fills defaults for unset fields; treats missing source as table bug.
 func (a Attempt) identify(redactURLSecrets bool) identity {
 	return identity{
-		Candidate: a.Candidate,
-		Program:   programIdentity(a.Program, redactURLSecrets),
-		Bitrate:   a.Rendition.Bitrate,
-		Height:    a.Rendition.Height,
-		Read:      cmp.Or(a.Read.String(), "unset"),
-		Delivery:  cmp.Or(a.Delivery, compose.DeliveryAuto),
-		Decode:    a.Decode,
+		candidate: a.candidate,
+		program:   programIdentity(a.Program, redactURLSecrets),
+		bitrate:   a.Rendition.Bitrate,
+		height:    a.Rendition.Height,
+		read:      cmp.Or(a.Read.String(), "unset"),
+		delivery:  cmp.Or(a.Delivery, compose.DeliveryAuto),
+		decode:    a.Decode,
 	}
 }
 
 // String is the only rendering; add fields above or they're missing from ledger.
 func (id identity) String() string {
 	return fmt.Sprintf("candidate=%d program=%s rung_bitrate=%d rung_height=%d read=%s delivery=%s decode=%s",
-		id.Candidate, id.Program, id.Bitrate, id.Height, id.Read, id.Delivery, id.Decode)
+		id.candidate, id.program, id.bitrate, id.height, id.read, id.delivery, id.decode)
 }
 
 // String redacts the URL secrets, because a line a user reads is not a place to print a signed query.

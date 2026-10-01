@@ -57,8 +57,8 @@ func (p profile) Connect(context.Context) (device.Device, error) {
 	return nil, errors.New("the renderer of a cast driven here is the fixture's to hand over")
 }
 
-// renderer is a renderer port with a static profile that connects to dev.
-func renderer(static media.Capabilities, dev device.Device) Renderer {
+// rendererOf is a renderer port with a static profile that connects to dev.
+func rendererOf(static media.Capabilities, dev device.Device) Renderer {
 	return acquiring{Renderer: profile(static), acquire: connectTo(dev)}
 }
 

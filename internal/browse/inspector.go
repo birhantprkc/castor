@@ -124,12 +124,12 @@ func (in inspector) view(sel *tmdb.SearchResult, height int) string {
 	info, tagline, cast := metaLines(r, d, posterCols)
 
 	// Poster fixed; overview flexes into remaining vertical space.
-	meta := []string{"", in.styles.MetaTitle.Render(title)}
+	meta := []string{"", in.styles.metaTitle.Render(title)}
 	if info != "" {
-		meta = append(meta, in.styles.Muted.Render(info))
+		meta = append(meta, in.styles.muted.Render(info))
 	}
 	if tagline != "" {
-		meta = append(meta, in.styles.Tagline.Render(tagline))
+		meta = append(meta, in.styles.tagline.Render(tagline))
 	}
 	meta = append(meta, "") // spacer before the overview
 
@@ -139,10 +139,10 @@ func (in inspector) view(sel *tmdb.SearchResult, height int) string {
 	}
 	overviewH := max(height-posterRows-len(meta)-castLines, 0)
 	if overviewH > 0 {
-		meta = append(meta, in.styles.Overview.MaxHeight(overviewH).Render(r.Overview))
+		meta = append(meta, in.styles.overview.MaxHeight(overviewH).Render(r.Overview))
 	}
 	if cast != "" {
-		meta = append(meta, in.styles.Muted.Render(cast))
+		meta = append(meta, in.styles.muted.Render(cast))
 	}
 	return clampRows(poster+"\n"+strings.Join(meta, "\n"), height)
 }

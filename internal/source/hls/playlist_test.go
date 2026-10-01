@@ -16,11 +16,11 @@ func pick(doc hlsDocument, ceiling media.HeightCap) source.Rendition {
 
 func TestPickVariant(t *testing.T) {
 	u := func(path string) *url.URL { return &url.URL{Path: path} }
-	doc := hlsDocument{Variants: []hlsVariant{
-		{URL: u("/480"), Bandwidth: 1_000_000, Height: 480, HasVideo: true},
-		{URL: u("/1080"), Bandwidth: 6_000_000, Height: 1080, HasVideo: true},
-		{URL: u("/2160"), Bandwidth: 20_000_000, Height: 2160, HasVideo: true},
-		{URL: u("/audio"), Bandwidth: 30_000_000},
+	doc := hlsDocument{variants: []hlsVariant{
+		{url: u("/480"), bandwidth: 1_000_000, height: 480, hasVideo: true},
+		{url: u("/1080"), bandwidth: 6_000_000, height: 1080, hasVideo: true},
+		{url: u("/2160"), bandwidth: 20_000_000, height: 2160, hasVideo: true},
+		{url: u("/audio"), bandwidth: 30_000_000},
 	}}
 	for _, tt := range []struct {
 		maxHeight media.HeightCap

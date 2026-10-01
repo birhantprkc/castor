@@ -37,7 +37,7 @@ func passthroughCandidate() *source.Candidate {
 func TestPassthroughBuildsNoLocalMachinery(t *testing.T) {
 	var asked atomic.Int64
 	dev := &fakeDevice{caps: chromecastLike(media.MP4)}
-	got := NewExecutor(Config{MaxHeight: 1080, Renderer: renderer(selfFetching(), dev), Addresses: countedAddresses{asked: &asked}, Timelines: direct{}}).Run(t.Context(),
+	got := NewExecutor(Config{MaxHeight: 1080, Renderer: rendererOf(selfFetching(), dev), Addresses: countedAddresses{asked: &asked}, Timelines: direct{}}).Run(t.Context(),
 		attempt.Attempt{Program: programFromStream(t, passthroughCandidate())})
 	if got.Err != nil {
 		t.Fatalf("passthrough depended on local relay resources: %v", got.Err)
@@ -132,7 +132,7 @@ func TestEveryAttemptOwnsAFreshWorkDirectoryAndLeavesNoneBehind(t *testing.T) {
 			program.Tracks[i].Optional = false
 		}
 		cfg := Config{
-			Renderer:  renderer(pushOnly(), &fakeDevice{caps: dlnaLike()}),
+			Renderer:  rendererOf(pushOnly(), &fakeDevice{caps: dlnaLike()}),
 			Subtitles: watchDir, Addresses: fixedAddress("127.0.0.1"), Probes: probe.FFprobe(""), Timelines: direct{},
 		}
 		out := NewExecutor(cfg).Run(t.Context(), attempt.Attempt{Program: program, Read: sourceReadPlan(t, program, 30*time.Second)})
@@ -158,7 +158,7 @@ func TestABufferCopiedWholeIsServedAsItIs(t *testing.T) {
 
 	dev := &fakeDevice{caps: dlnaLike(), drain: true}
 	cfg := castConfig(pushOnly(), ffmpegPath, ffprobePath)
-	cfg.Renderer = renderer(pushOnly(), dev)
+	cfg.Renderer = rendererOf(pushOnly(), dev)
 	cfg.Addresses = fixedAddress("127.0.0.1")
 	program := programFromStream(t, origin.stream())
 

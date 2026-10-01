@@ -97,7 +97,7 @@ func TestARefusedRangeReplaysFromByteZero(t *testing.T) {
 		srv  func(t *testing.T) *Server
 	}{
 		{"a delivery declaring Accept-Ranges: none", func(t *testing.T) *Server {
-			return spooled(t, config{Headers: map[string]string{"Accept-Ranges": "none"}}, body)
+			return spooled(t, config{headers: map[string]string{"Accept-Ranges": "none"}}, body)
 		}},
 		{"a producer still running", func(t *testing.T) *Server { return producing(t, body) }},
 	} {
@@ -115,7 +115,7 @@ func TestARefusedRangeReplaysFromByteZero(t *testing.T) {
 
 // A client that stops reading is cut by the write deadline, and Wait ends after the idle grace.
 func TestAHungClientIsFreedAndTheCastEnds(t *testing.T) {
-	srv := spooled(t, config{WriteDeadline: 300 * time.Millisecond, IdleGrace: 50 * time.Millisecond}, payload(8<<20))
+	srv := spooled(t, config{writeDeadline: 300 * time.Millisecond, idleGrace: 50 * time.Millisecond}, payload(8<<20))
 	read(t, get(t, srv, ""), 1)
 	settle(t, srv)
 	srv.mu.Lock()
@@ -200,12 +200,12 @@ func payload(size int) []byte {
 // spooled starts a server and returns once the whole body is in the spool.
 func spooled(t *testing.T, cfg config, body []byte) *Server {
 	t.Helper()
-	cfg.LocalIP = "127.0.0.1"
-	cfg.ContentType = "video/mp4"
-	cfg.Extension = ".mp4"
-	cfg.SpoolPath = filepath.Join(t.TempDir(), "out.mp4")
-	cfg.WriteDeadline = cmp.Or(cfg.WriteDeadline, time.Minute)
-	cfg.IdleGrace = cmp.Or(cfg.IdleGrace, 30*time.Second)
+	cfg.localIP = "127.0.0.1"
+	cfg.contentType = "video/mp4"
+	cfg.extension = ".mp4"
+	cfg.spoolPath = filepath.Join(t.TempDir(), "out.mp4")
+	cfg.writeDeadline = cmp.Or(cfg.writeDeadline, time.Minute)
+	cfg.idleGrace = cmp.Or(cfg.idleGrace, 30*time.Second)
 	srv, err := open(cfg, bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
@@ -224,11 +224,11 @@ func producing(t *testing.T, head []byte) *Server {
 	t.Helper()
 	pr, pw := io.Pipe()
 	srv, err := open(config{
-		LocalIP:       "127.0.0.1",
-		ContentType:   "video/mp4",
-		Extension:     ".mp4",
-		SpoolPath:     filepath.Join(t.TempDir(), "out.mp4"),
-		WriteDeadline: time.Minute,
+		localIP:       "127.0.0.1",
+		contentType:   "video/mp4",
+		extension:     ".mp4",
+		spoolPath:     filepath.Join(t.TempDir(), "out.mp4"),
+		writeDeadline: time.Minute,
 	}, pr)
 	if err != nil {
 		t.Fatal(err)
@@ -241,7 +241,7 @@ func producing(t *testing.T, head []byte) *Server {
 		t.Fatal(err)
 	}
 	for range 500 {
-		if landed, _ := srv.Spooled(); landed >= int64(len(head)) {
+		if landed, _ := srv.spooled(); landed >= int64(len(head)) {
 			return srv
 		}
 		time.Sleep(10 * time.Millisecond)

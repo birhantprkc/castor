@@ -75,14 +75,14 @@ func buildStealthJS(profile *profile) string {
 	joined := "(() => {\n" + strings.Join(snippets, "\n") + "\n})();"
 
 	r := strings.NewReplacer(
-		"__DEVICE_MEMORY__", fmt.Sprintf("%d", profile.DeviceMemory),
-		"__COLOR_DEPTH__", fmt.Sprintf("%d", profile.ColorDepth),
-		"__WEBGL_VENDOR__", profile.WebGLVendor,
-		"__WEBGL_RENDERER__", profile.WebGLRenderer,
-		"__NOISE_SEED__", fmt.Sprintf("%d", profile.NoiseSeed),
-		"__FONT_NOISE_PX__", fmt.Sprintf("%.6f", profile.FontNoisePx),
-		"__RECT_NOISE_PX__", fmt.Sprintf("%.6f", profile.RectNoisePx),
-		"__AUDIO_NOISE_MAG__", fmt.Sprintf("%.10f", profile.AudioNoiseMag),
+		"__DEVICE_MEMORY__", fmt.Sprintf("%d", profile.deviceMemory),
+		"__COLOR_DEPTH__", fmt.Sprintf("%d", profile.colorDepth),
+		"__WEBGL_VENDOR__", profile.webGLVendor,
+		"__WEBGL_RENDERER__", profile.webGLRenderer,
+		"__NOISE_SEED__", fmt.Sprintf("%d", profile.noiseSeed),
+		"__FONT_NOISE_PX__", fmt.Sprintf("%.6f", profile.fontNoisePx),
+		"__RECT_NOISE_PX__", fmt.Sprintf("%.6f", profile.rectNoisePx),
+		"__AUDIO_NOISE_MAG__", fmt.Sprintf("%.10f", profile.audioNoiseMag),
 	)
 	return r.Replace(joined)
 }
@@ -111,7 +111,7 @@ func allocatorOpts(cfg BrowserConfig, profile *profile) []chromedp.ExecAllocator
 		chromedp.Flag("autoplay-policy", "no-user-gesture-required"),
 		chromedp.Flag("incognito", true),
 
-		chromedp.WindowSize(profile.ScreenWidth, profile.ScreenHeight),
+		chromedp.WindowSize(profile.screenWidth, profile.screenHeight),
 	}
 
 	// Only append when wanted; presence matters, not value.
@@ -153,41 +153,41 @@ func injectCDPStealth(profile *profile) chromedp.ActionFunc {
 			return err
 		}
 
-		if err := emulation.SetHardwareConcurrencyOverride(profile.HardwareConcurrency).Do(ctx); err != nil {
+		if err := emulation.SetHardwareConcurrencyOverride(profile.hardwareConcurrency).Do(ctx); err != nil {
 			return err
 		}
 
-		if err := emulation.SetTimezoneOverride(profile.TimezoneID).Do(ctx); err != nil {
+		if err := emulation.SetTimezoneOverride(profile.timezoneID).Do(ctx); err != nil {
 			return err
 		}
 
-		locale := profile.Languages[0]
+		locale := profile.languages[0]
 		if err := emulation.SetLocaleOverride().WithLocale(locale).Do(ctx); err != nil {
 			return err
 		}
 
-		ua := emulation.SetUserAgentOverride(profile.UserAgent)
-		ua.AcceptLanguage = profile.AcceptLanguage
-		ua.Platform = profile.NavigatorPlatform
+		ua := emulation.SetUserAgentOverride(profile.userAgent)
+		ua.AcceptLanguage = profile.acceptLanguage
+		ua.Platform = profile.navigatorPlatform
 
-		brands := make([]*emulation.UserAgentBrandVersion, len(profile.Brands))
-		for i, b := range profile.Brands {
+		brands := make([]*emulation.UserAgentBrandVersion, len(profile.brands))
+		for i, b := range profile.brands {
 			brands[i] = &emulation.UserAgentBrandVersion{Brand: b[0], Version: b[1]}
 		}
-		fullVersionList := make([]*emulation.UserAgentBrandVersion, len(profile.FullVersionList))
-		for i, b := range profile.FullVersionList {
+		fullVersionList := make([]*emulation.UserAgentBrandVersion, len(profile.fullVersionList))
+		for i, b := range profile.fullVersionList {
 			fullVersionList[i] = &emulation.UserAgentBrandVersion{Brand: b[0], Version: b[1]}
 		}
 
 		ua.UserAgentMetadata = &emulation.UserAgentMetadata{
 			Brands:          brands,
 			FullVersionList: fullVersionList,
-			Platform:        profile.Platform,
-			PlatformVersion: profile.PlatformVersion,
-			Architecture:    profile.Architecture,
+			Platform:        profile.platform,
+			PlatformVersion: profile.platformVersion,
+			Architecture:    profile.architecture,
 			Model:           "",
 			Mobile:          false,
-			Bitness:         profile.Bitness,
+			Bitness:         profile.bitness,
 		}
 		return ua.Do(ctx)
 	}

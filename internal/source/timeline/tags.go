@@ -3,10 +3,10 @@ package timeline
 // The media playlist tags castor reads from an origin and writes for ffmpeg.
 const (
 	TagHeader                = "#EXTM3U"
-	TagVersion               = "#EXT-X-VERSION"
-	TagTargetDuration        = "#EXT-X-TARGETDURATION"
+	tagVersion               = "#EXT-X-VERSION"
+	tagTargetDuration        = "#EXT-X-TARGETDURATION"
 	TagMediaSequence         = "#EXT-X-MEDIA-SEQUENCE"
-	TagDiscontinuitySequence = "#EXT-X-DISCONTINUITY-SEQUENCE"
+	tagDiscontinuitySequence = "#EXT-X-DISCONTINUITY-SEQUENCE"
 	TagStart                 = "#EXT-X-START"
 	TagInf                   = "#EXTINF"
 	TagByteRange             = "#EXT-X-BYTERANGE"

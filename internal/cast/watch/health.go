@@ -36,11 +36,11 @@ type Kind int
 
 const (
 	// Zero value: nothing wrong, nothing proven.
-	Starting Kind = iota
+	starting Kind = iota
 	// Encoder ready to read or renderer ready for artifact.
-	Ready
+	ready
 	// Cast in flight with nothing against it.
-	Healthy
+	healthy
 	// Producer silent for stall window.
 	Stalled
 	// Media slower than playback pace.
@@ -53,9 +53,9 @@ const (
 
 func (k Kind) String() string {
 	switch k {
-	case Ready:
+	case ready:
 		return "ready"
-	case Healthy:
+	case healthy:
 		return "healthy"
 	case Stalled:
 		return "stalled"
@@ -75,8 +75,8 @@ type Health struct {
 	// Bytes of artifact available now.
 	Landed int64
 
-	// SinceGrowth is how long no new media has arrived: Position when the producer states one, else Landed.
-	SinceGrowth time.Duration
+	// sinceGrowth is how long no new media has arrived: Position when the producer states one, else Landed.
+	sinceGrowth time.Duration
 
 	// Media delivered; Speed: cumulative media per clock second.
 	Position time.Duration
@@ -89,33 +89,33 @@ type Health struct {
 	Headroom float64
 
 	// Terminal state; finished != stalled (buffer doesn't grow again).
-	Ended  bool
-	Failed bool
+	ended  bool
+	failed bool
 
-	// Overdue is a fact about the delivery's own patience, not about the producer.
-	Overdue bool
+	// overdue is a fact about the delivery's own patience, not about the producer.
+	overdue bool
 
 	// Subtitle transcription; Lead: committed frontier; LeadDone: finished.
-	Subtitles bool
-	Lead      float64
-	LeadDone  bool
+	subtitles bool
+	lead      float64
+	leadDone  bool
 
 	// Bytes renderer received; when byte last moved; counts bytes not requests.
-	Handed     int64
-	SinceFetch time.Duration
+	handed     int64
+	sinceFetch time.Duration
 
 	// Media renderer can fetch; URL hold; separates producer stop from cast end.
-	Delivered time.Duration
-	SincePlay time.Duration
+	delivered time.Duration
+	sincePlay time.Duration
 
 	// Separates link losing race from temporary dip.
-	SinceDeficit time.Duration
+	sinceDeficit time.Duration
 }
 
 func (h Health) String() string {
 	return fmt.Sprintf("landed=%d position=%s speed=%.4gx headroom=%.4gx samples=%d since_growth=%s handed=%d since_fetch=%s buffered=%s",
 		h.Landed, h.Position.Round(time.Second), float64(h.Speed), h.Headroom,
-		h.Samples, h.SinceGrowth.Round(time.Second), h.Handed, h.SinceFetch.Round(time.Second),
+		h.Samples, h.sinceGrowth.Round(time.Second), h.handed, h.sinceFetch.Round(time.Second),
 		h.buffer().Round(time.Second))
 }
 
@@ -123,22 +123,22 @@ func (h Health) String() string {
 func (h Health) playable() bool { return h.Landed > 0 }
 
 // Provable media renderer can play; lower bound.
-func (h Health) buffer() time.Duration { return h.Delivered - h.SincePlay }
+func (h Health) buffer() time.Duration { return h.delivered - h.sincePlay }
 
 // Renderer has media to play; distinguishes stop from end.
 func (h Health) buffered() bool { return h.buffer() > 0 }
 
 // Transcription ahead or finished.
-func (h Health) leads() bool { return h.Lead >= transcriptionLeadSeconds || h.LeadDone }
+func (h Health) leads() bool { return h.lead >= transcriptionLeadSeconds || h.leadDone }
 
 // Deliverability resolved: read ended, no headroom, or enough samples.
 func (h Health) measured() bool {
-	return h.Ended || h.Headroom <= 1 || h.Samples >= minSpeedSamples
+	return h.ended || h.Headroom <= 1 || h.Samples >= minSpeedSamples
 }
 
 // Read slower than playback; needs headroom and enough samples.
 func (h Health) starving() bool {
-	return !h.Ended && h.Headroom > 1 && h.Samples >= minSpeedSamples && h.Speed < playbackRate
+	return !h.ended && h.Headroom > 1 && h.Samples >= minSpeedSamples && h.Speed < playbackRate
 }
 
 const (

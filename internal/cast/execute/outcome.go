@@ -23,9 +23,9 @@ func evidence(r ran, err error, cancelled bool) attempt.Evidence {
 		if err := p.Err(); !errors.Is(err, context.Canceled) {
 			e.ReadErr = err
 		}
-		e.ReadExit = p.ExitStatus()
-		e.ReadIncomplete = p.LostMedia()
-		e.Copied = p.Copying()
+		e.ReadExit = p.exitStatus()
+		e.ReadIncomplete = p.lostMedia()
+		e.Copied = p.copying()
 		e.Lines = p.Evidence()
 	}
 

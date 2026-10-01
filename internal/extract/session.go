@@ -35,12 +35,12 @@ func newSession(ctx context.Context, cfg BrowserConfig, documents source.Formats
 		ctx:         taskCtx,
 		cancel:      taskCancel,
 		allocCancel: allocCancel,
-		centerX:     float64(profile.ScreenWidth) / 2,
-		centerY:     float64(profile.ScreenHeight) / 2,
+		centerX:     float64(profile.screenWidth) / 2,
+		centerY:     float64(profile.screenHeight) / 2,
 		snapshotDir: filepath.Join(os.TempDir(), "castor-debug", sanitize(targetURL)),
 	}
 	s.collector = newCollector(documents, s.readBody, graceAfterActions, collectionWindow, preRollWindow)
-	chromedp.ListenTarget(taskCtx, s.collector.Listen)
+	chromedp.ListenTarget(taskCtx, s.collector.listen)
 
 	// No deadline here: the first Run starts the browser, and its context is the browser's lifetime.
 	if err := chromedp.Run(taskCtx,
@@ -59,7 +59,7 @@ func newSession(ctx context.Context, cfg BrowserConfig, documents source.Formats
 	err := chromedp.Run(navCtx, chromedp.Navigate(targetURL))
 	navCancel()
 	if err != nil {
-		if !s.collector.HasHits() {
+		if !s.collector.hasHits() {
 			s.Close()
 			return nil, fmt.Errorf("navigating to %s: %w", targetURL, err)
 		}
@@ -90,8 +90,8 @@ type action struct {
 	do   func() error
 }
 
-// RunActions drives the page until it has been driven as far as it can usefully be driven.
-func (s *session) RunActions() {
+// runActions drives the page until it has been driven as far as it can usefully be driven.
+func (s *session) runActions() {
 	snapshot(s.ctx, s.snapshotDir, "pipeline_start")
 
 	actions := []action{

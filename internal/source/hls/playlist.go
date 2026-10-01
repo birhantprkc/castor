@@ -17,53 +17,53 @@ import (
 
 // hlsVariant is a single variant stream listed in an HLS master playlist.
 type hlsVariant struct {
-	URL       *url.URL
-	Bandwidth int64
-	Height    int // display height from RESOLUTION; 0 when the master omits it
+	url       *url.URL
+	bandwidth int64
+	height    int // display height from RESOLUTION; 0 when the master omits it
 
-	// Program is the variant's position among the master's STREAM-INF lines, the id a probe numbers it by.
-	Program int
+	// program is the variant's position among the master's STREAM-INF lines, the id a probe numbers it by.
+	program int
 
-	// AudioGroup is the GROUP-ID this variant plays its audio from (empty when muxed into segments).
-	AudioGroup string
+	// audioGroup is the GROUP-ID this variant plays its audio from (empty when muxed into segments).
+	audioGroup string
 
-	// HasVideo reports whether the variant carries video (audio-only variants must not be picked).
-	HasVideo bool
+	// hasVideo reports whether the variant carries video (audio-only variants must not be picked).
+	hasVideo bool
 
-	// Declared is the codec envelope the master stated for this variant (a declaration, not measurement).
-	Declared *media.ProbeInfo
+	// declared is the codec envelope the master stated for this variant (a declaration, not measurement).
+	declared *media.ProbeInfo
 }
 
 // hlsDocument is a parsed HLS document reduced to what a cast needs.
 type hlsDocument struct {
-	Variants []hlsVariant
+	variants []hlsVariant
 
-	// Audio maps an audio GROUP-ID to the rendition to play from it; nil when the default is muxed into the variant.
-	Audio map[string]*url.URL
+	// audio maps an audio GROUP-ID to the rendition to play from it; nil when the default is muxed into the variant.
+	audio map[string]*url.URL
 
-	// Live reports a media playlist with no #EXT-X-ENDLIST (always false for a master).
-	Live bool
+	// live reports a media playlist with no #EXT-X-ENDLIST (always false for a master).
+	live bool
 
-	// Multivariant reports that the document listed variants of its own.
-	Multivariant bool
+	// multivariant reports that the document listed variants of its own.
+	multivariant bool
 
-	// Framing is how this document's segments carry their decoder configuration (EXT-X-MAP = out-of-band).
-	Framing media.Framing
+	// framing is how this document's segments carry their decoder configuration (EXT-X-MAP = out-of-band).
+	framing media.Framing
 
-	// Protection is the KEYFORMAT of a key only a DRM licence server can apply, empty when none is in force.
-	Protection string
+	// protection is the KEYFORMAT of a key only a DRM licence server can apply, empty when none is in force.
+	protection string
 
-	// Duration is the EXTINF sum for a document that ended (VOD only; 0 for sliding window).
-	Duration time.Duration
+	// duration is the EXTINF sum for a document that ended (VOD only; 0 for sliding window).
+	duration time.Duration
 
-	// RequiresRelaxedInput reports a segment or init resource whose extension a default reader rejects.
-	RequiresRelaxedInput bool
+	// requiresRelaxedInput reports a segment or init resource whose extension a default reader rejects.
+	requiresRelaxedInput bool
 
-	// Spliced reports EXT-X-DISCONTINUITY: pieces encoded apart, whose parameters and timestamps restart at each seam.
-	Spliced bool
+	// spliced reports EXT-X-DISCONTINUITY: pieces encoded apart, whose parameters and timestamps restart at each seam.
+	spliced bool
 }
 
-func (d hlsDocument) AudioFor(v hlsVariant) *url.URL { return d.Audio[v.AudioGroup] }
+func (d hlsDocument) audioFor(v hlsVariant) *url.URL { return d.audio[v.audioGroup] }
 
 // parsePlaylist reads a document fetched from requested that arrived from from, after any redirect.
 func parsePlaylist(body string, requested, from *url.URL) (hlsDocument, error) {
@@ -89,27 +89,27 @@ func multivariant(body string) bool {
 // mediaFrom keeps the link as asked: a redirect's edge may be a one-time token, and every read must mint its own.
 func mediaFrom(l listing, requested *url.URL) hlsDocument {
 	doc := hlsDocument{
-		Variants: []hlsVariant{{URL: requested, HasVideo: true}},
+		variants: []hlsVariant{{url: requested, hasVideo: true}},
 		// No #EXT-X-ENDLIST means the publisher intends to append more segments.
-		Live:                 !l.Closed,
-		Framing:              media.FramingInBand,
-		RequiresRelaxedInput: l.Relaxed,
+		live:                 !l.closed,
+		framing:              media.FramingInBand,
+		requiresRelaxedInput: l.relaxed,
 	}
 	var listed time.Duration
-	for _, segment := range l.Segments {
+	for _, segment := range l.segments {
 		listed += segment.Duration
 		// EXT-X-MAP means fMP4, whose decoder configuration travels out of band.
 		if segment.Map != nil {
-			doc.Framing = media.FramingOutOfBand
+			doc.framing = media.FramingOutOfBand
 		}
-		doc.Spliced = doc.Spliced || segment.Seam
-		if f := segment.Key.Format; f != "" && f != timeline.IdentityFormat && doc.Protection == "" {
-			doc.Protection = f
+		doc.spliced = doc.spliced || segment.Seam
+		if f := segment.Key.Format; f != "" && f != timeline.IdentityFormat && doc.protection == "" {
+			doc.protection = f
 		}
 	}
 	// Only a document that ended states a runtime.
-	if l.Closed {
-		doc.Duration = listed
+	if l.closed {
+		doc.duration = listed
 	}
 	return doc
 }
@@ -133,7 +133,7 @@ func requiresRelaxedHLSInput(raw string) bool {
 }
 
 func masterFrom(playlist *m3u8.MasterPlaylist, baseURL *url.URL) hlsDocument {
-	out := hlsDocument{Multivariant: true}
+	out := hlsDocument{multivariant: true}
 	program := 0
 	for _, variant := range playlist.Variants {
 		// An I-frame playlist is a trick-play track: keyframes only, no audio, never something to cast.
@@ -150,14 +150,14 @@ func masterFrom(playlist *m3u8.MasterPlaylist, baseURL *url.URL) hlsDocument {
 		}
 
 		height := resolutionHeight(variant.Resolution)
-		out.Variants = append(out.Variants, hlsVariant{
-			URL:        variantURL,
-			Bandwidth:  int64(variant.Bandwidth),
-			Height:     height,
-			Program:    program - 1,
-			AudioGroup: variant.Audio,
-			HasVideo:   carriesVideo(variant),
-			Declared:   source.DeclaredEnvelope(variant.Codecs, height),
+		out.variants = append(out.variants, hlsVariant{
+			url:        variantURL,
+			bandwidth:  int64(variant.Bandwidth),
+			height:     height,
+			program:    program - 1,
+			audioGroup: variant.Audio,
+			hasVideo:   carriesVideo(variant),
+			declared:   source.DeclaredEnvelope(variant.Codecs, height),
 		})
 	}
 	return out
@@ -168,7 +168,7 @@ func (d *hlsDocument) addRendition(alternative *m3u8.Alternative, baseURL *url.U
 	if alternative.Type != "AUDIO" {
 		return
 	}
-	if _, seen := d.Audio[alternative.GroupId]; seen && !alternative.Default {
+	if _, seen := d.audio[alternative.GroupId]; seen && !alternative.Default {
 		return
 	}
 	var renditionURL *url.URL
@@ -178,10 +178,10 @@ func (d *hlsDocument) addRendition(alternative *m3u8.Alternative, baseURL *url.U
 	case alternative.URI != "":
 		renditionURL = parsed
 	}
-	if d.Audio == nil {
-		d.Audio = make(map[string]*url.URL)
+	if d.audio == nil {
+		d.audio = make(map[string]*url.URL)
 	}
-	d.Audio[alternative.GroupId] = renditionURL
+	d.audio[alternative.GroupId] = renditionURL
 }
 
 // carriesVideo reports whether a variant has video to cast (RESOLUTION or video codec).

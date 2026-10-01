@@ -209,13 +209,13 @@ func (p *pull) Evidence() []string {
 	return proc.Evidence().Lines
 }
 
-// LostMedia reports a read that ended short of what its source declared.
-func (p *pull) LostMedia() bool {
+// lostMedia reports a read that ended short of what its source declared.
+func (p *pull) lostMedia() bool {
 	proc := p.proc
 	return proc != nil && proc.LostMedia()
 }
 
-func (p *pull) ExitStatus() int {
+func (p *pull) exitStatus() int {
 	proc := p.proc
 	if proc == nil {
 		return -1
@@ -223,8 +223,8 @@ func (p *pull) ExitStatus() int {
 	return proc.Evidence().ExitStatus
 }
 
-// Copying is the halves this read passed through untouched, which is what a recovery must stop asking for.
-func (p *pull) Copying() media.Axes { return p.floor.Encoded().Copying() }
+// copying is the halves this read passed through untouched, which is what a recovery must stop asking for.
+func (p *pull) copying() media.Axes { return p.floor.Encoded().Copying() }
 
 func (p *pull) judgedPace() float64 {
 	if p.pcmOut != nil || p.floor.Encoded().Any() {

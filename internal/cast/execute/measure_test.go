@@ -29,17 +29,17 @@ func TestMeasureKeepsWhatAnsweredWithinItsOwnDeadline(t *testing.T) {
 		err:  errors.New("probing audio rendition: ffprobe: exit status 1"),
 	}
 	facts := measure(t.Context(), "the source", half)
-	if facts.Measured {
+	if facts.measured {
 		t.Error("a partial measurement reports Measured true")
 	}
-	if facts.Probe.VideoCodec != media.CodecH264 {
-		t.Errorf("Probe = %+v, want the half that answered", facts.Probe)
+	if facts.probe.VideoCodec != media.CodecH264 {
+		t.Errorf("Probe = %+v, want the half that answered", facts.probe)
 	}
 	if half.budget == 0 || half.budget > probeBudget {
 		t.Errorf("the probe was given %s, want a deadline within %s", half.budget, probeBudget)
 	}
 
-	if whole := measure(t.Context(), "the source", &fakeProber{info: media.ProbeInfo{AudioChannels: 6}}); !whole.Measured || whole.Probe.AudioChannels != 6 {
+	if whole := measure(t.Context(), "the source", &fakeProber{info: media.ProbeInfo{AudioChannels: 6}}); !whole.measured || whole.probe.AudioChannels != 6 {
 		t.Errorf("a probe that answered reports %+v", whole)
 	}
 }
@@ -84,11 +84,11 @@ func TestOnlyAReadSureToCarrySoundIsTranscribed(t *testing.T) {
 		program media.Program
 		want    bool
 	}{
-		{"the probe heard sound", facts{Probe: media.ProbeInfo{AudioCodec: media.CodecAAC}, Measured: true}, program(true), true},
-		{"the probe heard silence", facts{Measured: true}, program(false), false},
+		{"the probe heard sound", facts{probe: media.ProbeInfo{AudioCodec: media.CodecAAC}, measured: true}, program(true), true},
+		{"the probe heard silence", facts{measured: true}, program(false), false},
 		{"unprobed, and the program may be silent", facts{}, program(true), false},
 		{"unprobed, and the program requires sound", facts{}, program(false), true},
-		{"half a probe that heard sound", facts{Probe: media.ProbeInfo{AudioCodec: media.CodecAAC}}, program(true), true},
+		{"half a probe that heard sound", facts{probe: media.ProbeInfo{AudioCodec: media.CodecAAC}}, program(true), true},
 		{"unprobed, and the source declared sound", facts{}, declared(program(true), media.ProbeInfo{AudioCodec: media.CodecAAC}), true},
 	} {
 		if got := tt.facts.sounds(tt.program); got != tt.want {

@@ -21,11 +21,11 @@ import (
 )
 
 type config struct {
-	LocalIP   string
-	Dir       string            // Directory ffmpeg writes playlist and segments into.
-	Playlist  string            // Media playlist filename (container.Tuning.Output).
-	Headers   map[string]string // Response headers (device.StreamHeaders).
-	IdleGrace time.Duration
+	localIP   string
+	dir       string            // Directory ffmpeg writes playlist and segments into.
+	playlist  string            // Media playlist filename (container.Tuning.Output).
+	headers   map[string]string // Response headers (device.StreamHeaders).
+	idleGrace time.Duration
 }
 
 // Server serves Dir over HTTP, tracks liveness for Wait, deletes behind live edge.
@@ -45,11 +45,11 @@ type Server struct {
 
 func Open(o deliver.Opening) (*Server, error) {
 	srv, err := open(config{
-		LocalIP:   o.LocalIP,
-		Dir:       o.Dir,
-		Playlist:  o.Format.Tuning.Output,
-		Headers:   o.Headers,
-		IdleGrace: o.IdleGrace,
+		localIP:   o.LocalIP,
+		dir:       o.Dir,
+		playlist:  o.Format.Tuning.Output,
+		headers:   o.Headers,
+		idleGrace: o.IdleGrace,
 	}, o.Out)
 	if err != nil {
 		return nil, fmt.Errorf("starting HLS server: %w", err)
@@ -58,7 +58,7 @@ func Open(o deliver.Opening) (*Server, error) {
 }
 
 func open(cfg config, producer io.Reader) (*Server, error) {
-	ln, err := deliver.Listen(cfg.LocalIP)
+	ln, err := deliver.Listen(cfg.localIP)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +66,7 @@ func open(cfg config, producer io.Reader) (*Server, error) {
 	s := &Server{
 		cfg:         cfg,
 		listener:    ln,
-		playlist:    filepath.Join(cfg.Dir, cfg.Playlist),
+		playlist:    filepath.Join(cfg.dir, cfg.playlist),
 		drained:     make(chan struct{}),
 		lastRequest: time.Now(),
 	}
@@ -76,13 +76,13 @@ func open(cfg config, producer io.Reader) (*Server, error) {
 		_, _ = io.Copy(io.Discard, producer)
 	})
 
-	files := http.FileServer(http.Dir(cfg.Dir))
+	files := http.FileServer(http.Dir(cfg.dir))
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		s.touch()
 		slog.InfoContext(r.Context(), "hls request", "from", r.RemoteAddr, "path", r.URL.Path)
 		// Set renderer headers first, then artifact's own type.
-		for k, v := range s.cfg.Headers {
+		for k, v := range s.cfg.headers {
 			w.Header().Set(k, v)
 		}
 		// Go doesn't register .m3u8/.m4s; set type before ServeContent sniffs.
@@ -102,7 +102,7 @@ func open(cfg config, producer io.Reader) (*Server, error) {
 
 // URL is the media-playlist address the device should play.
 func (s *Server) URL() *url.URL {
-	return &url.URL{Scheme: "http", Host: s.listener.Addr().String(), Path: "/" + s.cfg.Playlist}
+	return &url.URL{Scheme: "http", Host: s.listener.Addr().String(), Path: "/" + s.cfg.playlist}
 }
 
 // Served returns artifacts handed over (zero = URL accepted but no bytes fetched).
@@ -136,7 +136,7 @@ func (s *Server) handedOver() {
 // carriesMedia returns true for program (anything but playlist) to avoid silent count breakage.
 func (s *Server) carriesMedia(p string) bool {
 	name := strings.TrimPrefix(path.Clean("/"+p), "/")
-	return name != "" && name != s.cfg.Playlist
+	return name != "" && name != s.cfg.playlist
 }
 
 // answered tracks response status for Served count (ResponseWriter doesn't report it).
@@ -188,7 +188,7 @@ func (s *Server) Wait(ctx context.Context) error {
 	defer tick.Stop()
 	for {
 		s.mu.Lock()
-		idle := time.Since(s.lastRequest) > s.cfg.IdleGrace
+		idle := time.Since(s.lastRequest) > s.cfg.idleGrace
 		s.mu.Unlock()
 		if idle {
 			return nil

@@ -8,59 +8,59 @@ import (
 )
 
 // playbook maps fault kinds to retry strategies in cheapest-first order; switchCandidate is last.
-var playbook = map[Kind][]strategy{
+var playbook = map[kind][]strategy{
 	// Loop never reaches here (cancelled cast ends immediately).
-	Cancelled: nil,
+	cancelled: nil,
 
 	// No document/copy to blame when nothing established; re-extract for fresh signed URL is above.
-	Unreachable: {switchCandidate},
+	unreachable: {switchCandidate},
 
 	// Link went silent; asked once more (reconnect ceilings; opening burst earns rate limiter silence).
-	SourceStalled: {relaxRead, switchCandidate},
+	sourceStalled: {relaxRead, switchCandidate},
 
 	// Rung is cheaper and keeps source; candidate second (source may publish one rung only).
-	UnderDelivering: {degradeRendition, switchCandidate},
+	underDelivering: {degradeRendition, switchCandidate},
 
 	// Try not copying first; both offered (undecodable bitstream may decode elsewhere).
-	CopyBrokeUpstream: {decodeAxis, switchCandidate},
+	copyBrokeUpstream: {decodeAxis, switchCandidate},
 
 	// No recovery offered (repeat attempt refused by ledger, max-attempts counter N/A here).
-	RendererGone: nil,
+	rendererGone: nil,
 
 	// Serve instead if URL refused; walk ordering on chance source is the problem.
-	RendererRefused: {serveInstead, switchCandidate},
+	rendererRefused: {serveInstead, switchCandidate},
 
 	// Switch only (not decodeAxis; lost artifact is delivery's fault, not reader's).
-	ProducedNothing: {switchCandidate},
+	producedNothing: {switchCandidate},
 
 	// Unknown failure offers no recovery (inventing one wastes viewer's time).
-	Unclassified: nil,
+	unclassified: nil,
 }
 
 // revision is value (not three returns) because nothing-offered is ordinary.
 type revision struct {
-	Attempt  Attempt
-	Strategy strategy
-	Offered  bool
+	attempt  Attempt
+	strategy strategy
+	offered  bool
 }
 
 // revise chooses first applicable strategy from playbook that hasn't been run.
-func revise(ctx context.Context, in Intent, o Outcome, f *Fault, led *ledger, resolver SourceResolver) revision {
+func revise(ctx context.Context, in Intent, o Outcome, f *fault, led *ledger, resolver SourceResolver) revision {
 	if !revisable(o) {
 		return revision{}
 	}
 
-	facts := change{Intent: in, Attempt: f.Attempt, Outcome: o, Resolver: resolver}
-	for _, s := range playbook[f.Kind] {
-		next, ok := s.Apply(ctx, facts)
+	facts := change{intent: in, attempt: f.attempt, outcome: o, resolver: resolver}
+	for _, s := range playbook[f.kind] {
+		next, ok := s.apply(ctx, facts)
 		if !ok {
 			continue
 		}
-		next.Try = f.Attempt.Try + 1
+		next.Try = f.attempt.Try + 1
 		if !led.admit(next) {
 			continue
 		}
-		return revision{Attempt: next, Strategy: s, Offered: true}
+		return revision{attempt: next, strategy: s, offered: true}
 	}
 	return revision{}
 }

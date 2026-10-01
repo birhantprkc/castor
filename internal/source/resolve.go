@@ -43,7 +43,7 @@ func (r *Resolver) Identify(ctx context.Context, u *url.URL) string {
 	if err != nil {
 		return ""
 	}
-	return r.formats.Sniff(body)
+	return r.formats.sniff(body)
 }
 
 // NewResolver binds resolution to the client that reads origins, the tallest picture a cast shows and the formats it reads.

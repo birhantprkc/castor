@@ -61,7 +61,7 @@ func (m model) browseHeader() string {
 		label = "Search"
 	case m.mode == modeDiscover:
 		label = "Discover"
-		rhs = m.styles.Muted.Render(m.picker.mediaLabel())
+		rhs = m.styles.muted.Render(m.picker.mediaLabel())
 	default:
 		label = m.tab.label()
 		rhs = m.renderTabDots()
@@ -69,8 +69,8 @@ func (m model) browseHeader() string {
 	if rhs != "" {
 		rhs += "  "
 	}
-	rhs += m.styles.Muted.Render(m.devBadge)
-	title := m.styles.Title.Render(label)
+	rhs += m.styles.muted.Render(m.devBadge)
+	title := m.styles.title.Render(label)
 	placed := lipgloss.PlaceHorizontal(max(m.w-lipgloss.Width(title), 0), lipgloss.Right, rhs)
 	return lipgloss.JoinHorizontal(lipgloss.Top, title, placed)
 }
@@ -81,8 +81,8 @@ func (m model) filterBar() string {
 		summary = strings.Join(names, ", ")
 	}
 	left := lipgloss.NewStyle().Padding(0, spInline).Render(
-		m.styles.MetaTitle.Render(truncate(summary, max(m.w/2, 12))) +
-			m.styles.Muted.Render("  ·  Sort: "+sortLabel(m.disc.sort)),
+		m.styles.metaTitle.Render(truncate(summary, max(m.w/2, 12))) +
+			m.styles.muted.Render("  ·  Sort: "+sortLabel(m.disc.sort)),
 	)
 	hints := m.help.Styles.ShortDesc.Render("^g genres · ^s sort · ^t movie/tv")
 	rhs := lipgloss.PlaceHorizontal(max(m.w-lipgloss.Width(left), 0), lipgloss.Right, hints)
@@ -125,9 +125,9 @@ func (m model) statusLine() string {
 	pad := lipgloss.NewStyle().Padding(0, spInline)
 	switch {
 	case m.loading:
-		return pad.Render(m.spin.View() + " " + m.styles.Muted.Render("loading…"))
+		return pad.Render(m.spin.View() + " " + m.styles.muted.Render("loading…"))
 	case m.err != nil:
-		return m.styles.Err.Render("error: " + m.err.Error())
+		return m.styles.err.Render("error: " + m.err.Error())
 	}
 	return ""
 }

@@ -11,13 +11,13 @@ const (
 )
 
 type styles struct {
-	Title     lipgloss.Style
-	TitleText lipgloss.Style
-	MetaTitle lipgloss.Style
-	Muted     lipgloss.Style
-	Tagline   lipgloss.Style
-	Overview  lipgloss.Style
-	Err       lipgloss.Style
+	title     lipgloss.Style
+	titleText lipgloss.Style
+	metaTitle lipgloss.Style
+	muted     lipgloss.Style
+	tagline   lipgloss.Style
+	overview  lipgloss.Style
+	err       lipgloss.Style
 }
 
 func newStyles() styles {
@@ -26,15 +26,15 @@ func newStyles() styles {
 		Foreground(palette.Accent)
 
 	return styles{
-		Title:     titleText.Padding(0, spInline),
-		TitleText: titleText,
-		MetaTitle: lipgloss.NewStyle().Foreground(palette.FgSecondary),
-		Muted:     lipgloss.NewStyle().Foreground(palette.FgMuted),
-		Tagline:   lipgloss.NewStyle().Foreground(palette.FgMuted).Italic(true).Width(posterCols),
-		Overview: lipgloss.NewStyle().
+		title:     titleText.Padding(0, spInline),
+		titleText: titleText,
+		metaTitle: lipgloss.NewStyle().Foreground(palette.FgSecondary),
+		muted:     lipgloss.NewStyle().Foreground(palette.FgMuted),
+		tagline:   lipgloss.NewStyle().Foreground(palette.FgMuted).Italic(true).Width(posterCols),
+		overview: lipgloss.NewStyle().
 			Foreground(palette.FgPrimary).
 			Width(posterCols),
-		Err: lipgloss.NewStyle().
+		err: lipgloss.NewStyle().
 			Foreground(palette.Error).
 			Bold(true).
 			Underline(true).

@@ -90,7 +90,7 @@ func (d *drilldown) showEpisodes(sd *tmdb.SeasonDetails) {
 func (d *drilldown) update(msg tea.Msg, keys keyMap) drillOutcome {
 	if km, ok := msg.(tea.KeyMsg); ok && !d.list.SettingFilter() {
 		switch {
-		case key.Matches(km, keys.Back):
+		case key.Matches(km, keys.back):
 			switch d.mode {
 			case modeEpisodes:
 				d.list.SetItems(d.seasonsCache)
@@ -100,7 +100,7 @@ func (d *drilldown) update(msg tea.Msg, keys keyMap) drillOutcome {
 			case modeSeasons:
 				return drillOutcome{exit: true}
 			}
-		case key.Matches(km, keys.Enter):
+		case key.Matches(km, keys.enter):
 			return d.enter()
 		}
 	}
@@ -133,15 +133,15 @@ func (d *drilldown) enter() drillOutcome {
 
 // view renders breadcrumb header and list body (model appends footer).
 func (d drilldown) view(st styles) string {
-	sep := st.Muted.Render(" › ")
-	parts := []string{st.TitleText.Render(d.tvName)}
+	sep := st.muted.Render(" › ")
+	parts := []string{st.titleText.Render(d.tvName)}
 	switch d.mode {
 	case modeSeasons:
-		parts = append(parts, sep, st.TitleText.Render("Seasons"))
+		parts = append(parts, sep, st.titleText.Render("Seasons"))
 	case modeEpisodes:
 		parts = append(parts,
-			sep, st.TitleText.Render(fmt.Sprintf("S%02d", d.seasonNum)),
-			sep, st.TitleText.Render("Episodes"),
+			sep, st.titleText.Render(fmt.Sprintf("S%02d", d.seasonNum)),
+			sep, st.titleText.Render("Episodes"),
 		)
 	}
 	header := headerPad(strings.Join(parts, ""))

@@ -166,7 +166,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case tea.KeyMsg:
-		if key.Matches(msg, m.keys.Quit) {
+		if key.Matches(msg, m.keys.quit) {
 			return m, tea.Quit
 		}
 		if m.picker.shown {
@@ -176,7 +176,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, cmd
 		}
-		if key.Matches(msg, m.keys.Help) && !m.drilldownFiltering() {
+		if key.Matches(msg, m.keys.help) && !m.drilldownFiltering() {
 			m.help.ShowAll = !m.help.ShowAll
 			m.resize()
 			return m, nil
@@ -249,41 +249,41 @@ func (m model) updateBrowse(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.forwardToQuery(msg)
 	}
 	switch {
-	case key.Matches(km, m.keys.Genres):
+	case key.Matches(km, m.keys.genres):
 		m.picker.open(m.w, m.h)
 		return m, nil
-	case key.Matches(km, m.keys.Sort):
+	case key.Matches(km, m.keys.sort):
 		if m.mode == modeDiscover {
 			return m, m.cycleSort()
 		}
 		return m, nil
-	case key.Matches(km, m.keys.Media):
+	case key.Matches(km, m.keys.media):
 		if m.mode == modeDiscover {
 			m.picker.toggleMedia(m.w, m.h)
 			return m, m.enterDiscover()
 		}
 		return m, nil
-	case key.Matches(km, m.keys.Tab):
+	case key.Matches(km, m.keys.tab):
 		if m.query.Value() == "" {
 			return m, m.cycleTab(1)
 		}
 		return m, nil
-	case key.Matches(km, m.keys.ShiftTab):
+	case key.Matches(km, m.keys.shiftTab):
 		if m.query.Value() == "" {
 			return m, m.cycleTab(-1)
 		}
 		return m, nil
-	case key.Matches(km, m.keys.Enter):
+	case key.Matches(km, m.keys.enter):
 		if r := m.selectedResult(); r != nil {
 			return m.pickResult(*r)
 		}
 		return m, nil
-	case key.Matches(km, m.keys.Back):
+	case key.Matches(km, m.keys.back):
 		return m.onBrowseBack()
-	case key.Matches(km, m.keys.Up),
-		key.Matches(km, m.keys.Down),
-		key.Matches(km, m.keys.PageUp),
-		key.Matches(km, m.keys.PageDown):
+	case key.Matches(km, m.keys.up),
+		key.Matches(km, m.keys.down),
+		key.Matches(km, m.keys.pageUp),
+		key.Matches(km, m.keys.pageDown):
 		return m.delegateResults(msg)
 	}
 	return m.forwardToQuery(msg)

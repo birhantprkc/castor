@@ -130,8 +130,8 @@ func (c *collector) index(raw string) int {
 	return slices.IndexFunc(c.captures, func(cp capture) bool { return cp.raw == raw })
 }
 
-// Entries is every capture in the order it was made, less those another capture's document names.
-func (c *collector) Entries() []*source.Candidate {
+// entries is every capture in the order it was made, less those another capture's document names.
+func (c *collector) entries() []*source.Candidate {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -151,8 +151,8 @@ func (c *collector) Entries() []*source.Candidate {
 	return out
 }
 
-// HasHits reports whether anything at all was captured.
-func (c *collector) HasHits() bool {
+// hasHits reports whether anything at all was captured.
+func (c *collector) hasHits() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return len(c.captures) > 0
@@ -279,7 +279,7 @@ func (c *collector) Wait(ctx context.Context) ([]*source.Candidate, error) {
 		}
 	}
 
-	for c.HasHits() && ctx.Err() == nil {
+	for c.hasHits() && ctx.Err() == nil {
 		select {
 		case <-c.mastered:
 		case <-time.After(c.window):
@@ -299,13 +299,13 @@ func (c *collector) Wait(ctx context.Context) ([]*source.Candidate, error) {
 		break
 	}
 
-	if entries := c.Entries(); len(entries) > 0 {
+	if entries := c.entries(); len(entries) > 0 {
 		return entries, nil
 	}
 	return nil, fmt.Errorf("no stream URL captured within grace period")
 }
 
-func (c *collector) Listen(ev any) {
+func (c *collector) listen(ev any) {
 	switch e := ev.(type) {
 	case *network.EventRequestWillBeSent:
 		// Page-set headers only.

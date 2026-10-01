@@ -45,8 +45,8 @@ type Fetch struct {
 	Spliced bool
 }
 
-// Seamed is a source whose timeline may break: stitched from pieces encoded apart, or live, where any reload can splice one in.
-func (f Fetch) Seamed() bool { return f.Spliced || f.Live }
+// seamed is a source whose timeline may break: stitched from pieces encoded apart, or live, where any reload can splice one in.
+func (f Fetch) seamed() bool { return f.Spliced || f.Live }
 
 func (f Fetch) String() string {
 	return fmt.Sprintf("segmented=%t framing=%s live=%t spliced=%t", f.Segmented, f.Framing, f.Live, f.Spliced)
@@ -74,11 +74,11 @@ type TrackRef struct {
 	Optional bool
 }
 
-type endPolicy string
+type EndPolicy string
 
 const (
-	EndAtShortest endPolicy = "shortest"
-	EndAtLongest  endPolicy = "longest"
+	EndAtShortest EndPolicy = "shortest"
+	EndAtLongest  EndPolicy = "longest"
 )
 
 // Program is a normalized castable program (inputs retain order, tracks bind to sources).
@@ -89,7 +89,7 @@ type Program struct {
 	// ClockInput, Offsets, EndPolicy: how independently fetched inputs share a timeline.
 	ClockInput InputID
 	Offsets    map[InputID]time.Duration
-	EndPolicy  endPolicy
+	EndPolicy  EndPolicy
 
 	measurement *ProbeInfo
 }
@@ -209,7 +209,7 @@ func (k TrackKind) valid() bool {
 	}
 }
 
-func (p endPolicy) valid() bool {
+func (p EndPolicy) valid() bool {
 	switch p {
 	case EndAtShortest, EndAtLongest:
 		return true
@@ -237,9 +237,9 @@ func (p Program) Track(kind TrackKind) (TrackRef, bool) {
 	return TrackRef{}, false
 }
 
-// Seamed reports that any input's timeline may break (see Fetch.Seamed).
+// Seamed reports that any input's timeline may break (see Fetch.seamed).
 func (p Program) Seamed() bool {
-	return slices.ContainsFunc(p.Inputs, func(in Input) bool { return in.Fetch.Seamed() })
+	return slices.ContainsFunc(p.Inputs, func(in Input) bool { return in.Fetch.seamed() })
 }
 
 // HeaderKeys is every request header name any input is read with, sorted.

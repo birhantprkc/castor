@@ -25,7 +25,7 @@ func (s *session) read(ws workspace, program media.Program) (*buffered, error) {
 		return nil, err
 	}
 	facts := measure(ctx, "the source this cast buffers", s.cfg.Probes.Source(program, source.ProbeInputs()))
-	program = aligned(program, facts.Probe.InputStarts)
+	program = aligned(program, facts.probe.InputStarts)
 	if source, err = transcode.NewProgramSource(program, s.attempt.Read, s.cfg.Binary); err != nil {
 		stop()
 		return nil, err
@@ -33,7 +33,7 @@ func (s *session) read(ws workspace, program media.Program) (*buffered, error) {
 
 	burn := s.transcription(ctx, ws, facts, program)
 	floor, err := plan.Floor(ctx, plan.Inputs{
-		Probe:     facts.Probe,
+		Probe:     facts.probe,
 		Into:      transcode.SpoolFormat,
 		Decode:    s.attempt.Decode,
 		MaxHeight: s.cfg.MaxHeight,
@@ -51,7 +51,7 @@ func (s *session) read(ws workspace, program media.Program) (*buffered, error) {
 		program:    program,
 		policy:     s.attempt.Read,
 		source:     source,
-		probe:      facts.Probe,
+		probe:      facts.probe,
 		spoolPath:  filepath.Join(ws.dir, "spool"+transcode.SpoolFormat.Extension),
 		floor:      floor,
 		pcmRate:    pcmRate(burn),

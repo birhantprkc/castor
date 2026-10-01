@@ -35,8 +35,8 @@ const (
 	DeliveryServe DeliveryPreference = "serve"
 )
 
-// Passthrough: renderer self-fetches, source reachable, container accepted, height admits.
-func (s Shape) Passthrough() bool {
+// passthrough: renderer self-fetches, source reachable, container accepted, height admits.
+func (s Shape) passthrough() bool {
 	primary, ok := s.Program.PrimaryInput()
 	if !ok || s.Delivery == DeliveryServe {
 		return false

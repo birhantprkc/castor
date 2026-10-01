@@ -43,7 +43,7 @@ func (s *session) encode(dev device.Device, f feed, burn Burn) (transcode.Encode
 	return transcode.EncodeOptions{
 		Input:  input,
 		Format: into,
-		Probe:  facts.Probe,
+		Probe:  facts.probe,
 		Video:  decided.Video,
 		Audio:  decided.Audio,
 	}, nil
@@ -61,7 +61,7 @@ func (s *session) input(f feed, ceiling read.Pace) (facts, transcode.EncodeInput
 		return facts{}, transcode.EncodeInput{}, err
 	}
 	measured := measure(s.ctx, "the source this remux reads", s.cfg.Probes.Source(f.program, source.ProbeInputs()))
-	if source, err = transcode.NewProgramSource(aligned(f.program, measured.Probe.InputStarts), policies, s.cfg.Binary); err != nil {
+	if source, err = transcode.NewProgramSource(aligned(f.program, measured.probe.InputStarts), policies, s.cfg.Binary); err != nil {
 		return facts{}, transcode.EncodeInput{}, err
 	}
 	return measured, transcode.FromSource(source), nil
@@ -69,7 +69,7 @@ func (s *session) input(f feed, ceiling read.Pace) (facts, transcode.EncodeInput
 
 func (s *session) decide(caps media.Capabilities, into container.FormatInfo, facts facts, burnIn string, spliced bool) (plan.MediaPlan, error) {
 	decided, err := plan.PlanMedia(s.ctx, plan.Inputs{
-		Caps: caps, Probe: facts.Probe, Measured: facts.Measured, Into: into, MaxHeight: s.cfg.MaxHeight,
+		Caps: caps, Probe: facts.probe, Measured: facts.measured, Into: into, MaxHeight: s.cfg.MaxHeight,
 		Spliced: spliced,
 		// Attempt's evidence: axis a reader already died copying not handed to second process to copy again.
 		Decode:   s.attempt.Decode,
@@ -83,12 +83,12 @@ func (s *session) decide(caps media.Capabilities, into container.FormatInfo, fac
 	slog.InfoContext(s.ctx, "encode decision",
 		"video_codec", decided.Video.Name(),
 		"audio_codec", decided.Audio.Name(),
-		"source_video_codec", string(facts.Probe.VideoCodec),
-		"source_video_profile", facts.Probe.VideoProfile,
-		"source_video_height", facts.Probe.VideoHeight,
-		"source_audio_codec", string(facts.Probe.AudioCodec),
-		"source_audio_channels", facts.Probe.AudioChannels,
-		"measured", facts.Measured,
+		"source_video_codec", string(facts.probe.VideoCodec),
+		"source_video_profile", facts.probe.VideoProfile,
+		"source_video_height", facts.probe.VideoHeight,
+		"source_audio_codec", string(facts.probe.AudioCodec),
+		"source_audio_channels", facts.probe.AudioChannels,
+		"measured", facts.measured,
 		"output_content_type", into.ContentType,
 		"burn_in", burnIn != "",
 		"decode", s.attempt.Decode.String(),

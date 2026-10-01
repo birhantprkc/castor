@@ -132,20 +132,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if m.showQuitModal {
 			switch {
-			case key.Matches(msg, keys.Enter), key.Matches(msg, keys.Quit):
+			case key.Matches(msg, keys.enter), key.Matches(msg, keys.quit):
 				m.err = fmt.Errorf("cancelled")
 				return m, tea.Quit
-			case key.Matches(msg, keys.Back):
+			case key.Matches(msg, keys.back):
 				m.showQuitModal = false
 				return m, nil
 			}
 			return m, nil
 		}
 		switch {
-		case key.Matches(msg, keys.Quit):
+		case key.Matches(msg, keys.quit):
 			m.showQuitModal = true
 			return m, nil
-		case key.Matches(msg, keys.Enter):
+		case key.Matches(msg, keys.enter):
 			if it, ok := m.list.SelectedItem().(item); ok {
 				m.selected = device.Info(it)
 				return m, tea.Quit
@@ -221,15 +221,15 @@ func (m model) renderModal() string {
 }
 
 type keyMap struct {
-	Enter key.Binding
-	Quit  key.Binding
-	Back  key.Binding
+	enter key.Binding
+	quit  key.Binding
+	back  key.Binding
 }
 
 var keys = keyMap{
-	Enter: key.NewBinding(key.WithKeys("enter"), key.WithHelp("↵", "select")),
-	Quit:  key.NewBinding(key.WithKeys("ctrl+c", "q"), key.WithHelp("q", "quit")),
-	Back:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
+	enter: key.NewBinding(key.WithKeys("enter"), key.WithHelp("↵", "select")),
+	quit:  key.NewBinding(key.WithKeys("ctrl+c", "q"), key.WithHelp("q", "quit")),
+	back:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 }
 
 // discoverDevicesCmd prevents discovery sweeps from outliving app shutdown.

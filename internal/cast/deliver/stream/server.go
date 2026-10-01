@@ -29,17 +29,17 @@ const (
 )
 
 type config struct {
-	LocalIP     string
-	ContentType string
-	Extension   string
-	Headers     map[string]string
+	localIP     string
+	contentType string
+	extension   string
+	headers     map[string]string
 
 	// Path where producer output is spooled; caller owns directory lifecycle.
-	SpoolPath string
+	spoolPath string
 
-	WriteDeadline time.Duration
+	writeDeadline time.Duration
 
-	IdleGrace time.Duration
+	idleGrace time.Duration
 }
 
 // Server spools producer output and replays from byte 0; URL after first byte/timeout.
@@ -67,7 +67,7 @@ type Server struct {
 // Open creates server for format with DeliverStream kind.
 func Open(o deliver.Opening) (*Server, error) {
 	cfg := configFor(o)
-	cfg.SpoolPath = filepath.Join(o.Dir, "out"+o.Format.Extension)
+	cfg.spoolPath = filepath.Join(o.Dir, "out"+o.Format.Extension)
 	srv, err := open(cfg, o.Out)
 	if err != nil {
 		return nil, fmt.Errorf("starting stream server: %w", err)
@@ -86,18 +86,18 @@ func OpenSpool(o deliver.Opening, sp *deliver.Spool, drained <-chan struct{}) (*
 
 func configFor(o deliver.Opening) config {
 	return config{
-		LocalIP:       o.LocalIP,
-		ContentType:   o.Format.ContentType,
-		Extension:     o.Format.Extension,
-		Headers:       o.Headers,
-		WriteDeadline: o.WriteDeadline,
-		IdleGrace:     o.IdleGrace,
+		localIP:       o.LocalIP,
+		contentType:   o.Format.ContentType,
+		extension:     o.Format.Extension,
+		headers:       o.Headers,
+		writeDeadline: o.WriteDeadline,
+		idleGrace:     o.IdleGrace,
 	}
 }
 
-// open spools producer into cfg.SpoolPath in the background and serves that spool.
+// open spools producer into cfg.spoolPath in the background and serves that spool.
 func open(cfg config, producer io.Reader) (*Server, error) {
-	sp, err := deliver.NewSpool(cfg.SpoolPath)
+	sp, err := deliver.NewSpool(cfg.spoolPath)
 	if err != nil {
 		return nil, err
 	}
@@ -118,9 +118,9 @@ func open(cfg config, producer io.Reader) (*Server, error) {
 	return s, nil
 }
 
-// listen binds to cfg.LocalIP on an ephemeral port and serves sp, final once done closes.
+// listen binds to cfg.localIP on an ephemeral port and serves sp, final once done closes.
 func listen(cfg config, sp *deliver.Spool, done <-chan struct{}) (*Server, error) {
-	ln, err := deliver.Listen(cfg.LocalIP)
+	ln, err := deliver.Listen(cfg.localIP)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +136,7 @@ func listen(cfg config, sp *deliver.Spool, done <-chan struct{}) (*Server, error
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/stream"+cfg.Extension, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/stream"+cfg.extension, func(w http.ResponseWriter, r *http.Request) {
 		s.handleStream(ctx, w, r)
 	})
 	s.server = deliver.Serve(ln, mux)
@@ -144,7 +144,7 @@ func listen(cfg config, sp *deliver.Spool, done <-chan struct{}) (*Server, error
 }
 
 func (s *Server) URL() *url.URL {
-	return &url.URL{Scheme: "http", Host: s.listener.Addr().String(), Path: "/stream" + s.cfg.Extension}
+	return &url.URL{Scheme: "http", Host: s.listener.Addr().String(), Path: "/stream" + s.cfg.extension}
 }
 
 // Drained is closed when producer ended and spool has all output.
@@ -160,7 +160,7 @@ func (s *Server) Handed() (int64, time.Time) {
 func (s *Server) Artifact() deliver.Artifact {
 	return deliver.Artifact{
 		Subject: "the stream output",
-		Landed:  func() int64 { n, _ := s.Spooled(); return n },
+		Landed:  func() int64 { n, _ := s.spooled(); return n },
 		Grace:   firstBytesTimeout,
 	}
 }
@@ -186,7 +186,7 @@ func (s *Server) Wait(ctx context.Context) error {
 	for {
 		s.mu.Lock()
 		finished := s.active == 0 &&
-			(s.completed || time.Since(s.lastDisconnect) > s.cfg.IdleGrace)
+			(s.completed || time.Since(s.lastDisconnect) > s.cfg.idleGrace)
 		s.mu.Unlock()
 		if finished {
 			return nil
@@ -231,7 +231,7 @@ func (s *Server) resume(rangeHeader string) (served, string) {
 	if s.rangesDeclined() {
 		return refuse("this delivery's own response headers declare Accept-Ranges: none")
 	}
-	total, final := s.Spooled()
+	total, final := s.spooled()
 	switch {
 	case !final:
 		return refuse("the producer is still running, so no response can state where this stream ends")
@@ -269,7 +269,7 @@ func byteRange(header string) (start, end int64, ok bool) {
 }
 
 func (s *Server) rangesDeclined() bool {
-	for k, v := range s.cfg.Headers {
+	for k, v := range s.cfg.headers {
 		if http.CanonicalHeaderKey(k) == "Accept-Ranges" {
 			return strings.EqualFold(strings.TrimSpace(v), "none")
 		}
@@ -277,8 +277,8 @@ func (s *Server) rangesDeclined() bool {
 	return false
 }
 
-// Spooled is how many bytes the producer has written and whether that figure is final.
-func (s *Server) Spooled() (int64, bool) {
+// spooled is how many bytes the producer has written and whether that figure is final.
+func (s *Server) spooled() (int64, bool) {
 	select {
 	case <-s.done:
 		return s.spool.Size(), true
@@ -293,12 +293,12 @@ func (s *Server) severed(ctx context.Context, r *http.Request, err error, held i
 		slog.InfoContext(ctx, "stream client disconnected", "from", r.RemoteAddr, "bytes_sent", held, "error", err)
 		return
 	}
-	_, final := s.Spooled()
+	_, final := s.spooled()
 	slog.WarnContext(ctx, "severed a client that stopped draining the stream; unless it reconnects with a Range it restarts the program from the beginning",
 		"from", r.RemoteAddr,
 		"user_agent", r.UserAgent(),
 		"stalled_for", stalled.Round(time.Millisecond),
-		"write_deadline", s.cfg.WriteDeadline,
+		"write_deadline", s.cfg.writeDeadline,
 		"bytes_sent", held,
 		"resumable", final && !s.rangesDeclined(),
 	)
@@ -338,8 +338,8 @@ func (s *Server) handleStream(srvCtx context.Context, w http.ResponseWriter, r *
 }
 
 func (s *Server) writeHeaders(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", s.cfg.ContentType)
-	for k, v := range s.cfg.Headers {
+	w.Header().Set("Content-Type", s.cfg.contentType)
+	for k, v := range s.cfg.headers {
 		w.Header().Set(k, v)
 	}
 }
@@ -410,7 +410,7 @@ func (s *Server) send(ctx context.Context, w http.ResponseWriter, r *http.Reques
 		}
 		n, readErr := tail.Read(want)
 		if n > 0 {
-			if err := control.SetWriteDeadline(time.Now().Add(s.cfg.WriteDeadline)); err != nil {
+			if err := control.SetWriteDeadline(time.Now().Add(s.cfg.writeDeadline)); err != nil {
 				slog.WarnContext(ctx, "stream write deadline unavailable, a client that stops reading will park this goroutine", "error", err)
 			}
 			if _, err := w.Write(want[:n]); err != nil {

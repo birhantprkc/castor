@@ -139,9 +139,9 @@ func candidates(t *testing.T, raws ...string) []*source.Candidate {
 	return out
 }
 
-func mustFault(t *testing.T, err error) *Fault {
+func mustFault(t *testing.T, err error) *fault {
 	t.Helper()
-	f, ok := errors.AsType[*Fault](err)
+	f, ok := errors.AsType[*fault](err)
 	if !ok {
 		t.Fatalf("cast error = %v, want a fault", err)
 	}
@@ -155,8 +155,8 @@ func TestOnlyARendererHandedTheSourceIsServedInstead(t *testing.T) {
 		handoff bool
 		want    string
 	}{
-		{"handed the source", true, serveInstead.Name},
-		{"already served", false, switchCandidate.Name},
+		{"handed the source", true, serveInstead.name},
+		{"already served", false, switchCandidate.name},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			in := Intent{Candidates: candidates(t, "https://cdn.example/one.m3u8", "https://other.example/two.m3u8"), Deadline: 30 * time.Second}
@@ -165,9 +165,9 @@ func TestOnlyARendererHandedTheSourceIsServedInstead(t *testing.T) {
 			if err := Cast(t.Context(), in, run, &fakeProgram{}); err != nil || len(run.seen) != 2 {
 				t.Fatalf("Cast error = %v after %d attempts, want the second attempt to deliver", err, len(run.seen))
 			}
-			got := switchCandidate.Name
-			if next := run.seen[1]; next.Candidate == 0 && next.Delivery == compose.DeliveryServe {
-				got = serveInstead.Name
+			got := switchCandidate.name
+			if next := run.seen[1]; next.candidate == 0 && next.Delivery == compose.DeliveryServe {
+				got = serveInstead.name
 			}
 			if got != tc.want {
 				t.Errorf("the refusal was answered by %s, want %s", got, tc.want)
@@ -192,7 +192,7 @@ func TestUnreadableLinksAreMovedPastInRankOrder(t *testing.T) {
 	if err := Cast(t.Context(), in, run, prog); err != nil {
 		t.Fatalf("cast: %v", err)
 	}
-	if len(run.seen) != 2 || run.seen[0].Candidate != 1 || run.seen[1].Candidate != 3 {
+	if len(run.seen) != 2 || run.seen[0].candidate != 1 || run.seen[1].candidate != 3 {
 		t.Fatalf("attempts = %+v, want candidates 1 then 3", run.seen)
 	}
 }
@@ -206,7 +206,7 @@ func TestATimelineCastorCouldNotReadMovesToTheNextLink(t *testing.T) {
 	if err := Cast(t.Context(), in, run, &fakeProgram{}); err != nil {
 		t.Fatalf("cast: %v", err)
 	}
-	if len(run.seen) != 2 || run.seen[1].Candidate != 1 {
+	if len(run.seen) != 2 || run.seen[1].candidate != 1 {
 		t.Fatalf("attempts = %+v, want the second link after the first's timeline could not be read", run.seen)
 	}
 }
@@ -239,8 +239,8 @@ func TestCastSwitchesToTheNextLinkOnItsOwnLadder(t *testing.T) {
 		t.Fatalf("ran %d attempts, want 2", len(run.seen))
 	}
 	second := run.seen[1]
-	if second.Candidate != 1 || primaryInput(t, second.Program).URL.String() != "https://other.example/720.m3u8" {
-		t.Errorf("second attempt = candidate %d reading %s, want candidate 1 on its narrowed rung", second.Candidate, primaryInput(t, second.Program).URL)
+	if second.candidate != 1 || primaryInput(t, second.Program).URL.String() != "https://other.example/720.m3u8" {
+		t.Errorf("second attempt = candidate %d reading %s, want candidate 1 on its narrowed rung", second.candidate, primaryInput(t, second.Program).URL)
 	}
 	if second.Rendition.Bitrate != 1200000 || len(second.Origin.Renditions) != 2 {
 		t.Errorf("second attempt carries rung %d over %d renditions, want the new link's own ladder", second.Rendition.Bitrate, len(second.Origin.Renditions))
@@ -290,7 +290,7 @@ func TestDegradeOnlyMovesDownTheLadder(t *testing.T) {
 	}
 	a := Attempt{Program: program, Origin: ladder(top, low), Rendition: low}
 	ahead := judged(watch.Undeliverable, PhaseReading, watch.Health{Landed: 4 << 20, Speed: 1.4, Headroom: 2, Samples: 4})
-	if _, ok := degradeRendition.Apply(t.Context(), change{Attempt: a, Outcome: ahead}); ok {
+	if _, ok := degradeRendition.apply(t.Context(), change{attempt: a, outcome: ahead}); ok {
 		t.Error("a read measured above its own rung was offered a heavier one")
 	}
 }
@@ -307,14 +307,14 @@ func TestCastRelaxesAStalledReadBeforeAbandoningTheLink(t *testing.T) {
 		t.Fatalf("ran %d attempts, want 3: the same link politely, then the next", len(run.seen))
 	}
 	second := run.seen[1]
-	if second.Candidate != 0 {
+	if second.candidate != 0 {
 		t.Errorf("the second attempt changed link before asking the first one politely")
 	}
 	if pace := second.Read.Primary(second.Program).Pace; pace.Realtime != 1 || pace.Burst != 0 {
 		t.Errorf("the relaxed read is paced %+v, want playback pace with no burst", pace)
 	}
-	if run.seen[2].Candidate != 1 {
-		t.Errorf("third attempt reads candidate %d, want the next link", run.seen[2].Candidate)
+	if run.seen[2].candidate != 1 {
+		t.Errorf("third attempt reads candidate %d, want the next link", run.seen[2].candidate)
 	}
 }
 
@@ -331,8 +331,8 @@ func TestCastDecodesTheAxisWhoseCopyBrokeUpstream(t *testing.T) {
 	if run.seen[0].Decode.Any() {
 		t.Error("the first attempt decoded before any evidence asked it to")
 	}
-	if second := run.seen[1]; !second.Decode.Video || !second.Decode.Audio || second.Candidate != 0 {
-		t.Errorf("second attempt decodes %s on candidate %d, want every copied axis on the same link", second.Decode, second.Candidate)
+	if second := run.seen[1]; !second.Decode.Video || !second.Decode.Audio || second.candidate != 0 {
+		t.Errorf("second attempt decodes %s on candidate %d, want every copied axis on the same link", second.Decode, second.candidate)
 	}
 }
 
@@ -357,8 +357,8 @@ func TestAFailureNobodyJudgedIsAbandonedRatherThanRetried(t *testing.T) {
 	run := &scriptedRunner{outcomes: []Outcome{unjudged, delivered}}
 
 	err := Cast(t.Context(), in, run, publishing(in.Candidates[0], source.Origin{Segmented: true}, source.Rendition{}))
-	if f := mustFault(t, err); f.Kind != CopyBrokeUpstream || len(run.seen) != 1 {
-		t.Fatalf("classified %s after %d attempts, want %s after 1", f.Kind, len(run.seen), CopyBrokeUpstream)
+	if f := mustFault(t, err); f.kind != copyBrokeUpstream || len(run.seen) != 1 {
+		t.Fatalf("classified %s after %d attempts, want %s after 1", f.kind, len(run.seen), copyBrokeUpstream)
 	}
 }
 
@@ -368,13 +368,13 @@ func TestARendererThatIsGoneIsNotRetried(t *testing.T) {
 	origin := ladder(rung(t, "https://cdn.example/2160.m3u8", 6941000, 2160), rung(t, "https://cdn.example/720.m3u8", 1000000, 720))
 	gone := &media.Gone{Renderer: "Living Room TV", Err: errors.New("connect: no route to host")}
 	// Unstarted with a play error is revisable, so only the empty playbook entry refuses it.
-	away := Outcome{Err: gone, Evidence: Evidence{Reached: PhaseUnstarted, PlayErr: gone, RendererGone: gone, Health: starving}}
+	away := Outcome{Err: gone, Evidence: Evidence{Reached: phaseUnstarted, PlayErr: gone, RendererGone: gone, Health: starving}}
 	run := &scriptedRunner{outcomes: []Outcome{away, delivered}}
 
 	err := Cast(t.Context(), in, run, publishing(head, origin, origin.Renditions[0]))
 	f := mustFault(t, err)
-	if f.Kind != RendererGone || len(run.seen) != 1 || len(f.Tried) != 0 {
-		t.Fatalf("classified %s after %d attempts having tried %v, want %s after 1 with nothing tried", f.Kind, len(run.seen), f.Tried, RendererGone)
+	if f.kind != rendererGone || len(run.seen) != 1 || len(f.tried) != 0 {
+		t.Fatalf("classified %s after %d attempts having tried %v, want %s after 1 with nothing tried", f.kind, len(run.seen), f.tried, rendererGone)
 	}
 	if !errors.Is(err, gone.Err) {
 		t.Error("the refusal does not unwrap to the renderer's own failure")
@@ -382,9 +382,9 @@ func TestARendererThatIsGoneIsNotRetried(t *testing.T) {
 }
 
 func TestTheLedgerStopsAStrategyRepeatingAnAttempt(t *testing.T) {
-	sameAgain := strategy{Name: "same-again", Apply: func(_ context.Context, c change) (Attempt, bool) { return c.Attempt, true }}
+	sameAgain := strategy{name: "same-again", apply: func(_ context.Context, c change) (Attempt, bool) { return c.attempt, true }}
 	shipped := playbook
-	playbook = map[Kind][]strategy{SourceStalled: {sameAgain}}
+	playbook = map[kind][]strategy{sourceStalled: {sameAgain}}
 	t.Cleanup(func() { playbook = shipped })
 
 	in := Intent{Candidates: candidates(t, "https://cdn.example/one.m3u8"), Deadline: 30 * time.Second}
@@ -406,7 +406,7 @@ func TestCastEndsWithTheCancellationRatherThanAFault(t *testing.T) {
 	}, delivered}}
 
 	err := Cast(ctx, in, run, &fakeProgram{})
-	if _, isFault := errors.AsType[*Fault](err); !errors.Is(err, context.Canceled) || isFault || len(run.seen) != 1 {
+	if _, isFault := errors.AsType[*fault](err); !errors.Is(err, context.Canceled) || isFault || len(run.seen) != 1 {
 		t.Fatalf("Cast error = %v after %d attempts, want the bare cancellation after 1", err, len(run.seen))
 	}
 }
@@ -427,11 +427,11 @@ func TestTheRefusalNamesWhatWasTriedAndItsMeasurements(t *testing.T) {
 
 	err := Cast(t.Context(), in, run, prog)
 	f := mustFault(t, err)
-	if f.Kind != UnderDelivering || !slices.Equal(f.Tried, []string{switchCandidate.Name}) || f.Attempt.Candidate != 1 {
+	if f.kind != underDelivering || !slices.Equal(f.tried, []string{switchCandidate.name}) || f.attempt.candidate != 1 {
 		t.Errorf("refused %s on candidate %d having tried %v, want %s on candidate 1 having tried [%s]",
-			f.Kind, f.Attempt.Candidate, f.Tried, UnderDelivering, switchCandidate.Name)
+			f.kind, f.attempt.candidate, f.tried, underDelivering, switchCandidate.name)
 	}
-	for _, want := range []string{"speed=0.0627", "2h1m55s", "32h24m", "candidate 2 of 2", "already tried: " + switchCandidate.Name} {
+	for _, want := range []string{"speed=0.0627", "2h1m55s", "32h24m", "candidate 2 of 2", "already tried: " + switchCandidate.name} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the refusal %q does not carry %q", err, want)
 		}

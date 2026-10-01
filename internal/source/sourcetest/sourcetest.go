@@ -30,7 +30,7 @@ type Measurer struct {
 type Answer struct {
 	Info  *media.ProbeInfo
 	Reach media.Reach
-	Err   error
+	err   error
 }
 
 // Probe binds the script to one link (test binds it to candidate's URL to build rank.Probes).
@@ -59,9 +59,9 @@ func (p scripted) Probe(context.Context) (media.ProbeInfo, media.Reach, error) {
 	}
 	// Scripted failure carries no info (production shape for unopened link).
 	if a.Info == nil {
-		return media.ProbeInfo{}, a.Reach, a.Err
+		return media.ProbeInfo{}, a.Reach, a.err
 	}
-	return *a.Info, a.Reach, a.Err
+	return *a.Info, a.Reach, a.err
 }
 
 // Playlist serves one fixture document to every fetch; like web.Client, anything but a 2xx fails.

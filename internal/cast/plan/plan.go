@@ -31,23 +31,23 @@ type Inputs struct {
 type PlanReason string
 
 const (
-	ReasonRendererVideo   PlanReason = "renderer-video-incompatible"
-	ReasonRendererAudio   PlanReason = "renderer-audio-incompatible"
-	ReasonContainerVideo  PlanReason = "container-video-incompatible"
-	ReasonContainerAudio  PlanReason = "container-audio-incompatible"
-	ReasonVideoCopyFailed PlanReason = "video-copy-failed"
-	ReasonAudioCopyFailed PlanReason = "audio-copy-failed"
-	ReasonHeightLimit     PlanReason = "height-limit"
-	ReasonHDRPolicy       PlanReason = "hdr-policy"
-	ReasonInterlaced      PlanReason = "interlaced"
-	ReasonRotated         PlanReason = "rotated"
-	ReasonSampleRate      PlanReason = "sample-rate"
-	ReasonSpliced         PlanReason = "spliced"
-	ReasonSubtitleBurnIn  PlanReason = "subtitle-burn-in"
+	reasonRendererVideo   PlanReason = "renderer-video-incompatible"
+	reasonRendererAudio   PlanReason = "renderer-audio-incompatible"
+	reasonContainerVideo  PlanReason = "container-video-incompatible"
+	reasonContainerAudio  PlanReason = "container-audio-incompatible"
+	reasonVideoCopyFailed PlanReason = "video-copy-failed"
+	reasonAudioCopyFailed PlanReason = "audio-copy-failed"
+	reasonHeightLimit     PlanReason = "height-limit"
+	reasonHDRPolicy       PlanReason = "hdr-policy"
+	reasonInterlaced      PlanReason = "interlaced"
+	reasonRotated         PlanReason = "rotated"
+	reasonSampleRate      PlanReason = "sample-rate"
+	reasonSpliced         PlanReason = "spliced"
+	reasonSubtitleBurnIn  PlanReason = "subtitle-burn-in"
 )
 
-// refusal is one row of an axis's copy-refusal table, with reason, prose, and when it applies.
-type refusal struct {
+// refusalRule is one row of an axis's copy-refusal table, with reason, prose, and when it applies.
+type refusalRule struct {
 	reason PlanReason
 	// why is the same refusal in prose for the one line that states it, and is a function of the subject.
 	why func(Inputs) string
@@ -64,7 +64,7 @@ type Refusal struct {
 	Why    string
 }
 
-func refuse(table []refusal, in Inputs) []Refusal {
+func refuse(table []refusalRule, in Inputs) []Refusal {
 	var fired []Refusal
 	for _, r := range table {
 		if r.when(in) {
@@ -81,8 +81,8 @@ type MediaPlan struct {
 	Refusals []Refusal
 }
 
-// Reasons is the refusal vocabulary alone.
-func (p MediaPlan) Reasons() []PlanReason {
+// reasons is the refusal vocabulary alone.
+func (p MediaPlan) reasons() []PlanReason {
 	reasons := make([]PlanReason, len(p.Refusals))
 	for i, r := range p.Refusals {
 		reasons[i] = r.Reason

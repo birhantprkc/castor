@@ -14,10 +14,10 @@ const SampleRate = 16000
 // Language is a subtitle language: a BCP-47 code (e.g. "en", "fr") or LanguageAuto to detect it.
 type Language string
 
-// LanguageAuto lets the transcriber detect the language per buffer.
-const LanguageAuto Language = "auto"
+// languageAuto lets the transcriber detect the language per buffer.
+const languageAuto Language = "auto"
 
 // AutoDetect reports whether the language should be detected from the audio rather than pinned.
 func (l Language) AutoDetect() bool {
-	return l == "" || l == LanguageAuto
+	return l == "" || l == languageAuto
 }

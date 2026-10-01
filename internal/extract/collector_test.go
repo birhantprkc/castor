@@ -57,7 +57,7 @@ func TestALinkIsCapturedByNameOnlyAsAManifest(t *testing.T) {
 	} {
 		c := testCollector(t)
 		c.addByURL(tc.raw, "req-1")
-		if got := c.HasHits(); got != tc.want {
+		if got := c.hasHits(); got != tc.want {
 			t.Errorf("addByURL(%q) captured = %v, want %v", tc.raw, got, tc.want)
 		}
 	}
@@ -77,7 +77,7 @@ func TestCapturesKeepTheOrderTheyWereFoundIn(t *testing.T) {
 		"https://cdn.example/other/chunklist.m3u8",
 		"https://cdn.example/dash/manifest",
 	}
-	entries := c.Entries()
+	entries := c.entries()
 	if got := urls(entries); !slices.Equal(got, want) {
 		t.Fatalf("entries = %v, want capture order %v", got, want)
 	}
@@ -100,7 +100,7 @@ func TestACaptureAnotherDocumentNamesIsDropped(t *testing.T) {
 	c.addByMIME("https://cdn.example/hls/seg_00001.m4s", "req-seg", "video/mp4")
 	c.addByMIME("https://cdn.example/elsewhere/movie.mp4", "req-movie", "video/mp4")
 
-	if got, want := urls(c.Entries()), []string{document, "https://cdn.example/elsewhere/movie.mp4"}; !slices.Equal(got, want) {
+	if got, want := urls(c.entries()), []string{document, "https://cdn.example/elsewhere/movie.mp4"}; !slices.Equal(got, want) {
 		t.Errorf("entries = %v, want %v", got, want)
 	}
 }
@@ -112,9 +112,9 @@ func TestARedirectedDocumentIsReadWhereItLanded(t *testing.T) {
 		asked  = "https://embed.example/hls/master.m3u8"
 		landed = "https://cdn.example/edge/master.m3u8"
 	)
-	c.Listen(&network.EventRequestWillBeSent{RequestID: "req-1", Request: &network.Request{URL: asked}})
-	c.Listen(&network.EventRequestWillBeSent{RequestID: "req-1", Request: &network.Request{URL: landed}})
-	c.Listen(&network.EventResponseReceived{RequestID: "req-1", Response: &network.Response{URL: landed, MimeType: "text/plain"}})
+	c.listen(&network.EventRequestWillBeSent{RequestID: "req-1", Request: &network.Request{URL: asked}})
+	c.listen(&network.EventRequestWillBeSent{RequestID: "req-1", Request: &network.Request{URL: landed}})
+	c.listen(&network.EventResponseReceived{RequestID: "req-1", Response: &network.Response{URL: landed, MimeType: "text/plain"}})
 
 	if !c.claimBodyRead("req-1", 0) {
 		t.Fatal("the redirected manifest was never claimed for a read")
@@ -122,7 +122,7 @@ func TestARedirectedDocumentIsReadWhereItLanded(t *testing.T) {
 	c.noteDocument("req-1", masterDocument)
 	c.addByURL("https://cdn.example/edge/v/1080.m3u8", "req-2")
 
-	entries := c.Entries()
+	entries := c.entries()
 	if got := urls(entries); !slices.Equal(got, []string{asked, landed}) {
 		t.Fatalf("entries = %v, want both hops and not the variant the landed master names", got)
 	}
@@ -145,7 +145,7 @@ func TestAnUntypedResponseIsTypedByItsName(t *testing.T) {
 		c := testCollector(t)
 		c.addByMIME(tc.raw, "req-1", tc.mime)
 		var got string
-		if entries := c.Entries(); len(entries) > 0 {
+		if entries := c.entries(); len(entries) > 0 {
 			got = entries[0].ContentType
 		}
 		if got != tc.want {

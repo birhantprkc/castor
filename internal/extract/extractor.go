@@ -30,7 +30,7 @@ func (e *Extractor) extract(ctx context.Context, targetURL string) ([]*source.Ca
 	}
 	defer session.Close()
 
-	session.RunActions()
+	session.runActions()
 
 	streams, err := session.collector.Wait(ctx)
 	if err != nil {

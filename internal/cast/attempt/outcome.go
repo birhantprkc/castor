@@ -11,8 +11,8 @@ import (
 type Phase int
 
 const (
-	// PhaseUnstarted is an attempt that ended before anything was read.
-	PhaseUnstarted Phase = iota
+	// phaseUnstarted is an attempt that ended before anything was read.
+	phaseUnstarted Phase = iota
 	// PhaseReading is the source read landing media with no renderer pointed at anything yet.
 	PhaseReading
 	// PhaseOpening is the artifact a renderer will be pointed at being produced.

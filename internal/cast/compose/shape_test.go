@@ -47,7 +47,7 @@ func TestPassthroughOnlyWhenEverythingChecks(t *testing.T) {
 				program.SetMeasurement(media.ProbeInfo{VideoCodec: media.CodecH264, VideoBitDepth: 8, AudioCodec: media.CodecAAC, AudioChannels: 2})
 			}
 			shape := Shape{Renderer: caps, Program: program, Height: tt.height, MaxHeight: tt.maxHeight}
-			if got := shape.Passthrough(); got != tt.want {
+			if got := shape.passthrough(); got != tt.want {
 				t.Errorf("Passthrough() = %v, want %v (shape: %s)", got, tt.want, shape)
 			}
 		})

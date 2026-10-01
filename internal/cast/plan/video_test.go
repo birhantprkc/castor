@@ -66,9 +66,9 @@ func TestWhatForcesAVideoReEncode(t *testing.T) {
 		want   []PlanReason
 	}{
 		{name: "nothing against it copies", caps: h264, probe: sdr},
-		{name: "a source above the ceiling", caps: h264, probe: tall, want: []PlanReason{ReasonHeightLimit}},
-		{name: "HDR even on a renderer that decodes it", caps: hdrCapable, probe: hdr, want: []PlanReason{ReasonHDRPolicy}},
-		{name: "a burn-in needs decoded frames", caps: h264, probe: sdr, burnIn: "/tmp/cue.txt", want: []PlanReason{ReasonSubtitleBurnIn}},
+		{name: "a source above the ceiling", caps: h264, probe: tall, want: []PlanReason{reasonHeightLimit}},
+		{name: "HDR even on a renderer that decodes it", caps: hdrCapable, probe: hdr, want: []PlanReason{reasonHDRPolicy}},
+		{name: "a burn-in needs decoded frames", caps: h264, probe: sdr, burnIn: "/tmp/cue.txt", want: []PlanReason{reasonSubtitleBurnIn}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			in := Inputs{Caps: tt.caps, Probe: tt.probe, Into: testFormat(t, media.MPEGTS), MaxHeight: 1080, BurnIn: tt.burnIn, Encoders: hostEncoders}

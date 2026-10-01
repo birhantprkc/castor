@@ -10,15 +10,15 @@ import (
 // Render writes the ledger as an HLS media playlist, each segment as view shows it to the reader; nil shows the origin's.
 func (l *Ledger) Render(view func(s Segment, sequence int64) Segment) []byte {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s\n%s:6\n", TagHeader, TagVersion)
-	fmt.Fprintf(&b, "%s:%d\n", TagTargetDuration, l.target())
+	fmt.Fprintf(&b, "%s\n%s:6\n", TagHeader, tagVersion)
+	fmt.Fprintf(&b, "%s:%d\n", tagTargetDuration, l.target())
 	first := l.next
 	if len(l.entries) > 0 {
 		first = l.entries[0].sequence
 	}
 	fmt.Fprintf(&b, "%s:%d\n", TagMediaSequence, first)
 	if l.dropped > 0 {
-		fmt.Fprintf(&b, "%s:%d\n", TagDiscontinuitySequence, l.dropped)
+		fmt.Fprintf(&b, "%s:%d\n", tagDiscontinuitySequence, l.dropped)
 	}
 	if s := l.start; s != nil {
 		fmt.Fprintf(&b, "%s:TIME-OFFSET=%s", TagStart, seconds(s.Offset))

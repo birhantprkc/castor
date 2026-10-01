@@ -6,19 +6,19 @@ import (
 	"strings"
 )
 
-// Site is a set of proxy hosts and the URL templates to reach a movie or episode page.
-type Site struct {
+// site is a set of proxy hosts and the URL templates to reach a movie or episode page.
+type site struct {
 	Proxies   []string  `yaml:"proxies" validate:"required,min=1"`
-	Templates Templates `yaml:"templates" validate:"required"`
+	Templates templates `yaml:"templates" validate:"required"`
 }
 
-type Templates struct {
+type templates struct {
 	Movie   string `yaml:"movie" validate:"required"`
 	Episode string `yaml:"episode" validate:"required"`
 }
 
 // Sites is every site the operator configured, tried in order.
-type Sites []Site
+type Sites []site
 
 func (s Sites) MovieURLs(itemID string) []string {
 	var urls []string
@@ -41,7 +41,7 @@ func (s Sites) EpisodeURLs(itemID string, season, episode uint) []string {
 }
 
 // expand substitutes pairs into tmpl and prefixes the result with every proxy host.
-func (s Site) expand(tmpl string, pairs ...string) []string {
+func (s site) expand(tmpl string, pairs ...string) []string {
 	route := strings.NewReplacer(pairs...).Replace(tmpl)
 	urls := make([]string, len(s.Proxies))
 	for i, proxy := range s.Proxies {

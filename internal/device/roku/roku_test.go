@@ -99,7 +99,7 @@ func TestConnectVerifiesTheChannelItWillLaunch(t *testing.T) {
 				_, _ = io.WriteString(w, tt.apps)
 			}))
 			defer ts.Close()
-			_, err := Family{Config: Config{AppID: tt.appID}}.Connect(t.Context(), device.Info{Name: "TV", Type: Type, Address: ts.URL})
+			_, err := Family{Config: Config{AppID: tt.appID}}.Connect(t.Context(), device.Info{Name: "TV", Type: familyType, Address: ts.URL})
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Connect() = %v, wantErr %v", err, tt.wantErr)
 			}

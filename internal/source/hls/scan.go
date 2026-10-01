@@ -14,11 +14,11 @@ import (
 
 // listing is a media playlist read line by line, each segment carrying every tag that applies to it.
 type listing struct {
-	Segments []timeline.Segment
-	Closed   bool
-	Start    *timeline.Start
-	// Relaxed is a segment or init resource named with an extension a default reader rejects.
-	Relaxed bool
+	segments []timeline.Segment
+	closed   bool
+	start    *timeline.Start
+	// relaxed is a segment or init resource named with an extension a default reader rejects.
+	relaxed bool
 }
 
 var errNotPlaylist = errors.New("not an HLS playlist")
@@ -54,14 +54,14 @@ func scanMedia(body string, base *url.URL) (listing, error) {
 			}
 			sequence = n
 		case tag == timeline.TagEndList:
-			out.Closed = true
+			out.closed = true
 		case tag == timeline.TagStart:
 			a := attributes(value)
 			offset, err := strconv.ParseFloat(a["TIME-OFFSET"], 64)
 			if err != nil {
 				return listing{}, fmt.Errorf("reading %s: %w", line, err)
 			}
-			out.Start = &timeline.Start{Offset: seconds(offset), Precise: a["PRECISE"] == "YES"}
+			out.start = &timeline.Start{Offset: seconds(offset), Precise: a["PRECISE"] == "YES"}
 		case tag == timeline.TagInf:
 			duration, _, _ := strings.Cut(value, ",")
 			d, err := strconv.ParseFloat(duration, 64)
@@ -97,7 +97,7 @@ func scanMedia(body string, base *url.URL) (listing, error) {
 			span.Offset = max(span.Offset, 0)
 			// A key in force at the MAP encrypts the init section too, and names its IV outright.
 			init = &timeline.Map{URI: uri.String(), Range: span, Key: key}
-			out.Relaxed = out.Relaxed || requiresRelaxedHLSInput(a["URI"])
+			out.relaxed = out.relaxed || requiresRelaxedHLSInput(a["URI"])
 		case strings.HasPrefix(line, "#"):
 		default:
 			uri, err := base.Parse(line)
@@ -116,12 +116,12 @@ func scanMedia(body string, base *url.URL) (listing, error) {
 			}
 			pending.Place = timeline.Place{Start: sequence, End: sequence + 1}
 			pending.Seam = seam
-			out.Relaxed = out.Relaxed || requiresRelaxedHLSInput(line)
+			out.relaxed = out.relaxed || requiresRelaxedHLSInput(line)
 			// A gap lists media that does not exist, so what follows it is past a break the origin declared.
 			if gap {
 				seam = true
 			} else {
-				out.Segments = append(out.Segments, pending)
+				out.segments = append(out.segments, pending)
 				seam = false
 			}
 			sequence++

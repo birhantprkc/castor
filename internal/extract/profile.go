@@ -11,28 +11,28 @@ import (
 type profile struct {
 	uaOS                string
 	grease              string
-	UserAgent           string
-	Brands              [][2]string // [brand, majorVersion]
-	FullVersionList     [][2]string // [brand, fullVersion]
-	Platform            string      // Client Hints platform (e.g. "Windows")
-	PlatformVersion     string      // Client Hints platform version
-	Architecture        string
-	Bitness             string
-	NavigatorPlatform   string // navigator.platform value
-	AcceptLanguage      string
-	Languages           []string
-	HardwareConcurrency int64
-	DeviceMemory        int
-	ScreenWidth         int
-	ScreenHeight        int
-	ColorDepth          int
-	WebGLVendor         string
-	WebGLRenderer       string
-	TimezoneID          string
-	NoiseSeed           uint32  // per-session PRNG seed for canvas/audio/rect/font noise
-	FontNoisePx         float64 // sub-pixel offset for measureText [0.001, 0.099]
-	RectNoisePx         float64 // sub-pixel offset for getClientRects [0.001, 0.099]
-	AudioNoiseMag       float64 // noise magnitude for AudioContext [0.00001, 0.0001]
+	userAgent           string
+	brands              [][2]string // [brand, majorVersion]
+	fullVersionList     [][2]string // [brand, fullVersion]
+	platform            string      // Client Hints platform (e.g. "Windows")
+	platformVersion     string      // Client Hints platform version
+	architecture        string
+	bitness             string
+	navigatorPlatform   string // navigator.platform value
+	acceptLanguage      string
+	languages           []string
+	hardwareConcurrency int64
+	deviceMemory        int
+	screenWidth         int
+	screenHeight        int
+	colorDepth          int
+	webGLVendor         string
+	webGLRenderer       string
+	timezoneID          string
+	noiseSeed           uint32  // per-session PRNG seed for canvas/audio/rect/font noise
+	fontNoisePx         float64 // sub-pixel offset for measureText [0.001, 0.099]
+	rectNoisePx         float64 // sub-pixel offset for getClientRects [0.001, 0.099]
+	audioNoiseMag       float64 // noise magnitude for AudioContext [0.00001, 0.0001]
 }
 
 type platformPreset struct {
@@ -147,25 +147,25 @@ func newProfile() *profile {
 	return &profile{
 		uaOS:                plat.uaOS,
 		grease:              grease,
-		Platform:            plat.chPlatform,
-		PlatformVersion:     plat.chPlatformVersion,
-		Architecture:        plat.architecture,
-		Bitness:             plat.bitness,
-		NavigatorPlatform:   plat.navigatorPlatform,
-		AcceptLanguage:      loc.acceptLanguage,
-		Languages:           loc.languages,
-		HardwareConcurrency: hwConc,
-		DeviceMemory:        devMem,
-		ScreenWidth:         scr.width,
-		ScreenHeight:        scr.height,
-		ColorDepth:          24,
-		WebGLVendor:         webgl.vendor,
-		WebGLRenderer:       webgl.renderer,
-		TimezoneID:          loc.timezoneID,
-		NoiseSeed:           rand.Uint32(),
-		FontNoisePx:         0.001 + rand.Float64()*0.098,
-		RectNoisePx:         0.001 + rand.Float64()*0.098,
-		AudioNoiseMag:       0.00001 + rand.Float64()*0.00009,
+		platform:            plat.chPlatform,
+		platformVersion:     plat.chPlatformVersion,
+		architecture:        plat.architecture,
+		bitness:             plat.bitness,
+		navigatorPlatform:   plat.navigatorPlatform,
+		acceptLanguage:      loc.acceptLanguage,
+		languages:           loc.languages,
+		hardwareConcurrency: hwConc,
+		deviceMemory:        devMem,
+		screenWidth:         scr.width,
+		screenHeight:        scr.height,
+		colorDepth:          24,
+		webGLVendor:         webgl.vendor,
+		webGLRenderer:       webgl.renderer,
+		timezoneID:          loc.timezoneID,
+		noiseSeed:           rand.Uint32(),
+		fontNoisePx:         0.001 + rand.Float64()*0.098,
+		rectNoisePx:         0.001 + rand.Float64()*0.098,
+		audioNoiseMag:       0.00001 + rand.Float64()*0.00009,
 	}
 }
 
@@ -177,11 +177,11 @@ func (p *profile) identify(product string) error {
 		return fmt.Errorf("browser product %q states no version", product)
 	}
 	// A real Chrome reports only its major version in the user agent.
-	p.UserAgent = fmt.Sprintf(
+	p.userAgent = fmt.Sprintf(
 		"Mozilla/5.0 (%s) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s.0.0.0 Safari/537.36",
 		p.uaOS, major,
 	)
-	p.Brands = [][2]string{{p.grease, "8"}, {"Chromium", major}, {"Google Chrome", major}}
-	p.FullVersionList = [][2]string{{p.grease, "8.0.0.0"}, {"Chromium", full}, {"Google Chrome", full}}
+	p.brands = [][2]string{{p.grease, "8"}, {"Chromium", major}, {"Google Chrome", major}}
+	p.fullVersionList = [][2]string{{p.grease, "8.0.0.0"}, {"Chromium", full}, {"Google Chrome", full}}
 	return nil
 }

@@ -94,20 +94,20 @@ type axisArgs struct {
 
 // args renders the axis into format; an encode takes its output's adaptations too (omitting them breaks E-AC-3).
 func (a axis) args(format container.FormatInfo) (axisArgs, error) {
-	cp := planCopy(a.table, copySubject{Codec: a.codec, Into: format, Copying: a.copying})
+	cp := planCopy(a.table, copySubject{codec: a.codec, into: format, copying: a.copying})
 	// A copy the tables already refuse must not be buildable.
 	if a.copying && a.refused {
 		return axisArgs{}, fmt.Errorf("copy of %q into %q on -c:%s is known not to be carriable; it should have been re-encoded",
 			a.codec, format.ContentType, a.spec)
 	}
-	if !a.copying && len(cp.Filters) > 0 {
+	if !a.copying && len(cp.filters) > 0 {
 		return axisArgs{}, fmt.Errorf("re-encode to %q on -c:%s would carry bitstream filters %v; a repack belongs to a copy, so that row needs the copying predicate",
-			a.codec, a.spec, cp.Filters)
+			a.codec, a.spec, cp.filters)
 	}
-	out := axisArgs{args: []string{"-c:" + a.spec, a.name}, movFlags: cp.MovFlags, outputArgs: cp.OutputArgs}
+	out := axisArgs{args: []string{"-c:" + a.spec, a.name}, movFlags: cp.movFlags, outputArgs: cp.outputArgs}
 	// ffmpeg takes the whole chain as one comma separated value.
-	if len(cp.Filters) > 0 {
-		out.args = append(out.args, "-bsf:"+a.spec, strings.Join(cp.Filters, ","))
+	if len(cp.filters) > 0 {
+		out.args = append(out.args, "-bsf:"+a.spec, strings.Join(cp.filters, ","))
 	}
 	out.args = append(out.args, a.encode...)
 	return out, nil

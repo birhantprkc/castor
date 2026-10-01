@@ -11,8 +11,8 @@ import (
 
 // facts is what a cast knows about its tracks and whether it knows the whole subject.
 type facts struct {
-	Probe    media.ProbeInfo
-	Measured bool
+	probe    media.ProbeInfo
+	measured bool
 }
 
 // measure probes subject once; failure means fallback to re-encode (zero ProbeInfo is copy-safe).
@@ -26,13 +26,13 @@ func measure(ctx context.Context, subject string, p media.Prober) facts {
 		slog.WarnContext(ctx, "castor could not measure this cast's tracks; every copy decision below falls back to a re-encode, and the read is where a dead link will say so",
 			"subject", subject, "error", err)
 	}
-	return facts{Probe: info, Measured: err == nil}
+	return facts{probe: info, measured: err == nil}
 }
 
 // sounds is whether program's read is sure to carry sound: heard by the probe, or else declared or required by the source.
 func (f facts) sounds(p media.Program) bool {
-	if f.Probe.AudioCodec != "" || f.Measured {
-		return f.Probe.AudioCodec != ""
+	if f.probe.AudioCodec != "" || f.measured {
+		return f.probe.AudioCodec != ""
 	}
 	if known, _ := p.Measurement(); known.AudioCodec != "" {
 		return true

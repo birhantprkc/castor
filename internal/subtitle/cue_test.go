@@ -74,17 +74,17 @@ func TestBuilderClosesAndOrders(t *testing.T) {
 	}
 	b.Commit(words, 5.0)
 
-	cues := b.Cues()
+	cues := b.cues
 	if len(cues) != 2 {
 		t.Fatalf("want 2 cues, got %d: %v", len(cues), cues)
 	}
-	if cues[0].Start > cues[1].Start {
+	if cues[0].start > cues[1].start {
 		t.Error("cues must be appended in non-decreasing start order")
 	}
-	if got := b.CueAt(3.2); got != "Second line." {
+	if got := b.cueAt(3.2); got != "Second line." {
 		t.Errorf("CueAt(3.2) = %q", got)
 	}
-	if got := b.CueAt(2.5); got != "" {
+	if got := b.cueAt(2.5); got != "" {
 		t.Errorf("CueAt in the gap should be empty, got %q", got)
 	}
 }
@@ -96,11 +96,11 @@ func TestBuilderSilentTailClosesParagraphFinalCue(t *testing.T) {
 		{Start: 0.8, End: 1.6, Text: "end"}, // no sentence punctuation
 	}
 	b.Commit(sentence, 1.6)
-	if n := len(b.Cues()); n != 0 {
+	if n := len(b.cues); n != 0 {
 		t.Fatalf("cue without a closing signal should stay open, got %d cues", n)
 	}
 	b.Commit(nil, 1.6+cueGapSeconds)
-	if n := len(b.Cues()); n != 1 {
+	if n := len(b.cues); n != 1 {
 		t.Fatalf("confirmed silence should close the trailing cue, got %d cues", n)
 	}
 }

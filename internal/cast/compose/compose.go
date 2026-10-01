@@ -52,7 +52,7 @@ var compositions = []Row{{
 	Why:   "the renderer fetches for itself and already accepts the source as it is",
 	Kind:  Handoff,
 	needs: Negotiated,
-	when:  Shape.Passthrough,
+	when:  Shape.passthrough,
 }}
 
 // remux answers what no composition did: the renderer rejects the source, or its headers do not match.

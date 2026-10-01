@@ -48,8 +48,8 @@ func (fs Formats) identities() []Identity {
 	return append(ids, containers...)
 }
 
-// Sniff names the content type of the first grammar that recognises body, "" when none does.
-func (fs Formats) Sniff(body string) string {
+// sniff names the content type of the first grammar that recognises body, "" when none does.
+func (fs Formats) sniff(body string) string {
 	for _, f := range fs {
 		if f.Recognize(body).Ladder != LadderUnknown {
 			return f.Identity().ContentType

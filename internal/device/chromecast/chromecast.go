@@ -43,10 +43,10 @@ var _ device.Device = (*chromecastDevice)(nil)
 // Family is the Cast strategy.
 type Family struct{}
 
-// Type is the name config.yaml selects this family by.
-const Type device.Type = "chromecast"
+// familyType is the name config.yaml selects this family by.
+const familyType device.Type = "chromecast"
 
-func (Family) Type() device.Type { return Type }
+func (Family) Type() device.Type { return familyType }
 
 var _ device.Family = Family{}
 
@@ -132,7 +132,7 @@ func chromecastInfo(entry castdns.CastEntry) (device.Info, bool) {
 
 	return device.Info{
 		Name:    cmp.Or(entry.DeviceName, entry.Name, entry.Host),
-		Type:    Type,
+		Type:    familyType,
 		Address: address,
 	}, true
 }

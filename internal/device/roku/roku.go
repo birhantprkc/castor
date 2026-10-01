@@ -50,10 +50,10 @@ type Family struct {
 	Config Config
 }
 
-// Type is the name config.yaml selects this family by.
-const Type device.Type = "roku"
+// familyType is the name config.yaml selects this family by.
+const familyType device.Type = "roku"
 
-func (Family) Type() device.Type { return Type }
+func (Family) Type() device.Type { return familyType }
 
 var _ device.Family = Family{}
 
@@ -129,7 +129,7 @@ func rokuInfo(location, name string) (device.Info, bool) {
 	}
 	return device.Info{
 		Name:    cmp.Or(name, u.Hostname()),
-		Type:    Type,
+		Type:    familyType,
 		Address: location,
 	}, true
 }

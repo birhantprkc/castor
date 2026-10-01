@@ -82,23 +82,23 @@ func (g *genrePicker) resize(w, h int) {
 
 func (g *genrePicker) update(msg tea.KeyMsg, keys keyMap, w, h int) (tea.Cmd, genreAction) {
 	switch {
-	case key.Matches(msg, keys.Back):
+	case key.Matches(msg, keys.back):
 		g.shown = false
 		return nil, genreCancelled
-	case key.Matches(msg, keys.Enter):
+	case key.Matches(msg, keys.enter):
 		g.shown = false
 		return nil, genreApplied
-	case key.Matches(msg, keys.Space):
+	case key.Matches(msg, keys.space):
 		if it, ok := g.list.SelectedItem().(genreItem); ok {
 			g.selected[it.g.ID] = !g.selected[it.g.ID]
 			g.reload()
 		}
 		return nil, genreIdle
-	case key.Matches(msg, keys.ClearGenres):
+	case key.Matches(msg, keys.clearGenres):
 		clear(g.selected)
 		g.reload()
 		return nil, genreIdle
-	case key.Matches(msg, keys.OverlayMedia):
+	case key.Matches(msg, keys.overlayMedia):
 		g.toggleMedia(w, h)
 		return nil, genreIdle
 	}
@@ -165,11 +165,11 @@ func (g genrePicker) mediaLabel() string {
 
 func (g genrePicker) view(spin spinner.Model, w, h int) string {
 	title := lipgloss.JoinHorizontal(lipgloss.Left,
-		g.styles.TitleText.Render("Filter by genre"),
-		g.styles.Muted.Render("  ·  "+g.mediaLabel()),
+		g.styles.titleText.Render("Filter by genre"),
+		g.styles.muted.Render("  ·  "+g.mediaLabel()),
 	)
 
-	body := g.styles.Muted.Render(spin.View() + " loading genres…")
+	body := g.styles.muted.Render(spin.View() + " loading genres…")
 	if g.loaded {
 		body = g.list.View()
 	}
@@ -185,7 +185,7 @@ func (g genrePicker) view(spin spinner.Model, w, h int) string {
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		title, "", body, "",
-		g.styles.Muted.Render(count), hints,
+		g.styles.muted.Render(count), hints,
 	)
 	box := lipgloss.NewStyle().
 		Padding(1, 2).

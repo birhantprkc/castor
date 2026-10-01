@@ -109,17 +109,17 @@ func inspectCompanion(ctx context.Context, playlists source.Client, audioURL *ur
 			"error", err, "status", status, "url", audioURL.String())
 		return unknown, false
 	}
-	if doc.Multivariant {
+	if doc.multivariant {
 		slog.WarnContext(ctx, "the companion audio URL names a multivariant playlist; its segment characteristics stay unknown",
 			"url", audioURL.String())
 		return unknown, false
 	}
 	return media.Fetch{
 		Segmented: true,
-		Framing:   doc.Framing,
-		Live:      doc.Live,
-		Spliced:   doc.Spliced,
-	}, doc.RequiresRelaxedInput
+		Framing:   doc.framing,
+		Live:      doc.live,
+		Spliced:   doc.spliced,
+	}, doc.requiresRelaxedInput
 }
 
 // Tokens the grammar is recognised by (matched literally and case-sensitively per format definition).
@@ -140,7 +140,7 @@ func (Format) Recognize(body string) source.Reading {
 	}
 	read := source.Reading{Ladder: source.LadderSole, Refs: references(body)}
 	if doc, err := parsePlaylist(body, &url.URL{}, &url.URL{}); err == nil {
-		read.Runtime = doc.Duration
+		read.Runtime = doc.duration
 	}
 	return read
 }
