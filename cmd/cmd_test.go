@@ -15,6 +15,7 @@ func TestDryRunIsBoundWhicheverSideOfTheSubcommandItIsTyped(t *testing.T) {
 		name string
 		args []string
 	}{
+		{"typed before the subcommand", []string{"castor", "cast", "--dry-run", "url", link}},
 		{"typed after the subcommand, resolved up the lineage", []string{"castor", "cast", "url", link, "--dry-run"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
