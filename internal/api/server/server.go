@@ -52,7 +52,7 @@ func handler(ctx context.Context, b Backend) http.Handler {
 	mux.Handle(castorv1connect.NewLoggerServiceHandler(logger{registry: reg}, valid))
 	mux.Handle(castorv1connect.NewStreamServiceHandler(ranking{caster: b.Caster}, valid))
 	mux.Handle(castorv1connect.NewExtractServiceHandler(extraction{b.Extractor}, valid))
-	mux.Handle(relayRoute, relay{registry: reg})
+	mux.Handle(relayRoute, newRelay(reg))
 	services := []string{
 		castorv1connect.CastServiceName, castorv1connect.DeviceServiceName,
 		castorv1connect.LoggerServiceName, castorv1connect.StreamServiceName,
