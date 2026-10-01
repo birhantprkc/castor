@@ -39,7 +39,6 @@ func Defaults() *Config {
 		API:       APIConfig{Endpoint: "embedded", Listen: ":8410"},
 	}
 	cfg.client = sync.OnceValue(func() source.Client { return web.Client(cfg.Resolver.PlaylistTimeout) })
-	cfg.identifier = sync.OnceValue(cfg.newIdentifier)
 	return cfg
 }
 

@@ -4,7 +4,6 @@ package config
 import (
 	"context"
 	"errors"
-	"net/url"
 	"time"
 
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
@@ -45,9 +44,8 @@ type Config struct {
 	TMDB      TMDB                  `yaml:"tmdb"`
 	API       APIConfig             `yaml:"api" validate:"required"`
 
-	// client is THE origin session for this process, memoised (see defaults), so every cast and identification share its cookies.
-	client     func() source.Client
-	identifier func() *source.Resolver
+	// client is the one origin session of this process, so every cast and identification share its cookies.
+	client func() source.Client
 }
 
 // TMDB holds settings for the TMDB browse subcommand.
@@ -107,7 +105,7 @@ func (c *Config) Target() (device.Info, error) {
 func (c *Config) playback(asked *castorv1.Preferences, renderer execute.Renderer, listeners execute.Listeners, subs execute.Subtitles) cast.Config {
 	height := media.HeightCap(asked.GetMaxHeight())
 	return cast.Config{
-		Source:       source.NewResolver(c.client(), height, formats),
+		Source:       c.resolver(asked),
 		Delivery:     delivery(asked.GetDelivery()),
 		ReadDeadline: c.Transcode.RWTimeout,
 		Execute: execute.Config{
@@ -123,6 +121,11 @@ func (c *Config) playback(asked *castorv1.Preferences, renderer execute.Renderer
 			Timelines: follow.New(c.client(), formats, c.Transcode.RWTimeout/2, ffmpeg.Repackager(c.Transcode.FFmpegPath)),
 		},
 	}
+}
+
+// resolver reads links for a cast asked as asked, on this process's one origin session.
+func (c *Config) resolver(asked *castorv1.Preferences) *source.Resolver {
+	return source.NewResolver(c.client(), media.HeightCap(asked.GetMaxHeight()), formats)
 }
 
 // Backend binds the API server to this config's machinery; burn is the burn-in cmd binds, since the transcriber is cgo.
@@ -155,7 +158,7 @@ type caster struct {
 // Measure names what a link carries when it says nothing, then measures it.
 func (k caster) Measure(ctx context.Context, s *source.Stream) (*source.Stream, error) {
 	if s.ContentType == "" {
-		s.ContentType = k.config.identify(ctx, s.URL)
+		s.ContentType = k.config.resolver(k.asked).Identify(ctx, s.URL)
 	}
 	return k.Ranker.Measure(ctx, s)
 }
@@ -219,17 +222,7 @@ type ResolverConfig struct {
 	ProbeTimeout    time.Duration `yaml:"probe_timeout" validate:"required"`
 }
 
-// newIdentifier only names links: it never picks a rendition, so no cast's ceiling binds it.
-func (c *Config) newIdentifier() *source.Resolver {
-	return source.NewResolver(c.client(), c.Resolver.MaxHeight, formats)
-}
-
-// identify names what a typed link carries, reading its body when its name says nothing.
-func (c *Config) identify(ctx context.Context, u *url.URL) string {
-	return c.identifier().Identify(ctx, u)
-}
-
-// extractor finds candidate streams on a page, recognising documents in every format castor reads.
+// extractor finds the streams a page plays, recognising documents in every format castor reads.
 func (c *Config) extractor() *extract.Extractor {
 	return extract.New(extract.Config{
 		Browser:   c.Browser,
