@@ -19,7 +19,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: true
       - uses: ./.github/actions/setup
@@ -28,7 +28,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: true
       - uses: ./.github/actions/setup
@@ -36,7 +36,7 @@ jobs:
       # Pinned, not @latest: a lint gate that changes under CI turns an unrelated
       # push red and teaches everyone to ignore it. It runs under make env because
       # the repo is cgo and staticcheck type-checks the whole graph.
-      - run: eval "$(make env)" && go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 ./internal/... ./cmd/...
+      - run: eval "$(make env)" && go run honnef.co/go/tools/cmd/staticcheck@2026.2.1 ./internal/... ./cmd/...
       # -test is load-bearing: without it every function only a test reaches reads
       # as dead. deadcode exits 0 whether or not it found anything, so the gate is
       # its output and not its status. One line is allowed through: castorNativeLog
@@ -44,17 +44,15 @@ jobs:
       # callback, so its only caller is C and no Go callgraph can see it.
       - run: |
           eval "$(make env)"
-          dead=$(go run golang.org/x/tools/cmd/deadcode@v0.48.0 -test ./... 2>&1 | grep -v '^internal/subtitle/whisper/nativelog.go:[0-9]*:[0-9]*: unreachable func: castorNativeLog$' || true)
+          dead=$(go run golang.org/x/tools/cmd/deadcode@v0.50.0 -test ./... 2>&1 | grep -v '^internal/subtitle/whisper/nativelog.go:[0-9]*:[0-9]*: unreachable func: castorNativeLog$' || true)
           [ -z "$dead" ] || { printf 'unreachable:\n%s\n' "$dead"; exit 1; }
-      # Only findings inside the checkout count. The whisper bindings are cgo, so
-      # the package modernize is handed carries cmd/cgo's generated _cgo_gotypes.go,
-      # which lives in the build cache and declares its own interface{} parameters.
-      # It is regenerated on a clean checkout too (measured with an empty GOCACHE),
-      # and nobody can edit it, so a gate that read it could never go green.
+      # go fix carries the modernizers since Go 1.26, so the gate moves with the
+      # toolchain go.mod pins instead of a second version to keep in step. Any
+      # suggested rewrite fails the job: run `go fix ./...` and commit it.
       - run: |
           eval "$(make env)"
-          findings=$(go run golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize@v0.22.0 ./internal/... ./cmd/... 2>&1 | grep "^$PWD/" || true)
-          [ -z "$findings" ] || { printf 'modernize:\n%s\n' "$findings"; exit 1; }
+          fixes=$(go fix -diff ./... 2>&1)
+          [ -z "$fixes" ] || { printf 'go fix:\n%s\n' "$fixes"; exit 1; }
       - run: |
           unformatted=$(gofmt -s -l cmd internal e2e main.go)
           [ -z "$unformatted" ] || { printf 'unformatted:\n%s\n' "$unformatted"; exit 1; }
