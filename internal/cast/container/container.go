@@ -1,4 +1,4 @@
-// Package container owns what castor produces and what containers carry (two halves).
+// Package container describes the containers castor can serve, and which codecs each one carries.
 package container
 
 import (
