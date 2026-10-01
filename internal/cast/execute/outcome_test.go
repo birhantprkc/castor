@@ -79,7 +79,7 @@ func TestACancelledAttemptSaysSo(t *testing.T) {
 	}{{ctx, true}, {t.Context(), false}} {
 		dev := &fakeDevice{caps: chromecastLike(media.MP4)}
 		out := NewExecutor(Config{MaxHeight: 1080, Renderer: rendererOf(selfFetching(), dev), Timelines: direct{}}).Run(tc.ctx,
-			attempt.Attempt{Program: programFromStream(t, passthroughCandidate())})
+			attempt.Attempt{Program: programFromStream(t, passthroughStream())})
 		if out.Evidence.Cancelled != tc.want {
 			t.Errorf("Cancelled = %v under a context cancelled %v", out.Evidence.Cancelled, tc.want)
 		}

@@ -18,7 +18,7 @@ type Intent struct {
 	// Candidates: ranked by rank.Ranker; each is resolved when an attempt first reaches it.
 	Candidates []*source.Stream
 
-	// Deadline is the mid-read stall bound every read plan is derived with.
+	// Deadline is the mid-read stall bound every fetch plan is derived with.
 	Deadline time.Duration
 
 	// Delivery: operator's answer; seeds first attempt, may be changed by recovery.
@@ -71,7 +71,7 @@ type identity struct {
 	program   string
 	bitrate   media.Bitrate
 	height    int
-	read      string
+	fetch     string
 	delivery  compose.DeliveryPreference
 	decode    media.Axes
 }
@@ -83,7 +83,7 @@ func (a Attempt) identify(redactURLSecrets bool) identity {
 		program:   programIdentity(a.Program, redactURLSecrets),
 		bitrate:   a.Rendition.Bitrate,
 		height:    a.Rendition.Height,
-		read:      cmp.Or(a.Fetch.String(), "unset"),
+		fetch:     cmp.Or(a.Fetch.String(), "unset"),
 		delivery:  cmp.Or(a.Delivery, compose.DeliveryAuto),
 		decode:    a.Decode,
 	}
@@ -91,8 +91,8 @@ func (a Attempt) identify(redactURLSecrets bool) identity {
 
 // String is the only rendering; add fields above or they're missing from ledger.
 func (id identity) String() string {
-	return fmt.Sprintf("candidate=%d program=%s rung_bitrate=%d rung_height=%d read=%s delivery=%s decode=%s",
-		id.candidate, id.program, id.bitrate, id.height, id.read, id.delivery, id.decode)
+	return fmt.Sprintf("candidate=%d program=%s rung_bitrate=%d rung_height=%d fetch=%s delivery=%s decode=%s",
+		id.candidate, id.program, id.bitrate, id.height, id.fetch, id.delivery, id.decode)
 }
 
 // String redacts the URL secrets, because a line a user reads is not a place to print a signed query.
@@ -128,7 +128,7 @@ func programIdentity(program media.Program, redactURLSecrets bool) string {
 // key is identity as string; Try omitted (same link/terms = same attempt).
 func (a Attempt) key() string { return a.identify(false).String() }
 
-// reading binds a resolution to the attempt with a read plan derived for its program.
+// reading binds a resolution to the attempt with a fetch plan derived for its program.
 func (a Attempt) reading(r source.Resolution, deadline time.Duration) Attempt {
 	a.Program, a.Origin, a.Rendition = r.Program, r.Origin, r.Rendition
 	a.Fetch = fetch.ForProgram(a.Program, deadline)

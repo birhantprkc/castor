@@ -23,7 +23,7 @@ func FromPipe(format container.FormatInfo, pace fetch.Pace) EncodeInput {
 	return EncodeInput{pipe: format, pace: pace}
 }
 
-// FromSource reads the network source on the terms of its read plan.
+// FromSource reads the network source on the terms of its fetch plan.
 func FromSource(source ProgramSource) EncodeInput { return EncodeInput{source: source} }
 
 func (in EncodeInput) piped() bool { return in.pipe.Muxer != "" }

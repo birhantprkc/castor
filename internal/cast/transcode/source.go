@@ -21,7 +21,7 @@ type ProgramSource struct {
 	binary  ffmpeg.Binary
 }
 
-// NewProgramSource snapshots a program and its complete read plan.
+// NewProgramSource snapshots a program and its complete fetch plan.
 func NewProgramSource(program media.Program, plan fetch.Plan, binary ffmpeg.Binary) (ProgramSource, error) {
 	_, video := program.Track(media.TrackVideo)
 	_, audio := program.Track(media.TrackAudio)

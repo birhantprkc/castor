@@ -162,7 +162,7 @@ func TestADeadReadIsReportedAsTheReadsOwnFailure(t *testing.T) {
 	defer cancel()
 	program := programFromStream(t, &source.Stream{URL: sourceURL, ContentType: media.MP4})
 	out := newExecutor(castConfig(pushOnly(), ffmpegPath, ffprobePath), connectTo(&fakeDevice{caps: dlnaLike()}), noStage).
-		Run(ctx, attempt.Attempt{Try: 1, Program: program, Fetch: sourceReadPlan(t, program, testReadDeadline)})
+		Run(ctx, attempt.Attempt{Try: 1, Program: program, Fetch: sourceFetchPlan(t, program, testReadDeadline)})
 
 	if out.Evidence.ReadErr == nil || !errors.Is(out.Err, out.Evidence.ReadErr) {
 		t.Fatalf("the cast reports %v with read error %v, want the read's own failure", out.Err, out.Evidence.ReadErr)
@@ -187,16 +187,16 @@ func castOnce(ctx context.Context, t *testing.T, cfg Config, connect acquireFunc
 	return newExecutor(cfg, connect, noStage).Run(ctx, attempt.Attempt{
 		Try:     1,
 		Program: program,
-		Fetch:   sourceReadPlan(t, program, testReadDeadline),
+		Fetch:   sourceFetchPlan(t, program, testReadDeadline),
 	}).Err
 }
 
-func sourceReadPlan(t *testing.T, program media.Program, rwTimeout time.Duration) fetch.Plan {
+func sourceFetchPlan(t *testing.T, program media.Program, rwTimeout time.Duration) fetch.Plan {
 	t.Helper()
-	return uniformReadPlan(program, fetch.For(media.Fetch{}, rwTimeout))
+	return uniformFetchPlan(program, fetch.For(media.Fetch{}, rwTimeout))
 }
 
-func uniformReadPlan(program media.Program, policy fetch.Policy) fetch.Plan {
+func uniformFetchPlan(program media.Program, policy fetch.Policy) fetch.Plan {
 	plan := make(fetch.Plan, len(program.Inputs))
 	for _, input := range program.Inputs {
 		plan[input.ID] = policy

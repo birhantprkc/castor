@@ -29,7 +29,7 @@ func (a countedListeners) Listen(context.Context) (net.Listener, error) {
 	return nil, errors.New("this host has no local route")
 }
 
-func passthroughCandidate() *source.Stream {
+func passthroughStream() *source.Stream {
 	c := &source.Stream{URL: &url.URL{Scheme: "https", Host: "cdn.example", Path: "/movie.mp4"}, ContentType: media.MP4}
 	c.Probe = &media.ProbeInfo{VideoCodec: media.CodecH264, VideoBitDepth: 8, AudioCodec: media.CodecAAC, AudioChannels: 2}
 	return c
@@ -39,7 +39,7 @@ func TestPassthroughBuildsNoLocalMachinery(t *testing.T) {
 	var asked atomic.Int64
 	dev := &fakeDevice{caps: chromecastLike(media.MP4)}
 	got := NewExecutor(Config{MaxHeight: 1080, Renderer: rendererOf(selfFetching(), dev), Listeners: countedListeners{asked: &asked}, Timelines: direct{}}).Run(t.Context(),
-		attempt.Attempt{Program: programFromStream(t, passthroughCandidate())})
+		attempt.Attempt{Program: programFromStream(t, passthroughStream())})
 	if got.Err != nil {
 		t.Fatalf("passthrough depended on local relay resources: %v", got.Err)
 	}
@@ -55,7 +55,7 @@ func TestARendererThatRefusesPlayIsBlamedAndReleased(t *testing.T) {
 	refused := errors.New("SOAP SetAVTransportURI: 714")
 	dev := &fakeDevice{caps: chromecastLike(media.MP4), refuse: refused}
 	out := newExecutor(castConfig(selfFetching(), "", ""), connectTo(dev), noStage).
-		Run(t.Context(), attempt.Attempt{Try: 1, Program: programFromStream(t, passthroughCandidate())})
+		Run(t.Context(), attempt.Attempt{Try: 1, Program: programFromStream(t, passthroughStream())})
 
 	if out.Err == nil {
 		t.Fatal("the cast reported success though the renderer refused the URL")
@@ -136,7 +136,7 @@ func TestEveryAttemptOwnsAFreshWorkDirectoryAndLeavesNoneBehind(t *testing.T) {
 			Renderer:  rendererOf(pushOnly(), &fakeDevice{caps: dlnaLike()}),
 			Subtitles: watchDir, Listeners: loopback{}, Probes: probe.FFprobe(""), Timelines: direct{},
 		}
-		out := NewExecutor(cfg).Run(t.Context(), attempt.Attempt{Program: program, Fetch: sourceReadPlan(t, program, 30*time.Second)})
+		out := NewExecutor(cfg).Run(t.Context(), attempt.Attempt{Program: program, Fetch: sourceFetchPlan(t, program, 30*time.Second)})
 		if out.Err == nil {
 			t.Fatal("a cast with no ffmpeg to read with reported success")
 		}
@@ -165,7 +165,7 @@ func TestABufferCopiedWholeIsServedAsItIs(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(t.Context(), castTimeout)
 	defer cancel()
-	s := open(ctx, cfg, attempt.Attempt{Try: 1, Program: program, Fetch: sourceReadPlan(t, program, testReadDeadline)})
+	s := open(ctx, cfg, attempt.Attempt{Try: 1, Program: program, Fetch: sourceFetchPlan(t, program, testReadDeadline)})
 	t.Cleanup(func() { _ = s.releases.release() })
 	r, err := s.play()
 	if err != nil {

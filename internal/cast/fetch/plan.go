@@ -17,12 +17,12 @@ type Plan map[media.InputID]Policy
 func (p Plan) Validate(program media.Program) error {
 	for _, input := range program.Inputs {
 		if _, ok := p[input.ID]; !ok {
-			return fmt.Errorf("read plan has no policy for input %q", input.ID)
+			return fmt.Errorf("fetch plan has no policy for input %q", input.ID)
 		}
 	}
 	for id := range p {
 		if _, ok := program.LookupInput(id); !ok {
-			return fmt.Errorf("read plan has a policy for unknown input %q", id)
+			return fmt.Errorf("fetch plan has a policy for unknown input %q", id)
 		}
 	}
 	return nil
