@@ -17,6 +17,7 @@ import (
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
 	"github.com/stupside/castor/gen/castor/v1/castorv1connect"
 	"github.com/stupside/castor/internal/cast/attempt"
+	"github.com/stupside/castor/internal/cast/deliver"
 	"github.com/stupside/castor/internal/cast/execute"
 	"github.com/stupside/castor/internal/source"
 )
@@ -38,7 +39,7 @@ type Caster interface {
 	Rank(ctx context.Context, streams []*source.Stream) ([]*source.Stream, error)
 	Measure(ctx context.Context, stream *source.Stream) (*source.Stream, error)
 	// Play casts streams on renderer, serving only on listeners, which the client relays.
-	Play(ctx context.Context, renderer execute.Renderer, listeners execute.Listeners, streams []*source.Stream, turns attempt.Turns) error
+	Play(ctx context.Context, renderer execute.Renderer, listeners deliver.Listeners, streams []*source.Stream, turns attempt.Turns) error
 }
 
 // handler serves the cast services, the relay, health and reflection; casts live until ctx ends.

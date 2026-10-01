@@ -212,7 +212,7 @@ func TestABurnInIsFedAndAwaitedByTheCastThatRunsIt(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), castTimeout)
 	defer cancel()
 	program := programFromStream(t, origin.stream())
-	out := newExecutorAt(castConfig(pushOnly(), ffmpegPath, ffprobePath), connectTo(dev), staging(stage), "127.0.0.1").
+	out := newExecutor(castConfig(pushOnly(), ffmpegPath, ffprobePath), connectTo(dev), staging(stage)).
 		Run(ctx, attempt.Attempt{Try: 1, Program: program, Fetch: sourceReadPlan(t, program, testReadDeadline)})
 	if out.Err != nil {
 		t.Fatalf("casting with a stage: %v", out.Err)

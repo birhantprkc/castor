@@ -7,8 +7,10 @@ import (
 	"time"
 )
 
-// Listen opens the socket a delivery serves on, where its renderer reaches it.
-type Listen func() (net.Listener, error)
+// Listeners opens the sockets deliveries serve on; whoever binds it decides where renderers reach them.
+type Listeners interface {
+	Listen(ctx context.Context) (net.Listener, error)
+}
 
 // Serve answers the renderer on ln until the returned server closes; its requests carry ctx's values, not its end.
 func Serve(ctx context.Context, ln net.Listener, h http.Handler) *http.Server {

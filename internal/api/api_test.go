@@ -24,6 +24,7 @@ import (
 	"github.com/stupside/castor/internal/api/client"
 	"github.com/stupside/castor/internal/api/server"
 	"github.com/stupside/castor/internal/cast/attempt"
+	"github.com/stupside/castor/internal/cast/deliver"
 	"github.com/stupside/castor/internal/cast/execute"
 	"github.com/stupside/castor/internal/device"
 	"github.com/stupside/castor/internal/media"
@@ -55,7 +56,7 @@ func (e *engine) Measure(_ context.Context, stream *source.Stream) (*source.Stre
 	return stream, nil
 }
 
-func (e *engine) Play(ctx context.Context, r execute.Renderer, l execute.Listeners, streams []*source.Stream, turns attempt.Turns) error {
+func (e *engine) Play(ctx context.Context, r execute.Renderer, l deliver.Listeners, streams []*source.Stream, turns attempt.Turns) error {
 	return e.play(ctx, r, l, streams, turns)
 }
 
@@ -127,7 +128,7 @@ type lanAddress struct{}
 
 func (lanAddress) LocalIPv4(context.Context) (string, error) { return "127.0.0.1", nil }
 
-type play func(ctx context.Context, renderer execute.Renderer, listeners execute.Listeners, streams []*source.Stream, turns attempt.Turns) error
+type play func(ctx context.Context, renderer execute.Renderer, listeners deliver.Listeners, streams []*source.Stream, turns attempt.Turns) error
 
 func backend(p play) server.Backend { return machinery(p).backend() }
 
@@ -207,7 +208,7 @@ func follow(t *testing.T, c *client.Client, id string, shown client.Progress, lo
 }
 
 // handoff is a cast the renderer fetches the head stream of for itself.
-func handoff(ctx context.Context, r execute.Renderer, _ execute.Listeners, streams []*source.Stream, _ attempt.Turns) error {
+func handoff(ctx context.Context, r execute.Renderer, _ deliver.Listeners, streams []*source.Stream, _ attempt.Turns) error {
 	dev, err := r.Connect(ctx)
 	if err != nil {
 		return err
@@ -219,7 +220,7 @@ func handoff(ctx context.Context, r execute.Renderer, _ execute.Listeners, strea
 func TestFoundStreamsAreRankedThenHandedToTheClientsRendererAsTheyAre(t *testing.T) {
 	screen := newTV()
 	var profile, negotiated media.Capabilities
-	c, _ := serve(t, backend(func(ctx context.Context, r execute.Renderer, _ execute.Listeners, streams []*source.Stream, turns attempt.Turns) error {
+	c, _ := serve(t, backend(func(ctx context.Context, r execute.Renderer, _ deliver.Listeners, streams []*source.Stream, turns attempt.Turns) error {
 		profile = r.Profile()
 		dev, err := r.Connect(ctx)
 		if err != nil {
@@ -390,7 +391,7 @@ func embedded(t *testing.T) *recorder {
 	return process
 }
 
-func logging(ctx context.Context, _ execute.Renderer, _ execute.Listeners, _ []*source.Stream, _ attempt.Turns) error {
+func logging(ctx context.Context, _ execute.Renderer, _ deliver.Listeners, _ []*source.Stream, _ attempt.Turns) error {
 	slog.InfoContext(ctx, "engine at work", "try", 1)
 	return nil
 }
@@ -433,7 +434,7 @@ func TestTheServersLinesForACastReachOnlyTheWatchersThatAskedForThem(t *testing.
 func TestWhatTheServerServesReachesTheRendererThroughTheClientNotTheServer(t *testing.T) {
 	screen := newTV()
 	delivered, delivery := make(chan string, 1), make(chan string, 1)
-	c, _ := serve(t, backend(func(ctx context.Context, r execute.Renderer, listeners execute.Listeners, _ []*source.Stream, _ attempt.Turns) error {
+	c, _ := serve(t, backend(func(ctx context.Context, r execute.Renderer, listeners deliver.Listeners, _ []*source.Stream, _ attempt.Turns) error {
 		// The delivery the engine opens, through the listeners the server binds it to.
 		l, err := listeners.Listen(ctx)
 		if err != nil {
@@ -487,7 +488,7 @@ func TestASourceOnLoopbackIsHandedToTheRendererAsItIsNotRelayed(t *testing.T) {
 
 func TestTheRelayServesOnlyPortsACastHandedItsRenderer(t *testing.T) {
 	released := make(chan struct{})
-	c, base := serve(t, backend(func(ctx context.Context, r execute.Renderer, _ execute.Listeners, _ []*source.Stream, _ attempt.Turns) error {
+	c, base := serve(t, backend(func(ctx context.Context, r execute.Renderer, _ deliver.Listeners, _ []*source.Stream, _ attempt.Turns) error {
 		dev, err := r.Connect(ctx)
 		if err != nil {
 			return err
@@ -522,7 +523,7 @@ func TestARendererGoneOnTheClientIsGoneToTheServersRecovery(t *testing.T) {
 	screen := newTV()
 	screen.end = &media.Gone{Renderer: "Bedroom", Observed: "stopped answering"}
 	seen := make(chan error, 1)
-	c, _ := serve(t, backend(func(ctx context.Context, r execute.Renderer, _ execute.Listeners, _ []*source.Stream, _ attempt.Turns) error {
+	c, _ := serve(t, backend(func(ctx context.Context, r execute.Renderer, _ deliver.Listeners, _ []*source.Stream, _ attempt.Turns) error {
 		dev, err := r.Connect(ctx)
 		if err != nil {
 			return err
@@ -545,7 +546,7 @@ func TestARendererGoneOnTheClientIsGoneToTheServersRecovery(t *testing.T) {
 func TestStoppingTheCastEndsItOnTheServerAndReleasesTheRenderer(t *testing.T) {
 	screen := newTV()
 	playing, stopped := make(chan struct{}), make(chan struct{})
-	c, _ := serve(t, backend(func(ctx context.Context, r execute.Renderer, _ execute.Listeners, _ []*source.Stream, _ attempt.Turns) error {
+	c, _ := serve(t, backend(func(ctx context.Context, r execute.Renderer, _ deliver.Listeners, _ []*source.Stream, _ attempt.Turns) error {
 		dev, err := r.Connect(ctx)
 		if err != nil {
 			return err
@@ -585,7 +586,7 @@ func TestStoppingTheCastEndsItOnTheServerAndReleasesTheRenderer(t *testing.T) {
 
 func TestACastHasOneDeviceAndFailsWhenTheClientLendingItLeaves(t *testing.T) {
 	playing, ended := make(chan struct{}), make(chan struct{})
-	c, _ := serve(t, backend(func(ctx context.Context, r execute.Renderer, _ execute.Listeners, _ []*source.Stream, _ attempt.Turns) error {
+	c, _ := serve(t, backend(func(ctx context.Context, r execute.Renderer, _ deliver.Listeners, _ []*source.Stream, _ attempt.Turns) error {
 		dev, err := r.Connect(ctx)
 		if err != nil {
 			return err

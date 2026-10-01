@@ -138,7 +138,7 @@ func TestASpoolAnotherWritesIsServedWithoutBeingOwned(t *testing.T) {
 	drained := make(chan struct{})
 	srv, err := OpenSpooledStream(t.Context(), Opening{
 		Format:        container.FormatInfo{ContentType: media.MPEGTS, Extension: ".ts"},
-		Listen:        loopback,
+		Listeners:     loopback{},
 		WriteDeadline: time.Minute,
 	}, sp, drained)
 	if err != nil {
@@ -175,7 +175,7 @@ func TestASpoolAnotherWritesIsServedWithoutBeingOwned(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { running.CloseWrite(nil) })
-	unowned, err := OpenSpooledStream(t.Context(), Opening{Listen: loopback}, running, make(chan struct{}))
+	unowned, err := OpenSpooledStream(t.Context(), Opening{Listeners: loopback{}}, running, make(chan struct{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func payload(size int) []byte {
 // spooled starts a server and returns once the whole body is in the spool.
 func spooled(t *testing.T, cfg streamConfig, body []byte) *Stream {
 	t.Helper()
-	cfg.listen = loopback
+	cfg.listeners = loopback{}
 	cfg.contentType = "video/mp4"
 	cfg.extension = ".mp4"
 	cfg.spoolPath = filepath.Join(t.TempDir(), "out.mp4")
@@ -223,7 +223,7 @@ func producing(t *testing.T, head []byte) *Stream {
 	t.Helper()
 	pr, pw := io.Pipe()
 	srv, err := openStream(t.Context(), streamConfig{
-		listen:        loopback,
+		listeners:     loopback{},
 		contentType:   "video/mp4",
 		extension:     ".mp4",
 		spoolPath:     filepath.Join(t.TempDir(), "out.mp4"),

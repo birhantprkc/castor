@@ -58,7 +58,7 @@ func opened(t *testing.T, contentType string) (sink, *io.PipeWriter) {
 	pr, pw := io.Pipe()
 	sink, err := sinkFor(t.Context(), deliver.Opening{
 		Format:        format,
-		Listen:        fixedAddress("127.0.0.1").listen,
+		Listeners:     loopback{},
 		Dir:           dir,
 		Out:           pr,
 		IdleGrace:     50 * time.Millisecond,
@@ -87,7 +87,7 @@ func relayed(t *testing.T) (sink, *io.PipeWriter) {
 	t.Cleanup(func() { _ = pw.Close(); <-drained })
 	sink, err := spoolSink(t.Context(), deliver.Opening{
 		Format:        transcode.SpoolFormat,
-		Listen:        fixedAddress("127.0.0.1").listen,
+		Listeners:     loopback{},
 		IdleGrace:     50 * time.Millisecond,
 		WriteDeadline: 300 * time.Millisecond,
 	}, sp, drained, made)

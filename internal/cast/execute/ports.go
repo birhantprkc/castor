@@ -3,7 +3,6 @@ package execute
 import (
 	"context"
 	"io"
-	"net"
 	"net/url"
 
 	"github.com/stupside/castor/internal/cast/deliver"
@@ -35,11 +34,6 @@ type Burn interface {
 	Inputs() (burnIn string, err error)
 
 	Follow(ctx context.Context) func(media.Progress)
-}
-
-// Listeners opens the sockets deliveries serve on; whoever binds it decides where renderers reach them.
-type Listeners interface {
-	Listen(ctx context.Context) (net.Listener, error)
 }
 
 type sink interface {

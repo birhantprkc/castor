@@ -58,7 +58,7 @@ func (s *session) serve(dev device.Device, ws workspace, f feed, burn Burn) (att
 }
 
 func (s *session) produce(dev device.Device, ws workspace, f feed, opts transcode.EncodeOptions, burn Burn) (delivery, error) {
-	o := opening(dev, opts, ws.listen)
+	o := opening(dev, opts, s.cfg.Listeners)
 	// A burn-in follows the encoder's progress, so only a cast without one can do without an encoder.
 	if f.buffered != nil && burn == nil && opts.Verbatim() {
 		return s.relay(o, f.buffered.reader)
@@ -129,10 +129,10 @@ func (s *session) relay(o deliver.Opening, reader *pull) (delivery, error) {
 }
 
 // opening is the terms every delivery of this cast opens on.
-func opening(dev device.Device, opts transcode.EncodeOptions, listen deliver.Listen) deliver.Opening {
+func opening(dev device.Device, opts transcode.EncodeOptions, listeners deliver.Listeners) deliver.Opening {
 	return deliver.Opening{
 		Format:        opts.Format,
-		Listen:        listen,
+		Listeners:     listeners,
 		Headers:       dev.StreamHeaders(opts.Format.ContentType),
 		IdleGrace:     idleGrace,
 		WriteDeadline: writeDeadline,

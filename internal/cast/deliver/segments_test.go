@@ -28,7 +28,7 @@ func TestServedCountsOnlyMediaHandedOver(t *testing.T) {
 		}
 	}
 	srv, _ := serving(t, segmentsConfig{
-		listen: loopback, dir: dir, playlist: "stream.m3u8",
+		listeners: loopback{}, dir: dir, playlist: "stream.m3u8",
 		headers: map[string]string{"transferMode.dlna.org": "Streaming", "Content-Type": "text/plain"},
 	})
 
@@ -68,7 +68,7 @@ func TestServedCountsOnlyMediaHandedOver(t *testing.T) {
 
 // The grace is seeded at open, so a renderer coming late for the tail segments still has its window.
 func TestTheIdleGraceStartsBeforeTheFirstRequest(t *testing.T) {
-	srv, ended := serving(t, segmentsConfig{listen: loopback, dir: t.TempDir(), playlist: "stream.m3u8", idleGrace: 3 * SettleInterval})
+	srv, ended := serving(t, segmentsConfig{listeners: loopback{}, dir: t.TempDir(), playlist: "stream.m3u8", idleGrace: 3 * SettleInterval})
 	ended()
 	waiting, cancel := context.WithTimeout(t.Context(), 2*SettleInterval)
 	defer cancel()
@@ -83,7 +83,7 @@ func TestARendererPollingThePlaylistIsNotIdle(t *testing.T) {
 		t.Fatal(err)
 	}
 	const poll = 50 * time.Millisecond
-	srv, ended := serving(t, segmentsConfig{listen: loopback, dir: dir, playlist: "stream.m3u8", idleGrace: 6 * poll})
+	srv, ended := serving(t, segmentsConfig{listeners: loopback{}, dir: dir, playlist: "stream.m3u8", idleGrace: 6 * poll})
 	ended()
 
 	polling, stop := context.WithCancel(t.Context())
@@ -143,4 +143,8 @@ func request(ctx context.Context, srv *Segments, method, path string) (*http.Res
 }
 
 // loopback is where these tests' renderers reach a delivery.
-func loopback() (net.Listener, error) { return net.Listen("tcp", "127.0.0.1:0") }
+type loopback struct{}
+
+func (loopback) Listen(context.Context) (net.Listener, error) {
+	return net.Listen("tcp", "127.0.0.1:0")
+}

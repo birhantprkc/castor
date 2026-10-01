@@ -12,6 +12,7 @@ import (
 	"github.com/stupside/castor/internal/cast"
 	"github.com/stupside/castor/internal/cast/attempt"
 	"github.com/stupside/castor/internal/cast/compose"
+	"github.com/stupside/castor/internal/cast/deliver"
 	"github.com/stupside/castor/internal/cast/execute"
 	"github.com/stupside/castor/internal/cast/transcode"
 	"github.com/stupside/castor/internal/device"
@@ -102,7 +103,7 @@ func (c *Config) Target() (device.Info, error) {
 }
 
 // playback binds a cast asked as asked to renderer, serving on listeners; subs is the burn-in cmd binds, since the transcriber is cgo.
-func (c *Config) playback(asked *castorv1.Preferences, renderer execute.Renderer, listeners execute.Listeners, subs execute.Subtitles) cast.Config {
+func (c *Config) playback(asked *castorv1.Preferences, renderer execute.Renderer, listeners deliver.Listeners, subs execute.Subtitles) cast.Config {
 	height := media.HeightCap(asked.GetMaxHeight())
 	return cast.Config{
 		Source:       c.resolver(asked),
@@ -163,7 +164,7 @@ func (k caster) Measure(ctx context.Context, s *source.Stream) (*source.Stream, 
 	return k.Ranker.Measure(ctx, s)
 }
 
-func (k caster) Play(ctx context.Context, renderer execute.Renderer, listeners execute.Listeners, streams []*source.Stream, turns attempt.Turns) error {
+func (k caster) Play(ctx context.Context, renderer execute.Renderer, listeners deliver.Listeners, streams []*source.Stream, turns attempt.Turns) error {
 	return cast.Play(ctx, k.config.playback(k.asked, renderer, listeners, k.subs), streams, turns)
 }
 

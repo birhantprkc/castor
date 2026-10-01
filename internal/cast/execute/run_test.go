@@ -54,7 +54,7 @@ func TestPassthroughBuildsNoLocalMachinery(t *testing.T) {
 func TestARendererThatRefusesPlayIsBlamedAndReleased(t *testing.T) {
 	refused := errors.New("SOAP SetAVTransportURI: 714")
 	dev := &fakeDevice{caps: chromecastLike(media.MP4), refuse: refused}
-	out := newExecutorAt(castConfig(selfFetching(), "", ""), connectTo(dev), noStage, "127.0.0.1").
+	out := newExecutor(castConfig(selfFetching(), "", ""), connectTo(dev), noStage).
 		Run(t.Context(), attempt.Attempt{Try: 1, Program: programFromStream(t, passthroughCandidate())})
 
 	if out.Err == nil {
@@ -134,7 +134,7 @@ func TestEveryAttemptOwnsAFreshWorkDirectoryAndLeavesNoneBehind(t *testing.T) {
 		}
 		cfg := Config{
 			Renderer:  rendererOf(pushOnly(), &fakeDevice{caps: dlnaLike()}),
-			Subtitles: watchDir, Listeners: fixedAddress("127.0.0.1"), Probes: probe.FFprobe(""), Timelines: direct{},
+			Subtitles: watchDir, Listeners: loopback{}, Probes: probe.FFprobe(""), Timelines: direct{},
 		}
 		out := NewExecutor(cfg).Run(t.Context(), attempt.Attempt{Program: program, Fetch: sourceReadPlan(t, program, 30*time.Second)})
 		if out.Err == nil {
@@ -160,7 +160,7 @@ func TestABufferCopiedWholeIsServedAsItIs(t *testing.T) {
 	dev := &fakeDevice{caps: dlnaLike(), drain: true}
 	cfg := castConfig(pushOnly(), ffmpegPath, ffprobePath)
 	cfg.Renderer = rendererOf(pushOnly(), dev)
-	cfg.Listeners = fixedAddress("127.0.0.1")
+	cfg.Listeners = loopback{}
 	program := programFromStream(t, origin.stream())
 
 	ctx, cancel := context.WithTimeout(t.Context(), castTimeout)

@@ -26,7 +26,7 @@ const (
 )
 
 type streamConfig struct {
-	listen      Listen
+	listeners   Listeners
 	contentType string
 	extension   string
 	headers     map[string]string
@@ -83,7 +83,7 @@ func OpenSpooledStream(ctx context.Context, o Opening, sp *Spool, drained <-chan
 
 func streamConfigFor(o Opening) streamConfig {
 	return streamConfig{
-		listen:        o.Listen,
+		listeners:     o.Listeners,
 		contentType:   o.Format.ContentType,
 		extension:     o.Format.Extension,
 		headers:       o.Headers,
@@ -115,9 +115,9 @@ func openStream(ctx context.Context, cfg streamConfig, producer io.Reader) (*Str
 	return s, nil
 }
 
-// listenStream binds where cfg.listen says and serves sp, final once done closes.
+// listenStream binds where cfg.listeners says and serves sp, final once done closes.
 func listenStream(parent context.Context, cfg streamConfig, sp *Spool, done <-chan struct{}) (*Stream, error) {
-	ln, err := cfg.listen()
+	ln, err := cfg.listeners.Listen(parent)
 	if err != nil {
 		return nil, err
 	}

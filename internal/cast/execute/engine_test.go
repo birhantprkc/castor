@@ -34,9 +34,9 @@ type fakeDevice struct {
 	served []byte
 }
 
-func newExecutorAt(cfg Config, acquire acquireFunc, stage Subtitles, address string) *Executor {
+func newExecutor(cfg Config, acquire acquireFunc, stage Subtitles) *Executor {
 	cfg.Renderer = acquiring{Renderer: cfg.Renderer, acquire: acquire}
-	cfg.Listeners = fixedAddress(address)
+	cfg.Listeners = loopback{}
 	cfg.Subtitles = stage
 	return NewExecutor(cfg)
 }
@@ -63,12 +63,11 @@ func rendererOf(static media.Capabilities, dev device.Device) Renderer {
 	return acquiring{Renderer: profile(static), acquire: connectTo(dev)}
 }
 
-type fixedAddress string
+// loopback serves deliveries where these tests' renderers reach them.
+type loopback struct{}
 
-func (a fixedAddress) Listen(context.Context) (net.Listener, error) { return a.listen() }
-
-func (a fixedAddress) listen() (net.Listener, error) {
-	return net.Listen("tcp", net.JoinHostPort(string(a), "0"))
+func (loopback) Listen(context.Context) (net.Listener, error) {
+	return net.Listen("tcp", "127.0.0.1:0")
 }
 
 var _ device.Device = (*fakeDevice)(nil)
@@ -162,7 +161,7 @@ func TestADeadReadIsReportedAsTheReadsOwnFailure(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), castTimeout)
 	defer cancel()
 	program := programFromStream(t, &source.Stream{URL: sourceURL, ContentType: media.MP4})
-	out := newExecutorAt(castConfig(pushOnly(), ffmpegPath, ffprobePath), connectTo(&fakeDevice{caps: dlnaLike()}), noStage, "127.0.0.1").
+	out := newExecutor(castConfig(pushOnly(), ffmpegPath, ffprobePath), connectTo(&fakeDevice{caps: dlnaLike()}), noStage).
 		Run(ctx, attempt.Attempt{Try: 1, Program: program, Fetch: sourceReadPlan(t, program, testReadDeadline)})
 
 	if out.Evidence.ReadErr == nil || !errors.Is(out.Err, out.Evidence.ReadErr) {
@@ -185,7 +184,7 @@ const testReadDeadline = 30 * time.Second
 func castOnce(ctx context.Context, t *testing.T, cfg Config, connect acquireFunc, candidate *source.Stream) error {
 	t.Helper()
 	program := programFromStream(t, candidate)
-	return newExecutorAt(cfg, connect, noStage, "127.0.0.1").Run(ctx, attempt.Attempt{
+	return newExecutor(cfg, connect, noStage).Run(ctx, attempt.Attempt{
 		Try:     1,
 		Program: program,
 		Fetch:   sourceReadPlan(t, program, testReadDeadline),

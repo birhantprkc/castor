@@ -1,6 +1,7 @@
 package execute
 
 import (
+	"github.com/stupside/castor/internal/cast/deliver"
 	"github.com/stupside/castor/internal/cast/plan"
 	"github.com/stupside/castor/internal/ffmpeg"
 	"github.com/stupside/castor/internal/media"
@@ -21,7 +22,7 @@ type Config struct {
 
 	Renderer Renderer
 
-	Listeners Listeners
+	Listeners deliver.Listeners
 
 	// Subtitles is bound by cmd (cgo transcriber); nil = no burn-in.
 	Subtitles Subtitles

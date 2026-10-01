@@ -165,7 +165,7 @@ func TestARelayedCastIsOpenedOverItsRead(t *testing.T) {
 	s, buf := servingSession(t, ""), gateFixture(t, 0)
 	buf.reader.spool.CloseWrite(nil)
 	close(buf.reader.done)
-	d, err := s.produce(observedRenderer{wait: blocking}, loopback(t), feed{buffered: buf}, verbatim(), nil)
+	d, err := s.produce(observedRenderer{wait: blocking}, scratch(t), feed{buffered: buf}, verbatim(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestARelayedCastFailsWithItsRead(t *testing.T) {
 	buf.reader.err = failed
 	buf.reader.spool.CloseWrite(failed)
 	close(buf.reader.done)
-	if _, err := s.produce(observedRenderer{wait: blocking}, loopback(t), feed{buffered: buf}, verbatim(), nil); err != nil {
+	if _, err := s.produce(observedRenderer{wait: blocking}, scratch(t), feed{buffered: buf}, verbatim(), nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.releases.release(); !errors.Is(err, failed) {
@@ -204,10 +204,10 @@ func verbatim() transcode.EncodeOptions {
 	}
 }
 
-// loopback is a workspace served on the loopback address.
-func loopback(t *testing.T) workspace {
+// scratch is a workspace the test cleans up.
+func scratch(t *testing.T) workspace {
 	t.Helper()
-	return workspace{listen: fixedAddress("127.0.0.1").listen, dir: t.TempDir()}
+	return workspace{dir: t.TempDir()}
 }
 
 func statusOf(t *testing.T, u *url.URL) int {
@@ -269,7 +269,7 @@ func TestTeardownStopsAnEncoderParkedOnAnInputThatWentQuiet(t *testing.T) {
 		},
 	}} {
 		t.Run(tt.name, func(t *testing.T) {
-			s, ws, dev := servingSession(t, ffmpegPath), loopback(t), probingRenderer{}
+			s, ws, dev := servingSession(t, ffmpegPath), scratch(t), probingRenderer{}
 			f, opts := tt.setup(t, s, ws)
 			d, err := s.produce(dev, ws, f, opts, nil)
 			if err != nil {
@@ -333,7 +333,7 @@ func programHead(t *testing.T, ffmpegPath string) []byte {
 func servingSession(t *testing.T, ffmpegPath string) *session {
 	t.Helper()
 	s := &session{
-		cfg:      Config{FFmpegPath: ffmpegPath, Encoders: transcode.Encoders(ffmpegPath), Timelines: direct{}},
+		cfg:      Config{FFmpegPath: ffmpegPath, Encoders: transcode.Encoders(ffmpegPath), Timelines: direct{}, Listeners: loopback{}},
 		ctx:      t.Context(),
 		releases: &releases{},
 	}
@@ -358,7 +358,7 @@ func openFixture(t *testing.T, contentType, workDir string) delivery {
 		Video:  plan.CopyVideo(),
 		Audio:  plan.EncodeAudio(plan.AudioEncode{Codec: media.CodecAAC}),
 	}
-	d, err := s.produce(probingRenderer{}, workspace{listen: fixedAddress("127.0.0.1").listen, dir: workDir}, feed{}, opts, nil)
+	d, err := s.produce(probingRenderer{}, workspace{dir: workDir}, feed{}, opts, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -22,11 +22,11 @@ type Artifact struct {
 
 // Opening is everything a delivery mechanism is opened with.
 type Opening struct {
-	Format  container.FormatInfo
-	Listen  Listen
-	Dir     string
-	Out     io.Reader
-	Headers map[string]string
+	Format    container.FormatInfo
+	Listeners Listeners
+	Dir       string
+	Out       io.Reader
+	Headers   map[string]string
 
 	// IdleGrace is how long an idle renderer is waited for before the delivery counts as done.
 	IdleGrace time.Duration
