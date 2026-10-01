@@ -3,9 +3,10 @@ package client
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/url"
 	"sync"
+
+	"connectrpc.com/connect"
 
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
 	"github.com/stupside/castor/internal/api/wire"
@@ -13,7 +14,10 @@ import (
 )
 
 // Drive lends target to cast id, running the server's calls on it until the cast ends or ctx does.
-func (c *Client) Drive(ctx context.Context, id string, target device.Info) error {
+func (c *Client) Drive(parent context.Context, id string, target device.Info) error {
+	// Leaving ends the stream, and with it the cast: the server fails a cast whose device's client is gone.
+	ctx, leave := context.WithCancelCause(parent)
+	defer leave(nil)
 	stream, err := c.devices.Drive(ctx, &castorv1.DriveRequest{
 		CastId:  id,
 		Device:  &castorv1.Device{Name: target.Name, Type: string(target.Type), Address: target.Address},
@@ -23,12 +27,15 @@ func (c *Client) Drive(ctx context.Context, id string, target device.Info) error
 		return fmt.Errorf("driving cast: %w", err)
 	}
 	defer func() { _ = stream.Close() }()
-	d := newDriver(ctx, c, id, target)
+	d := newDriver(ctx, leave, c, id, target)
 	defer d.release()
 	for stream.Receive() {
 		d.run(stream.Msg().GetCommand())
 	}
-	if err := stream.Err(); err != nil && ctx.Err() == nil {
+	if cause := context.Cause(ctx); cause != nil && parent.Err() == nil {
+		return cause
+	}
+	if err := stream.Err(); err != nil && parent.Err() == nil {
 		return fmt.Errorf("driving cast: %w", err)
 	}
 	return nil
@@ -37,6 +44,7 @@ func (c *Client) Drive(ctx context.Context, id string, target device.Info) error
 // driver runs the server's calls on the client's renderer, each concurrently, for one drive.
 type driver struct {
 	ctx    context.Context
+	leave  context.CancelCauseFunc
 	c      *Client
 	castID string
 	lent   device.Info
@@ -48,8 +56,8 @@ type driver struct {
 	wg      sync.WaitGroup
 }
 
-func newDriver(ctx context.Context, c *Client, castID string, target device.Info) *driver {
-	return &driver{ctx: ctx, c: c, castID: castID, lent: target, devices: map[string]device.Device{}, running: map[string]context.CancelFunc{}}
+func newDriver(ctx context.Context, leave context.CancelCauseFunc, c *Client, castID string, target device.Info) *driver {
+	return &driver{ctx: ctx, leave: leave, c: c, castID: castID, lent: target, devices: map[string]device.Device{}, running: map[string]context.CancelFunc{}}
 }
 
 // relay is this drive's relay, opened by the first play that needs one.
@@ -92,7 +100,7 @@ func (d *driver) run(cmd *castorv1.DeviceCommand) {
 			return
 		}
 		answer.CastId, answer.CommandId = d.castID, cmd.GetId()
-		d.c.answer(ctx, answer)
+		d.answer(ctx, answer)
 	})
 }
 
@@ -195,10 +203,12 @@ func failure(err error) *castorv1.AnswerRequest {
 	return &castorv1.AnswerRequest{Answer: &castorv1.AnswerRequest_Error{Error: wire.DeviceError(err)}}
 }
 
-func (c *Client) answer(ctx context.Context, req *castorv1.AnswerRequest) {
-	answer, cancel := context.WithTimeout(context.WithoutCancel(ctx), controlTimeout)
+// answer replies to the server; an answer lost on the way would leave the cast waiting on it, so the drive ends instead.
+func (d *driver) answer(ctx context.Context, req *castorv1.AnswerRequest) {
+	answering, cancel := context.WithTimeout(context.WithoutCancel(ctx), controlTimeout)
 	defer cancel()
-	if _, err := c.devices.Answer(answer, req); err != nil {
-		slog.DebugContext(ctx, "answering device command", "command", req.GetCommandId(), "error", err)
+	// NotFound is a call the server already gave up on; it awaits nothing.
+	if _, err := d.c.devices.Answer(answering, req); err != nil && connect.CodeOf(err) != connect.CodeNotFound {
+		d.leave(fmt.Errorf("answering device command %s: %w", req.GetCommandId(), err))
 	}
 }
