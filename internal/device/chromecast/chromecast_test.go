@@ -18,7 +18,7 @@ func TestChromecastPlaybackState(t *testing.T) {
 	const content = "https://castor.test/stream.mp4"
 	status := func(session int, mediaID, playerState, idleReason string) castmedia.MediaStatusResponse {
 		return castmedia.MediaStatusResponse{
-			PayloadHeader: castmedia.PayloadHeader{Type: "MEDIA_STATUS"},
+			Type: "MEDIA_STATUS",
 			Status: []castmedia.Media{{
 				MediaSessionId: session,
 				PlayerState:    playerState,
@@ -27,7 +27,7 @@ func TestChromecastPlaybackState(t *testing.T) {
 			}},
 		}
 	}
-	closed := castmedia.MediaStatusResponse{PayloadHeader: castmedia.PayloadHeader{Type: "CLOSE"}}
+	closed := castmedia.MediaStatusResponse{Type: "CLOSE"}
 	for _, tt := range []struct {
 		name     string
 		messages []castmedia.MediaStatusResponse
@@ -96,7 +96,7 @@ func receiverAnswering(t *testing.T, loadAnswers func(requestID int, content str
 		var answers []any
 		switch req.Type {
 		case "GET_STATUS":
-			status := castmedia.ReceiverStatusResponse{PayloadHeader: castmedia.PayloadHeader{Type: "RECEIVER_STATUS", RequestId: req.RequestID}}
+			status := castmedia.ReceiverStatusResponse{Type: "RECEIVER_STATUS", RequestId: req.RequestID}
 			status.Status.Applications = []castmedia.Application{{AppId: defaultMediaReceiver, TransportId: "transport-1"}}
 			answers = []any{status}
 		case "LOAD":
@@ -117,8 +117,9 @@ func receiverAnswering(t *testing.T, loadAnswers func(requestID int, content str
 
 func mediaStatus(requestID int, content, playerState, idleReason string) castmedia.MediaStatusResponse {
 	return castmedia.MediaStatusResponse{
-		PayloadHeader: castmedia.PayloadHeader{Type: "MEDIA_STATUS", RequestId: requestID},
-		Status:        []castmedia.Media{{MediaSessionId: 1, PlayerState: playerState, IdleReason: idleReason, Media: castmedia.MediaItem{ContentId: content}}},
+		Type:      "MEDIA_STATUS",
+		RequestId: requestID,
+		Status:    []castmedia.Media{{MediaSessionId: 1, PlayerState: playerState, IdleReason: idleReason, Media: castmedia.MediaItem{ContentId: content}}},
 	}
 }
 

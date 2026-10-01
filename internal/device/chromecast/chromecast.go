@@ -150,9 +150,9 @@ func (c *chromecastDevice) Play(ctx context.Context, streamURL *url.URL, content
 	c.watch.begin(streamURL.String())
 	c.watchMu.Unlock()
 	reply, err := c.ch.request(ctx, transport, nsMedia, &castmedia.LoadMediaCommand{
-		PayloadHeader: castmedia.PayloadHeader{Type: msgLoad},
-		Media:         castmedia.MediaItem{ContentId: streamURL.String(), ContentType: contentType, StreamType: "BUFFERED"},
-		Autoplay:      true,
+		Type:     msgLoad,
+		Media:    castmedia.MediaItem{ContentId: streamURL.String(), ContentType: contentType, StreamType: "BUFFERED"},
+		Autoplay: true,
 	})
 	if err == nil {
 		err = loadVerdict(reply)
@@ -192,7 +192,7 @@ func (c *chromecastDevice) mediaReceiver(ctx context.Context) (string, error) {
 	if transport, ok := defaultMediaTransport(status); ok {
 		return transport, nil
 	}
-	status, err = c.receiverStatus(ctx, &castmedia.LaunchRequest{PayloadHeader: castmedia.PayloadHeader{Type: "LAUNCH"}, AppId: defaultMediaReceiver})
+	status, err = c.receiverStatus(ctx, &castmedia.LaunchRequest{Type: "LAUNCH", AppId: defaultMediaReceiver})
 	if err != nil {
 		return "", err
 	}

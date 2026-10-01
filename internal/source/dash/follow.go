@@ -21,8 +21,9 @@ func (Format) Timeline(env source.Env, in media.Input, reads media.TrackKind) ti
 		return nil
 	}
 	return &follower{
-		Media: source.Media{Client: env.Client, Headers: in.Headers},
-		url:   in.URL, kind: reads, id: in.Representation, clock: time.Now,
+		Client:  env.Client,
+		Headers: in.Headers,
+		url:     in.URL, kind: reads, id: in.Representation, clock: time.Now,
 	}
 }
 

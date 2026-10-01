@@ -15,7 +15,7 @@ func (Format) Timeline(env source.Env, in media.Input, _ media.TrackKind) timeli
 	if !in.Fetch.Live && (!in.Fetch.Spliced || in.Fetch.Framing != media.FramingOutOfBand) {
 		return nil
 	}
-	return follower{Media: source.Media{Client: env.Client, Headers: in.Headers}, url: in.URL}
+	return follower{Client: env.Client, Headers: in.Headers, url: in.URL}
 }
 
 // follower reads the origin's current window of one media playlist, and the media it lists.
