@@ -1,5 +1,4 @@
-// Package stream serves single producer stream over HTTP, replaying from byte 0.
-package stream
+package deliver
 
 import (
 	"context"
@@ -16,8 +15,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/stupside/castor/internal/cast/deliver"
 )
 
 const (
@@ -28,7 +25,7 @@ const (
 	firstBytesTimeout = 10 * time.Second
 )
 
-type config struct {
+type streamConfig struct {
 	localIP     string
 	contentType string
 	extension   string
@@ -42,14 +39,14 @@ type config struct {
 	idleGrace time.Duration
 }
 
-// Server spools producer output and replays from byte 0; URL after first byte/timeout.
-type Server struct {
-	cfg config
+// Stream spools producer output and replays from byte 0; URL after first byte/timeout.
+type Stream struct {
+	cfg streamConfig
 
 	listener net.Listener
 	server   *http.Server
 	cancel   context.CancelFunc
-	spool    *deliver.Spool
+	spool    *Spool
 
 	done <-chan struct{} // producer fully spooled
 	// reading is closed once this server's own copy of the producer returns; nil where another writes the spool.
@@ -64,11 +61,11 @@ type Server struct {
 	lastFetch time.Time
 }
 
-// Open creates server for format with DeliverStream kind.
-func Open(o deliver.Opening) (*Server, error) {
-	cfg := configFor(o)
+// OpenStream serves a single producer stream over HTTP, replaying from byte 0.
+func OpenStream(o Opening) (*Stream, error) {
+	cfg := streamConfigFor(o)
 	cfg.spoolPath = filepath.Join(o.Dir, "out"+o.Format.Extension)
-	srv, err := open(cfg, o.Out)
+	srv, err := openStream(cfg, o.Out)
 	if err != nil {
 		return nil, fmt.Errorf("starting stream server: %w", err)
 	}
@@ -76,16 +73,16 @@ func Open(o deliver.Opening) (*Server, error) {
 }
 
 // OpenSpool serves a spool another writes, whole once drained closes; Close leaves that writer running.
-func OpenSpool(o deliver.Opening, sp *deliver.Spool, drained <-chan struct{}) (*Server, error) {
-	srv, err := listen(configFor(o), sp, drained)
+func OpenSpooledStream(o Opening, sp *Spool, drained <-chan struct{}) (*Stream, error) {
+	srv, err := listenStream(streamConfigFor(o), sp, drained)
 	if err != nil {
 		return nil, fmt.Errorf("starting stream server: %w", err)
 	}
 	return srv, nil
 }
 
-func configFor(o deliver.Opening) config {
-	return config{
+func streamConfigFor(o Opening) streamConfig {
+	return streamConfig{
 		localIP:       o.LocalIP,
 		contentType:   o.Format.ContentType,
 		extension:     o.Format.Extension,
@@ -95,14 +92,14 @@ func configFor(o deliver.Opening) config {
 	}
 }
 
-// open spools producer into cfg.spoolPath in the background and serves that spool.
-func open(cfg config, producer io.Reader) (*Server, error) {
-	sp, err := deliver.NewSpool(cfg.spoolPath)
+// openStream spools producer into cfg.spoolPath in the background and serves that spool.
+func openStream(cfg streamConfig, producer io.Reader) (*Stream, error) {
+	sp, err := NewSpool(cfg.spoolPath)
 	if err != nil {
 		return nil, err
 	}
 	done := make(chan struct{})
-	s, err := listen(cfg, sp, done)
+	s, err := listenStream(cfg, sp, done)
 	if err != nil {
 		sp.CloseWrite(nil)
 		return nil, err
@@ -118,15 +115,15 @@ func open(cfg config, producer io.Reader) (*Server, error) {
 	return s, nil
 }
 
-// listen binds to cfg.localIP on an ephemeral port and serves sp, final once done closes.
-func listen(cfg config, sp *deliver.Spool, done <-chan struct{}) (*Server, error) {
-	ln, err := deliver.Listen(cfg.localIP)
+// listenStream binds to cfg.localIP on an ephemeral port and serves sp, final once done closes.
+func listenStream(cfg streamConfig, sp *Spool, done <-chan struct{}) (*Stream, error) {
+	ln, err := Listen(cfg.localIP)
 	if err != nil {
 		return nil, err
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Server{
+	s := &Stream{
 		cfg:            cfg,
 		listener:       ln,
 		cancel:         cancel,
@@ -139,33 +136,33 @@ func listen(cfg config, sp *deliver.Spool, done <-chan struct{}) (*Server, error
 	mux.HandleFunc("/stream"+cfg.extension, func(w http.ResponseWriter, r *http.Request) {
 		s.handleStream(ctx, w, r)
 	})
-	s.server = deliver.Serve(ln, mux)
+	s.server = Serve(ln, mux)
 	return s, nil
 }
 
-func (s *Server) URL() *url.URL {
+func (s *Stream) URL() *url.URL {
 	return &url.URL{Scheme: "http", Host: s.listener.Addr().String(), Path: "/stream" + s.cfg.extension}
 }
 
 // Drained is closed when producer ended and spool has all output.
-func (s *Server) Drained() <-chan struct{} { return s.done }
+func (s *Stream) Drained() <-chan struct{} { return s.done }
 
 // Handed returns most bytes to any one client and when byte last moved; safe over-count.
-func (s *Server) Handed() (int64, time.Time) {
+func (s *Stream) Handed() (int64, time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.sent, s.lastFetch
 }
 
-func (s *Server) Artifact() deliver.Artifact {
-	return deliver.Artifact{
+func (s *Stream) Artifact() Artifact {
+	return Artifact{
 		Subject: "the stream output",
 		Landed:  func() int64 { n, _ := s.spooled(); return n },
 		Grace:   firstBytesTimeout,
 	}
 }
 
-func (s *Server) Close() error {
+func (s *Stream) Close() error {
 	s.cancel()
 	err := s.server.Close()
 	if s.reading != nil {
@@ -174,14 +171,14 @@ func (s *Server) Close() error {
 	return err
 }
 
-func (s *Server) Wait(ctx context.Context) error {
+func (s *Stream) Wait(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-s.done:
 	}
 
-	tick := time.NewTicker(deliver.SettleInterval)
+	tick := time.NewTicker(SettleInterval)
 	defer tick.Stop()
 	for {
 		s.mu.Lock()
@@ -209,7 +206,7 @@ type served struct {
 	total int64
 }
 
-func (s *Server) resume(rangeHeader string) (served, string) {
+func (s *Stream) resume(rangeHeader string) (served, string) {
 	whole := served{code: http.StatusOK, start: 0, end: -1, total: -1}
 	if rangeHeader == "" {
 		return whole, ""
@@ -268,7 +265,7 @@ func byteRange(header string) (start, end int64, ok bool) {
 	return start, end, true
 }
 
-func (s *Server) rangesDeclined() bool {
+func (s *Stream) rangesDeclined() bool {
 	for k, v := range s.cfg.headers {
 		if http.CanonicalHeaderKey(k) == "Accept-Ranges" {
 			return strings.EqualFold(strings.TrimSpace(v), "none")
@@ -278,7 +275,7 @@ func (s *Server) rangesDeclined() bool {
 }
 
 // spooled is how many bytes the producer has written and whether that figure is final.
-func (s *Server) spooled() (int64, bool) {
+func (s *Stream) spooled() (int64, bool) {
 	select {
 	case <-s.done:
 		return s.spool.Size(), true
@@ -288,7 +285,7 @@ func (s *Server) spooled() (int64, bool) {
 }
 
 // severed says why one client stopped being written to.
-func (s *Server) severed(ctx context.Context, r *http.Request, err error, held int64, stalled time.Duration) {
+func (s *Stream) severed(ctx context.Context, r *http.Request, err error, held int64, stalled time.Duration) {
 	if !errors.Is(err, os.ErrDeadlineExceeded) {
 		slog.InfoContext(ctx, "stream client disconnected", "from", r.RemoteAddr, "bytes_sent", held, "error", err)
 		return
@@ -304,7 +301,7 @@ func (s *Server) severed(ctx context.Context, r *http.Request, err error, held i
 	)
 }
 
-func (s *Server) handleStream(srvCtx context.Context, w http.ResponseWriter, r *http.Request) {
+func (s *Stream) handleStream(srvCtx context.Context, w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	stop := context.AfterFunc(srvCtx, cancel)
@@ -337,14 +334,14 @@ func (s *Server) handleStream(srvCtx context.Context, w http.ResponseWriter, r *
 	reachedEOF = s.send(ctx, w, r, sv, tail, flusher)
 }
 
-func (s *Server) writeHeaders(w http.ResponseWriter) {
+func (s *Stream) writeHeaders(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", s.cfg.contentType)
 	for k, v := range s.cfg.headers {
 		w.Header().Set(k, v)
 	}
 }
 
-func (s *Server) admit(ctx context.Context, w http.ResponseWriter, r *http.Request) (served, bool) {
+func (s *Stream) admit(ctx context.Context, w http.ResponseWriter, r *http.Request) (served, bool) {
 	asked := r.Header.Get("Range")
 	sv, refused := s.resume(asked)
 	slog.InfoContext(ctx, "stream GET",
@@ -366,7 +363,7 @@ func (s *Server) admit(ctx context.Context, w http.ResponseWriter, r *http.Reque
 	return sv, true
 }
 
-func (s *Server) joined() func(reachedEOF bool) {
+func (s *Stream) joined() func(reachedEOF bool) {
 	s.mu.Lock()
 	s.active++
 	s.mu.Unlock()
@@ -379,7 +376,7 @@ func (s *Server) joined() func(reachedEOF bool) {
 	}
 }
 
-func (s *Server) respond(w http.ResponseWriter, sv served) http.Flusher {
+func (s *Stream) respond(w http.ResponseWriter, sv served) http.Flusher {
 	if sv.code == http.StatusPartialContent {
 		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", sv.start, sv.end, sv.total))
 		w.Header().Set("Content-Length", strconv.FormatInt(sv.end-sv.start+1, 10))
@@ -392,7 +389,7 @@ func (s *Server) respond(w http.ResponseWriter, sv served) http.Flusher {
 	return flusher
 }
 
-func (s *Server) send(ctx context.Context, w http.ResponseWriter, r *http.Request, sv served, tail io.Reader, flusher http.Flusher) (reachedEOF bool) {
+func (s *Stream) send(ctx context.Context, w http.ResponseWriter, r *http.Request, sv served, tail io.Reader, flusher http.Flusher) (reachedEOF bool) {
 	// remaining is how many bytes this response still owes, and -1 when it owes the rest of the stream.
 	remaining := int64(-1)
 	if sv.end >= 0 {

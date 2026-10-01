@@ -1,5 +1,4 @@
-// Package segments serves a live HLS directory over local HTTP; no byte pacing (client self-paces).
-package segments
+package deliver
 
 import (
 	"context"
@@ -17,10 +16,9 @@ import (
 	"time"
 
 	"github.com/stupside/castor/internal/cast/container"
-	"github.com/stupside/castor/internal/cast/deliver"
 )
 
-type config struct {
+type segmentsConfig struct {
 	localIP   string
 	dir       string            // Directory ffmpeg writes playlist and segments into.
 	playlist  string            // Media playlist filename (container.Tuning.Output).
@@ -28,9 +26,9 @@ type config struct {
 	idleGrace time.Duration
 }
 
-// Server serves Dir over HTTP, tracks liveness for Wait, deletes behind live edge.
-type Server struct {
-	cfg      config
+// Segments serves dir over HTTP, tracks liveness for Wait, deletes behind live edge.
+type Segments struct {
+	cfg      segmentsConfig
 	listener net.Listener
 	server   *http.Server
 	playlist string
@@ -43,8 +41,9 @@ type Server struct {
 	served      int       // Artifacts handed over (measure of renderer fetch, not bytes).
 }
 
-func Open(o deliver.Opening) (*Server, error) {
-	srv, err := open(config{
+// OpenSegments serves a live HLS directory; no byte pacing, the client self-paces.
+func OpenSegments(o Opening) (*Segments, error) {
+	srv, err := openSegments(segmentsConfig{
 		localIP:   o.LocalIP,
 		dir:       o.Dir,
 		playlist:  o.Format.Tuning.Output,
@@ -57,13 +56,13 @@ func Open(o deliver.Opening) (*Server, error) {
 	return srv, nil
 }
 
-func open(cfg config, producer io.Reader) (*Server, error) {
-	ln, err := deliver.Listen(cfg.localIP)
+func openSegments(cfg segmentsConfig, producer io.Reader) (*Segments, error) {
+	ln, err := Listen(cfg.localIP)
 	if err != nil {
 		return nil, err
 	}
 
-	s := &Server{
+	s := &Segments{
 		cfg:         cfg,
 		listener:    ln,
 		playlist:    filepath.Join(cfg.dir, cfg.playlist),
@@ -96,45 +95,45 @@ func open(cfg config, producer io.Reader) (*Server, error) {
 			s.handedOver()
 		}
 	})
-	s.server = deliver.Serve(ln, mux)
+	s.server = Serve(ln, mux)
 	return s, nil
 }
 
 // URL is the media-playlist address the device should play.
-func (s *Server) URL() *url.URL {
+func (s *Segments) URL() *url.URL {
 	return &url.URL{Scheme: "http", Host: s.listener.Addr().String(), Path: "/" + s.cfg.playlist}
 }
 
 // Served returns artifacts handed over (zero = URL accepted but no bytes fetched).
-func (s *Server) Served() int {
+func (s *Segments) Served() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.served
 }
 
 // Drained is closed once encoder output reaches EOF.
-func (s *Server) Drained() <-chan struct{} { return s.drained }
+func (s *Segments) Drained() <-chan struct{} { return s.drained }
 
-func (s *Server) Artifact() deliver.Artifact {
+func (s *Segments) Artifact() Artifact {
 	// No patience (zero-byte m3u8 is unparseable).
-	return deliver.Artifact{Subject: "the HLS playlist", Landed: written(s.playlist)}
+	return Artifact{Subject: "the HLS playlist", Landed: written(s.playlist)}
 }
 
 // touch restarts idle grace on any request (playlist refresh counts as watching).
-func (s *Server) touch() {
+func (s *Segments) touch() {
 	s.mu.Lock()
 	s.lastRequest = time.Now()
 	s.mu.Unlock()
 }
 
-func (s *Server) handedOver() {
+func (s *Segments) handedOver() {
 	s.mu.Lock()
 	s.served++
 	s.mu.Unlock()
 }
 
 // carriesMedia returns true for program (anything but playlist) to avoid silent count breakage.
-func (s *Server) carriesMedia(p string) bool {
+func (s *Segments) carriesMedia(p string) bool {
 	name := strings.TrimPrefix(path.Clean("/"+p), "/")
 	return name != "" && name != s.cfg.playlist
 }
@@ -176,7 +175,7 @@ func (a *answered) Unwrap() http.ResponseWriter { return a.ResponseWriter }
 func (a *answered) carriedBytes() bool { return a.status >= 200 && a.status < 300 }
 
 // Wait blocks until stream is produced/drained or ctx cancelled (live source ends on Ctrl+C).
-func (s *Server) Wait(ctx context.Context) error {
+func (s *Segments) Wait(ctx context.Context) error {
 	// Wait for producer EOF first; idleness check needs the clock.
 	select {
 	case <-ctx.Done():
@@ -184,7 +183,7 @@ func (s *Server) Wait(ctx context.Context) error {
 	case <-s.drained:
 	}
 
-	tick := time.NewTicker(deliver.SettleInterval)
+	tick := time.NewTicker(SettleInterval)
 	defer tick.Stop()
 	for {
 		s.mu.Lock()
@@ -202,7 +201,7 @@ func (s *Server) Wait(ctx context.Context) error {
 }
 
 // Close stops HTTP server and joins encoder-output-draining goroutine.
-func (s *Server) Close() error {
+func (s *Segments) Close() error {
 	err := s.server.Close()
 	s.reader.Wait()
 	return err

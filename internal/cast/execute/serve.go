@@ -12,8 +12,6 @@ import (
 	"github.com/stupside/castor/internal/cast/attempt"
 	"github.com/stupside/castor/internal/cast/container"
 	"github.com/stupside/castor/internal/cast/deliver"
-	"github.com/stupside/castor/internal/cast/deliver/segments"
-	"github.com/stupside/castor/internal/cast/deliver/stream"
 	"github.com/stupside/castor/internal/cast/transcode"
 	"github.com/stupside/castor/internal/cast/watch"
 	"github.com/stupside/castor/internal/device"
@@ -153,17 +151,17 @@ const (
 func sinkFor(o deliver.Opening, made func() media.Progress) (sink, error) {
 	switch o.Format.Delivery {
 	case container.DeliverSegmented:
-		srv, err := segments.Open(o)
+		srv, err := deliver.OpenSegments(o)
 		if err != nil {
 			return nil, err
 		}
-		return segmentedSink{Server: srv, made: made}, nil
+		return segmentedSink{Segments: srv, made: made}, nil
 	case container.DeliverStream:
-		srv, err := stream.Open(o)
+		srv, err := deliver.OpenStream(o)
 		if err != nil {
 			return nil, err
 		}
-		return streamedSink{Server: srv, made: made}, nil
+		return streamedSink{Stream: srv, made: made}, nil
 	default:
 		return nil, fmt.Errorf("no delivery mechanism for kind %v", o.Format.Delivery)
 	}
@@ -171,16 +169,16 @@ func sinkFor(o deliver.Opening, made func() media.Progress) (sink, error) {
 
 // spoolSink streams a spool another writes, whole once drained closes, judged against what that writer made.
 func spoolSink(o deliver.Opening, sp *deliver.Spool, drained <-chan struct{}, made func() media.Progress) (sink, error) {
-	srv, err := stream.OpenSpool(o, sp, drained)
+	srv, err := deliver.OpenSpooledStream(o, sp, drained)
 	if err != nil {
 		return nil, err
 	}
-	return streamedSink{Server: srv, made: made}, nil
+	return streamedSink{Stream: srv, made: made}, nil
 }
 
 // streamedSink judges a progressive stream by the share of what was made that one client took.
 type streamedSink struct {
-	*stream.Server
+	*deliver.Stream
 	made func() media.Progress
 }
 
@@ -195,7 +193,7 @@ func (s streamedSink) Settled() error {
 
 // segmentedSink can only state whether anything was fetched: its window deletes behind the live edge.
 type segmentedSink struct {
-	*segments.Server
+	*deliver.Segments
 	made func() media.Progress
 }
 

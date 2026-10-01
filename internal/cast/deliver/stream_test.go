@@ -1,4 +1,4 @@
-package stream
+package deliver
 
 import (
 	"bytes"
@@ -12,14 +12,13 @@ import (
 	"time"
 
 	"github.com/stupside/castor/internal/cast/container"
-	"github.com/stupside/castor/internal/cast/deliver"
 	"github.com/stupside/castor/internal/media"
 )
 
 // Handed is the most one client took: a HEAD takes nothing, and a later partial client does not add to it.
 func TestHandedIsTheMostAnyOneClientTook(t *testing.T) {
 	const size = 8 << 20
-	srv := spooled(t, config{}, payload(size))
+	srv := spooled(t, streamConfig{}, payload(size))
 
 	head(t, srv)
 	if handed, last := srv.Handed(); handed != 0 || !last.IsZero() {
@@ -52,7 +51,7 @@ func TestARangeResumesFromTheByteAsked(t *testing.T) {
 		{"bounded short of the end", fmt.Sprintf("bytes=%d-%d", from, total-1024), total - 1024, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			srv := spooled(t, config{}, want)
+			srv := spooled(t, streamConfig{}, want)
 			resp := get(t, srv, tt.asked)
 			if resp.StatusCode != http.StatusPartialContent {
 				t.Fatalf("status = %d, want 206", resp.StatusCode)
@@ -80,7 +79,7 @@ func TestARangeResumesFromTheByteAsked(t *testing.T) {
 
 func TestAResumePastTheEndIs416(t *testing.T) {
 	want := payload(4096)
-	resp := get(t, spooled(t, config{}, want), fmt.Sprintf("bytes=%d-", len(want)))
+	resp := get(t, spooled(t, streamConfig{}, want), fmt.Sprintf("bytes=%d-", len(want)))
 	if resp.StatusCode != http.StatusRequestedRangeNotSatisfiable {
 		t.Fatalf("status = %d, want 416", resp.StatusCode)
 	}
@@ -94,12 +93,12 @@ func TestARefusedRangeReplaysFromByteZero(t *testing.T) {
 	body := payload(64 << 10)
 	for _, tt := range []struct {
 		name string
-		srv  func(t *testing.T) *Server
+		srv  func(t *testing.T) *Stream
 	}{
-		{"a delivery declaring Accept-Ranges: none", func(t *testing.T) *Server {
-			return spooled(t, config{headers: map[string]string{"Accept-Ranges": "none"}}, body)
+		{"a delivery declaring Accept-Ranges: none", func(t *testing.T) *Stream {
+			return spooled(t, streamConfig{headers: map[string]string{"Accept-Ranges": "none"}}, body)
 		}},
-		{"a producer still running", func(t *testing.T) *Server { return producing(t, body) }},
+		{"a producer still running", func(t *testing.T) *Stream { return producing(t, body) }},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			resp := get(t, tt.srv(t), fmt.Sprintf("bytes=%d-", len(body)/2))
@@ -115,7 +114,7 @@ func TestARefusedRangeReplaysFromByteZero(t *testing.T) {
 
 // A client that stops reading is cut by the write deadline, and Wait ends after the idle grace.
 func TestAHungClientIsFreedAndTheCastEnds(t *testing.T) {
-	srv := spooled(t, config{writeDeadline: 300 * time.Millisecond, idleGrace: 50 * time.Millisecond}, payload(8<<20))
+	srv := spooled(t, streamConfig{writeDeadline: 300 * time.Millisecond, idleGrace: 50 * time.Millisecond}, payload(8<<20))
 	read(t, get(t, srv, ""), 1)
 	settle(t, srv)
 	srv.mu.Lock()
@@ -128,7 +127,7 @@ func TestAHungClientIsFreedAndTheCastEnds(t *testing.T) {
 // A spool another writes is replayed from byte 0, resumed once its writer is done, and let go of without waiting for that writer.
 func TestASpoolAnotherWritesIsServedWithoutBeingOwned(t *testing.T) {
 	body := payload(1 << 20)
-	sp, err := deliver.NewSpool(filepath.Join(t.TempDir(), "spool.ts"))
+	sp, err := NewSpool(filepath.Join(t.TempDir(), "spool.ts"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +136,7 @@ func TestASpoolAnotherWritesIsServedWithoutBeingOwned(t *testing.T) {
 		t.Fatal(err)
 	}
 	drained := make(chan struct{})
-	srv, err := OpenSpool(deliver.Opening{
+	srv, err := OpenSpooledStream(Opening{
 		Format:        container.FormatInfo{ContentType: media.MPEGTS, Extension: ".ts"},
 		LocalIP:       "127.0.0.1",
 		WriteDeadline: time.Minute,
@@ -171,12 +170,12 @@ func TestASpoolAnotherWritesIsServedWithoutBeingOwned(t *testing.T) {
 		t.Errorf("the resumed client got %d bytes, want the %d from the byte it asked", len(got), len(body)-half)
 	}
 
-	running, err := deliver.NewSpool(filepath.Join(t.TempDir(), "running.ts"))
+	running, err := NewSpool(filepath.Join(t.TempDir(), "running.ts"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { running.CloseWrite(nil) })
-	unowned, err := OpenSpool(deliver.Opening{LocalIP: "127.0.0.1"}, running, make(chan struct{}))
+	unowned, err := OpenSpooledStream(Opening{LocalIP: "127.0.0.1"}, running, make(chan struct{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +197,7 @@ func payload(size int) []byte {
 }
 
 // spooled starts a server and returns once the whole body is in the spool.
-func spooled(t *testing.T, cfg config, body []byte) *Server {
+func spooled(t *testing.T, cfg streamConfig, body []byte) *Stream {
 	t.Helper()
 	cfg.localIP = "127.0.0.1"
 	cfg.contentType = "video/mp4"
@@ -206,7 +205,7 @@ func spooled(t *testing.T, cfg config, body []byte) *Server {
 	cfg.spoolPath = filepath.Join(t.TempDir(), "out.mp4")
 	cfg.writeDeadline = cmp.Or(cfg.writeDeadline, time.Minute)
 	cfg.idleGrace = cmp.Or(cfg.idleGrace, 30*time.Second)
-	srv, err := open(cfg, bytes.NewReader(body))
+	srv, err := openStream(cfg, bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,10 +219,10 @@ func spooled(t *testing.T, cfg config, body []byte) *Server {
 }
 
 // producing serves a head the producer has written while it is still running.
-func producing(t *testing.T, head []byte) *Server {
+func producing(t *testing.T, head []byte) *Stream {
 	t.Helper()
 	pr, pw := io.Pipe()
-	srv, err := open(config{
+	srv, err := openStream(streamConfig{
 		localIP:       "127.0.0.1",
 		contentType:   "video/mp4",
 		extension:     ".mp4",
@@ -251,7 +250,7 @@ func producing(t *testing.T, head []byte) *Server {
 }
 
 // settle waits for every client to be accounted for.
-func settle(t *testing.T, srv *Server) {
+func settle(t *testing.T, srv *Stream) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
@@ -260,7 +259,7 @@ func settle(t *testing.T, srv *Server) {
 	}
 }
 
-func get(t *testing.T, srv *Server, byteRange string) *http.Response {
+func get(t *testing.T, srv *Stream, byteRange string) *http.Response {
 	t.Helper()
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL().String(), nil)
 	if err != nil {
@@ -286,7 +285,7 @@ func read(t *testing.T, resp *http.Response, n int) []byte {
 	return got
 }
 
-func head(t *testing.T, srv *Server) int {
+func head(t *testing.T, srv *Stream) int {
 	t.Helper()
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodHead, srv.URL().String(), nil)
 	if err != nil {

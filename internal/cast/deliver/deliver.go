@@ -1,4 +1,4 @@
-// Package deliver is how a cast reaches its renderer: the spool its bytes pass through, and the terms a served cast opens on.
+// Package deliver is how a cast reaches its renderer: a progressive stream or a live HLS directory, the spool its bytes pass through, and the terms both open on.
 package deliver
 
 import (

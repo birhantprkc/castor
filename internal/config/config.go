@@ -9,7 +9,6 @@ import (
 	"github.com/stupside/castor/internal/cast"
 	"github.com/stupside/castor/internal/cast/compose"
 	"github.com/stupside/castor/internal/cast/execute"
-	"github.com/stupside/castor/internal/cast/netaddr"
 	"github.com/stupside/castor/internal/cast/transcode"
 	"github.com/stupside/castor/internal/catalog"
 	"github.com/stupside/castor/internal/device"
@@ -98,7 +97,7 @@ func (c *Config) Playback(target device.Info, subs execute.Subtitles) cast.Confi
 			Encoders:   transcode.Encoders(c.Transcode.FFmpegPath),
 			Probes:     probe.FFprobe(c.Resolver.FFprobePath),
 			Renderer:   configured{families: c.Devices(), target: target, timeout: c.Network.Timeout},
-			Addresses:  netaddr.Local{Interface: c.Network.Interface},
+			Addresses:  cast.LANAddress{Interface: c.Network.Interface},
 			Subtitles:  subs,
 			MaxHeight:  c.Resolver.MaxHeight,
 			// Half the read deadline: a reload castor answers late would end ffmpeg's read like no answer.

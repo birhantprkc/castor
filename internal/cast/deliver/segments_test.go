@@ -1,4 +1,4 @@
-package segments
+package deliver
 
 import (
 	"cmp"
@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stupside/castor/internal/cast/deliver"
 	"github.com/stupside/castor/internal/media"
 )
 
@@ -27,7 +26,7 @@ func TestServedCountsOnlyMediaHandedOver(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	srv, _ := serving(t, config{
+	srv, _ := serving(t, segmentsConfig{
 		localIP: "127.0.0.1", dir: dir, playlist: "stream.m3u8",
 		headers: map[string]string{"transferMode.dlna.org": "Streaming", "Content-Type": "text/plain"},
 	})
@@ -45,7 +44,7 @@ func TestServedCountsOnlyMediaHandedOver(t *testing.T) {
 	} {
 		t.Run(tt.method+tt.path, func(t *testing.T) {
 			before := srv.Served()
-			resp, err := get(t.Context(), srv, tt.method, tt.path)
+			resp, err := request(t.Context(), srv, tt.method, tt.path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -68,9 +67,9 @@ func TestServedCountsOnlyMediaHandedOver(t *testing.T) {
 
 // The grace is seeded at open, so a renderer coming late for the tail segments still has its window.
 func TestTheIdleGraceStartsBeforeTheFirstRequest(t *testing.T) {
-	srv, ended := serving(t, config{localIP: "127.0.0.1", dir: t.TempDir(), playlist: "stream.m3u8", idleGrace: 3 * deliver.SettleInterval})
+	srv, ended := serving(t, segmentsConfig{localIP: "127.0.0.1", dir: t.TempDir(), playlist: "stream.m3u8", idleGrace: 3 * SettleInterval})
 	ended()
-	waiting, cancel := context.WithTimeout(t.Context(), 2*deliver.SettleInterval)
+	waiting, cancel := context.WithTimeout(t.Context(), 2*SettleInterval)
 	defer cancel()
 	if err := srv.Wait(waiting); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Wait = %v inside the grace that follows the producer's exit", err)
@@ -83,14 +82,14 @@ func TestARendererPollingThePlaylistIsNotIdle(t *testing.T) {
 		t.Fatal(err)
 	}
 	const poll = 50 * time.Millisecond
-	srv, ended := serving(t, config{localIP: "127.0.0.1", dir: dir, playlist: "stream.m3u8", idleGrace: 6 * poll})
+	srv, ended := serving(t, segmentsConfig{localIP: "127.0.0.1", dir: dir, playlist: "stream.m3u8", idleGrace: 6 * poll})
 	ended()
 
 	polling, stop := context.WithCancel(t.Context())
 	defer stop()
 	go func() {
 		for polling.Err() == nil {
-			_, _ = get(polling, srv, http.MethodGet, "/stream.m3u8")
+			_, _ = request(polling, srv, http.MethodGet, "/stream.m3u8")
 			time.Sleep(poll)
 		}
 	}()
@@ -110,11 +109,11 @@ func TestARendererPollingThePlaylistIsNotIdle(t *testing.T) {
 }
 
 // serving starts a server; end closes the producer, which starts the idle grace.
-func serving(t *testing.T, cfg config) (srv *Server, end func()) {
+func serving(t *testing.T, cfg segmentsConfig) (srv *Segments, end func()) {
 	t.Helper()
 	pr, pw := io.Pipe()
 	cfg.idleGrace = cmp.Or(cfg.idleGrace, 30*time.Second)
-	srv, err := open(cfg, pr)
+	srv, err := openSegments(cfg, pr)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -126,7 +125,7 @@ func serving(t *testing.T, cfg config) (srv *Server, end func()) {
 	return srv, end
 }
 
-func get(ctx context.Context, srv *Server, method, path string) (*http.Response, error) {
+func request(ctx context.Context, srv *Segments, method, path string) (*http.Response, error) {
 	u := srv.URL()
 	u.Path = path
 	req, err := http.NewRequestWithContext(ctx, method, u.String(), nil)
