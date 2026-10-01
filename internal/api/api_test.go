@@ -291,13 +291,20 @@ func TestADryRunIsTheServersRankingAsTheCastWouldAskIt(t *testing.T) {
 	}
 }
 
-func TestACastAskedNoPictureCeilingIsRefused(t *testing.T) {
+func TestACastThatLeavesWhatItAsksUnstatedIsRefused(t *testing.T) {
 	c, _ := serve(t, backend(handoff), newTV())
 
 	unasked := named("https://cdn.example/direct")
 	unasked.Preferences = nil
-	if _, err := c.Start(t.Context(), unasked); err == nil {
-		t.Error("the server guessed a height ceiling the client never stated")
+	undelivered := named("https://cdn.example/direct")
+	undelivered.Preferences = &castorv1.Preferences{MaxHeight: 720}
+	for name, req := range map[string]*castorv1.StartCastRequest{
+		"no preferences": unasked,
+		"no delivery":    undelivered,
+	} {
+		if _, err := c.Start(t.Context(), req); connect.CodeOf(err) != connect.CodeInvalidArgument {
+			t.Errorf("%s started with %v, want the server to refuse guessing it", name, err)
+		}
 	}
 }
 

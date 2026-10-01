@@ -176,7 +176,7 @@ func (c *Config) Preferences() *castorv1.Preferences {
 	return asked
 }
 
-// delivery is the engine's reading of what a cast asked; an unstated delivery leaves it to the evidence.
+// delivery is the engine's reading of the delivery a cast asked for.
 func delivery(d castorv1.Delivery) compose.DeliveryPreference {
 	if d == castorv1.Delivery_DELIVERY_SERVE {
 		return compose.DeliveryServe

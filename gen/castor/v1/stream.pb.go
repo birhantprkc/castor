@@ -25,9 +25,10 @@ const (
 type Delivery int32
 
 const (
-	// DELIVERY_UNSPECIFIED leaves the decision to the evidence, as auto does.
+	// DELIVERY_UNSPECIFIED is refused: a cast states its delivery.
 	Delivery_DELIVERY_UNSPECIFIED Delivery = 0
-	Delivery_DELIVERY_AUTO        Delivery = 1
+	// DELIVERY_AUTO lets the evidence decide between pass-through and serving.
+	Delivery_DELIVERY_AUTO Delivery = 1
 	// DELIVERY_SERVE refuses pass-through: the server reads the source and serves the renderer.
 	Delivery_DELIVERY_SERVE Delivery = 2
 )
@@ -414,9 +415,10 @@ const file_castor_v1_stream_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12-\n" +
 	"\x05value\x18\x02 \x01(\v2\x17.castor.v1.HeaderValuesR\x05value:\x028\x01\"&\n" +
 	"\fHeaderValues\x12\x16\n" +
-	"\x06values\x18\x01 \x03(\tR\x06values\"\x8e\x01\n" +
-	"\vPreferences\x129\n" +
-	"\bdelivery\x18\x01 \x01(\x0e2\x13.castor.v1.DeliveryB\b\xbaH\x05\x82\x01\x02\x10\x01R\bdelivery\x12&\n" +
+	"\x06values\x18\x01 \x03(\tR\x06values\"\x90\x01\n" +
+	"\vPreferences\x12;\n" +
+	"\bdelivery\x18\x01 \x01(\x0e2\x13.castor.v1.DeliveryB\n" +
+	"\xbaH\a\x82\x01\x04\x10\x01 \x00R\bdelivery\x12&\n" +
 	"\n" +
 	"max_height\x18\x02 \x01(\x05B\a\xbaH\x04\x1a\x02(\x02R\tmaxHeight\x12\x1c\n" +
 	"\tsubtitles\x18\x03 \x01(\tR\tsubtitles\"\x86\x01\n" +

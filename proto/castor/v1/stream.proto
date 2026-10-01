@@ -24,7 +24,10 @@ message HeaderValues {
 
 // Preferences is what the operator asks of one cast.
 message Preferences {
-  Delivery delivery = 1 [(buf.validate.field).enum.defined_only = true];
+  Delivery delivery = 1 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
   // max_height is the tallest picture the cast may show.
   int32 max_height = 2 [(buf.validate.field).int32.gte = 2];
   // subtitles is the language to burn in, empty for none.
@@ -32,8 +35,9 @@ message Preferences {
 }
 
 enum Delivery {
-  // DELIVERY_UNSPECIFIED leaves the decision to the evidence, as auto does.
+  // DELIVERY_UNSPECIFIED is refused: a cast states its delivery.
   DELIVERY_UNSPECIFIED = 0;
+  // DELIVERY_AUTO lets the evidence decide between pass-through and serving.
   DELIVERY_AUTO = 1;
   // DELIVERY_SERVE refuses pass-through: the server reads the source and serves the renderer.
   DELIVERY_SERVE = 2;
