@@ -3,7 +3,6 @@ package server
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -87,14 +86,18 @@ func serve(ctx context.Context, l net.Listener, b Backend) error {
 		// Every request is marked the server's, so what it logs is told apart from its client's in one process.
 		BaseContext: func(net.Listener) context.Context { return context.WithValue(context.Background(), servedKey{}, true) },
 	}
-	go func() {
-		<-ctx.Done()
-		shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownGrace)
-		defer cancel()
-		_ = srv.Shutdown(shutdown)
-	}()
-	if err := srv.Serve(l); !errors.Is(err, http.ErrServerClosed) {
+	served := make(chan error, 1)
+	go func() { served <- srv.Serve(l) }()
+	select {
+	case err := <-served:
 		return fmt.Errorf("api server: %w", err)
+	case <-ctx.Done():
+	}
+	shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownGrace)
+	defer cancel()
+	if err := srv.Shutdown(shutdown); err != nil {
+		// The grace ran out: what still runs is cut.
+		return srv.Close()
 	}
 	return nil
 }
