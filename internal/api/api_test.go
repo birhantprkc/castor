@@ -165,7 +165,7 @@ func serve(t *testing.T, b server.Backend, renderers client.Renderers) (*client.
 	if err != nil {
 		t.Fatal(err)
 	}
-	return client.New(base, client.LAN{Renderers: renderers, Addresses: lanAddress{}}), base
+	return client.New(base, client.LAN{Renderers: renderers, Address: lanAddress{}}), base
 }
 
 // progress is every status a watcher was shown, in order.

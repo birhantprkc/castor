@@ -51,7 +51,7 @@ type driver struct {
 
 func newDriver(ctx context.Context, c *Client, castID string, target device.Info) *driver {
 	d := &driver{ctx: ctx, c: c, castID: castID, lent: target, devices: map[string]device.Device{}, running: map[string]context.CancelFunc{}}
-	d.relay = sync.OnceValues(func() (*relay, error) { return openRelay(ctx, c.base, c.lan.Addresses) })
+	d.relay = sync.OnceValues(func() (*relay, error) { return openRelay(ctx, c.base, c.lan.Address) })
 	return d
 }
 

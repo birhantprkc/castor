@@ -188,7 +188,7 @@ func delivery(d castorv1.Delivery) compose.DeliveryPreference {
 func (c *Config) LAN() client.LAN {
 	return client.LAN{
 		Renderers: renderers{families: c.Devices(), timeout: c.Network.Timeout},
-		Addresses: client.LANAddress{Interface: c.Network.Interface},
+		Address:   client.LANAddress{Interface: c.Network.Interface},
 	}
 }
 

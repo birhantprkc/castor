@@ -16,12 +16,12 @@ type relay struct {
 	server *http.Server
 }
 
-func openRelay(ctx context.Context, server string, addrs Addresses) (*relay, error) {
+func openRelay(ctx context.Context, server string, address Address) (*relay, error) {
 	upstream, err := url.Parse(server)
 	if err != nil {
 		return nil, fmt.Errorf("relay upstream %q: %w", server, err)
 	}
-	ip, err := addrs.LocalIPv4(ctx)
+	ip, err := address.LocalIPv4(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("resolving the address renderers reach this client at: %w", err)
 	}

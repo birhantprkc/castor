@@ -13,7 +13,7 @@ import (
 // LAN is the client's side of a cast: the renderers it reaches, and the address they reach it at.
 type LAN struct {
 	Renderers Renderers
-	Addresses Addresses
+	Address   Address
 }
 
 // Renderers reaches the renderers on the client's network.
@@ -22,8 +22,8 @@ type Renderers interface {
 	Connect(ctx context.Context, target device.Info) (device.Device, error)
 }
 
-// Addresses is the client's LAN address, which renderers fetch relayed media from.
-type Addresses interface {
+// Address is the client's LAN address, which renderers fetch relayed media from.
+type Address interface {
 	LocalIPv4(ctx context.Context) (string, error)
 }
 
