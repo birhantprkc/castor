@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/stupside/castor/internal/browse/tmdb"
+	"github.com/stupside/castor/internal/titles/tmdb"
 )
 
 // browseMode is the source of the results list on screenBrowse: non-empty search overrides both modes.

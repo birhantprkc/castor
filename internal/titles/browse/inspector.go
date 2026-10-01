@@ -12,7 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/eliukblau/pixterm/pkg/ansimage"
 
-	"github.com/stupside/castor/internal/browse/tmdb"
+	"github.com/stupside/castor/internal/titles/tmdb"
 )
 
 // hoverDebounce collapses cursor movement bursts to avoid requests per row.

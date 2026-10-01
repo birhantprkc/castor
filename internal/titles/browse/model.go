@@ -14,9 +14,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/stupside/castor/internal/browse/palette"
-	"github.com/stupside/castor/internal/browse/tmdb"
 	"github.com/stupside/castor/internal/device"
+	"github.com/stupside/castor/internal/palette"
+	"github.com/stupside/castor/internal/titles/tmdb"
 )
 
 type Kind int

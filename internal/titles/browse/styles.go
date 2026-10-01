@@ -2,7 +2,7 @@ package browse
 
 import (
 	"github.com/charmbracelet/lipgloss"
-	"github.com/stupside/castor/internal/browse/palette"
+	"github.com/stupside/castor/internal/palette"
 )
 
 const (

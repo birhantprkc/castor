@@ -1,5 +1,5 @@
-// Package catalog maps a title to the pages the operator's sites publish it at.
-package catalog
+// Package titles maps a title to the pages the operator's sites publish it at.
+package titles
 
 import (
 	"strconv"

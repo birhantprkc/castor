@@ -11,7 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/stupside/castor/internal/browse/tmdb"
+	"github.com/stupside/castor/internal/titles/tmdb"
 )
 
 type drillMode int

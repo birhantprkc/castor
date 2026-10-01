@@ -6,13 +6,13 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"github.com/stupside/castor/internal/browse"
-	"github.com/stupside/castor/internal/browse/picker"
-	"github.com/stupside/castor/internal/browse/tmdb"
 	"github.com/stupside/castor/internal/cast"
 	"github.com/stupside/castor/internal/config"
 	"github.com/stupside/castor/internal/device"
+	"github.com/stupside/castor/internal/device/picker"
 	"github.com/stupside/castor/internal/source"
+	"github.com/stupside/castor/internal/titles/browse"
+	"github.com/stupside/castor/internal/titles/tmdb"
 )
 
 func (a *app) castCommand() *cli.Command {

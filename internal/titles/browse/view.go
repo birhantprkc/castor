@@ -5,7 +5,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/stupside/castor/internal/browse/palette"
+	"github.com/stupside/castor/internal/palette"
 )
 
 func newHelp() help.Model {

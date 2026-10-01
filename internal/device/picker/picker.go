@@ -12,8 +12,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/stupside/castor/internal/browse/palette"
 	"github.com/stupside/castor/internal/device"
+	"github.com/stupside/castor/internal/palette"
 )
 
 // Device blocks until device selected or quit; context cancellation doesn't interrupt raw terminal input.

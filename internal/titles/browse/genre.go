@@ -12,8 +12,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/stupside/castor/internal/browse/palette"
-	"github.com/stupside/castor/internal/browse/tmdb"
+	"github.com/stupside/castor/internal/palette"
+	"github.com/stupside/castor/internal/titles/tmdb"
 )
 
 // GenrePicker is the modal genre filter; owns draft selection, isolated from feed.

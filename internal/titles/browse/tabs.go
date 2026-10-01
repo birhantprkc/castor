@@ -4,7 +4,7 @@ import (
 	"context"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/stupside/castor/internal/browse/tmdb"
+	"github.com/stupside/castor/internal/titles/tmdb"
 )
 
 type tabID int

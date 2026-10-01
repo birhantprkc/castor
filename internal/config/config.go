@@ -10,7 +10,6 @@ import (
 	"github.com/stupside/castor/internal/cast/compose"
 	"github.com/stupside/castor/internal/cast/execute"
 	"github.com/stupside/castor/internal/cast/transcode"
-	"github.com/stupside/castor/internal/catalog"
 	"github.com/stupside/castor/internal/device"
 	"github.com/stupside/castor/internal/device/chromecast"
 	"github.com/stupside/castor/internal/device/dlna"
@@ -25,6 +24,7 @@ import (
 	"github.com/stupside/castor/internal/source/hls"
 	"github.com/stupside/castor/internal/source/rank"
 	"github.com/stupside/castor/internal/subtitle"
+	"github.com/stupside/castor/internal/titles"
 )
 
 type Config struct {
@@ -33,7 +33,7 @@ type Config struct {
 	Network   NetworkConfig         `yaml:"network" validate:"required"`
 	Browser   extract.BrowserConfig `yaml:"browser" validate:"required"`
 	Capture   extract.CaptureConfig `yaml:"capture" validate:"required"`
-	Sources   catalog.Sites         `yaml:"sources" validate:"dive"`
+	Sources   titles.Sites          `yaml:"sources" validate:"dive"`
 	Resolver  ResolverConfig        `yaml:"resolver" validate:"required"`
 	Transcode TranscodeConfig       `yaml:"transcode" validate:"required"`
 	Whisper   subtitle.Whisper      `yaml:"whisper"`

@@ -8,7 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/stupside/castor/internal/browse/tmdb"
+	"github.com/stupside/castor/internal/titles/tmdb"
 )
 
 func drive(t *testing.T, m model, msg tea.Msg) (model, tea.Cmd) {
