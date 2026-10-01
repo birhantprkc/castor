@@ -16,7 +16,7 @@ type relays struct {
 
 func newRelays(cast string) *relays { return &relays{cast: cast, open: map[string]bool{}} }
 
-// Listen opens a delivery on loopback and admits it to the relay.
+// Listen opens a delivery on loopback and admits it to the relay until it closes.
 func (r *relays) Listen(context.Context) (net.Listener, error) {
 	l, err := net.Listen("tcp", loopback("0"))
 	if err != nil {
@@ -25,7 +25,20 @@ func (r *relays) Listen(context.Context) (net.Listener, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.open[l.Addr().String()] = true
-	return l, nil
+	return admitted{Listener: l, relays: r}, nil
+}
+
+// admitted is a delivery's listener; closing it shuts the relay to its port, which the kernel may hand anyone next.
+type admitted struct {
+	net.Listener
+	relays *relays
+}
+
+func (a admitted) Close() error {
+	a.relays.mu.Lock()
+	delete(a.relays.open, a.Addr().String())
+	a.relays.mu.Unlock()
+	return a.Listener.Close()
 }
 
 // path is where a client relays address, if this cast opened it.
