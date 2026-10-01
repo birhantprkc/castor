@@ -24,7 +24,8 @@ func (d devices) Drive(ctx context.Context, req *castorv1.DriveRequest, out *con
 		return err
 	}
 	defer s.line.leave()
-	slog.InfoContext(s.ctx, "device lent", "name", req.GetDevice().GetName(), "type", req.GetDevice().GetType())
+	device := req.GetDevice()
+	slog.InfoContext(s.ctx, "device lent", "name", device.GetName(), "type", device.GetType(), "address", device.GetAddress())
 	for {
 		select {
 		case cmd := <-s.line.outbox:
