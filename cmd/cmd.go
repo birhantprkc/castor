@@ -143,15 +143,20 @@ func (a *app) cast(ctx context.Context, cfg *config.Config, c *client.Client, re
 		stop(ctx, c, id)
 		return err
 	}
+	lending, release := context.WithCancel(ctx)
+	defer release()
 	driving := make(chan error, 1)
-	go func() { driving <- c.Drive(ctx, id, target) }()
+	go func() { driving <- c.Drive(lending, id, target) }()
 
 	err = w.Outcome()
 	if ctx.Err() != nil {
-		stop(ctx, c, id)
 		err = context.Cause(ctx)
 	}
-	// The renderer is released before castor exits, whatever the outcome.
+	// Whatever ended the watch, nothing is left casting and the renderer is released before castor exits.
+	if err != nil {
+		stop(ctx, c, id)
+	}
+	release()
 	if derr := <-driving; derr != nil {
 		slog.DebugContext(ctx, "driving ended", "error", derr)
 	}
