@@ -37,9 +37,12 @@ func openRelay(ctx context.Context, server string, addrs Addresses) (*relay, err
 		// Streams flow as they are written: a renderer starved behind a buffering proxy reads as a stall.
 		FlushInterval: -1,
 	}
+	// Only the server's relay route is lent to the LAN, never its API.
+	mux := http.NewServeMux()
+	mux.Handle("/relay/", proxy)
 	r := &relay{
 		base:   &url.URL{Scheme: "http", Host: l.Addr().String(), Path: "/"},
-		server: &http.Server{Handler: proxy, ReadHeaderTimeout: 10 * time.Second},
+		server: &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second},
 	}
 	go func() { _ = r.server.Serve(l) }()
 	return r, nil
