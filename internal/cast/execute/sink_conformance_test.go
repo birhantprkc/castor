@@ -108,7 +108,15 @@ func mechanisms() []mechanism {
 
 // each runs one case per mechanism over a fresh sink and its producer.
 func each(t *testing.T, check func(t *testing.T, m mechanism, sink sink, producer *io.PipeWriter)) {
+	eachWhere(t, func(mechanism) bool { return true }, check)
+}
+
+// eachWhere runs check on the mechanisms a property is about; the others have no case, rather than a skipped one.
+func eachWhere(t *testing.T, applies func(mechanism) bool, check func(t *testing.T, m mechanism, sink sink, producer *io.PipeWriter)) {
 	for _, m := range mechanisms() {
+		if !applies(m) {
+			continue
+		}
 		t.Run(m.name, func(t *testing.T) {
 			sink, producer := m.open(t)
 			t.Cleanup(func() { _ = producer.Close(); _ = sink.Close() })
@@ -185,10 +193,8 @@ func TestEveryMechanismSaysWhenItHasReadTheProducerOut(t *testing.T) {
 
 // TestEveryMechanismFinishesReadingBeforeCloseReturns: teardown reaps the producer and removes its directory next.
 func TestEveryMechanismFinishesReadingBeforeCloseReturns(t *testing.T) {
-	each(t, func(t *testing.T, m mechanism, sink sink, producer *io.PipeWriter) {
-		if !m.reads {
-			t.Skip("another writes this spool, and teardown stops that writer only after Close")
-		}
+	// A mechanism serving another writer's spool is stopped with that writer, after Close (see the test below).
+	eachWhere(t, func(m mechanism) bool { return m.reads }, func(t *testing.T, _ mechanism, sink sink, producer *io.PipeWriter) {
 		_ = producer.Close()
 		_ = sink.Close()
 		select {
@@ -201,10 +207,7 @@ func TestEveryMechanismFinishesReadingBeforeCloseReturns(t *testing.T) {
 
 // TestAMechanismServingAnotherWritersSpoolClosesWhileThatWriterRuns: teardown closes the sink before it cancels the read.
 func TestAMechanismServingAnotherWritersSpoolClosesWhileThatWriterRuns(t *testing.T) {
-	each(t, func(t *testing.T, m mechanism, sink sink, _ *io.PipeWriter) {
-		if m.reads {
-			t.Skip("this mechanism reads its producer itself, so Close waits for that read")
-		}
+	eachWhere(t, func(m mechanism) bool { return !m.reads }, func(t *testing.T, _ mechanism, sink sink, _ *io.PipeWriter) {
 		closed := make(chan error, 1)
 		go func() { closed <- sink.Close() }()
 		select {
