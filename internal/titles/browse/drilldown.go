@@ -59,7 +59,7 @@ func (d *drilldown) begin(id int, name string) tea.Cmd {
 }
 
 func (d *drilldown) restyle(p palette.Palette) {
-	d.list.SetDelegate(newDelegate(p))
+	d.list.SetDelegate(p.Delegate())
 	p.StyleList(&d.list)
 }
 

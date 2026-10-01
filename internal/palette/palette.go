@@ -15,6 +15,9 @@ type Palette struct {
 	FgSecondary color.Color
 	FgMuted     color.Color
 	Error       color.Color
+	// Bar is a header or footer band; Rule a separator drawn on it.
+	Bar  color.Color
+	Rule color.Color
 }
 
 // New resolves the palette for the terminal background the screen reported.
@@ -27,16 +30,14 @@ func New(dark bool) Palette {
 		FgSecondary: pick(lipgloss.Color("#52525B"), lipgloss.Color("#D4D4D8")),
 		FgMuted:     pick(lipgloss.Color("#A1A1AA"), lipgloss.Color("#52525B")),
 		Error:       pick(lipgloss.Color("#DC2626"), lipgloss.Color("#FCA5A5")),
+		Bar:         pick(lipgloss.Color("#F4F4F5"), lipgloss.Color("#27272A")),
+		Rule:        pick(lipgloss.Color("#D4D4D8"), lipgloss.Color("#3F3F46")),
 	}
 }
 
-// Pick chooses between a light- and dark-background hex colour.
-func (p Palette) Pick(light, dark string) color.Color {
-	return lipgloss.LightDark(p.Dark)(lipgloss.Color(light), lipgloss.Color(dark))
-}
-
-// ItemStyles is the row look of every castor list.
-func (p Palette) ItemStyles() list.DefaultItemStyles {
+// Delegate draws the rows of every castor list.
+func (p Palette) Delegate() list.DefaultDelegate {
+	d := list.NewDefaultDelegate()
 	s := list.NewDefaultItemStyles(p.Dark)
 	s.NormalTitle = s.NormalTitle.Foreground(p.FgPrimary)
 	s.NormalDesc = s.NormalDesc.Foreground(p.FgMuted)
@@ -45,7 +46,8 @@ func (p Palette) ItemStyles() list.DefaultItemStyles {
 	s.DimmedTitle = s.DimmedTitle.Foreground(p.FgMuted)
 	s.DimmedDesc = s.DimmedDesc.Foreground(p.FgMuted)
 	s.FilterMatch = lipgloss.NewStyle().Foreground(p.Accent).Underline(true)
-	return s
+	d.Styles = s
+	return d
 }
 
 // StyleList restyles l for the background; list.New fixes its styles to dark and never styles its filter input.

@@ -6,7 +6,6 @@ import (
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
-	"github.com/stupside/castor/internal/palette"
 	"github.com/stupside/castor/internal/titles/tmdb"
 )
 
@@ -38,12 +37,6 @@ func toResultItems(rs []tmdb.SearchResult) []list.Item {
 		items[i] = resultItem{r: r}
 	}
 	return items
-}
-
-func newDelegate(p palette.Palette) list.DefaultDelegate {
-	d := list.NewDefaultDelegate()
-	d.Styles = p.ItemStyles()
-	return d
 }
 
 func (m model) delegateResults(msg tea.Msg) (tea.Model, tea.Cmd) {

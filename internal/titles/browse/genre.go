@@ -210,10 +210,9 @@ func (i genreItem) Description() string { return "" }
 func (i genreItem) FilterValue() string { return i.g.Name }
 
 func newGenreDelegate(p palette.Palette) list.DefaultDelegate {
-	d := list.NewDefaultDelegate()
+	d := p.Delegate()
 	d.ShowDescription = false
 	d.SetSpacing(0)
-	d.Styles = p.ItemStyles()
 	return d
 }
 

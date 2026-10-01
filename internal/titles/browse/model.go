@@ -3,7 +3,6 @@ package browse
 
 import (
 	"context"
-	"os"
 	"strings"
 	"time"
 
@@ -37,10 +36,7 @@ type Selection struct {
 }
 
 func Run(ctx context.Context, client Catalog, devName string, devType device.Type) (Selection, error) {
-	m := newModel(ctx, client, devName, devType)
-	// The first frame already matches the terminal; BackgroundColorMsg follows any later change.
-	m.restyle(lipgloss.HasDarkBackground(os.Stdin, os.Stdout))
-	final, err := tea.NewProgram(m, tea.WithContext(ctx)).Run()
+	final, err := tea.NewProgram(newModel(ctx, client, devName, devType), tea.WithContext(ctx)).Run()
 	if err != nil {
 		return Selection{}, err
 	}
@@ -140,7 +136,7 @@ func (m *model) restyle(dark bool) {
 	m.help.Styles = newHelpStyles(p)
 	m.spin.Style = lipgloss.NewStyle().Foreground(p.Accent)
 	m.query.SetStyles(newQueryStyles(p))
-	m.results.SetDelegate(newDelegate(p))
+	m.results.SetDelegate(p.Delegate())
 	p.StyleList(&m.results)
 	m.inspector.styles = m.styles
 	m.picker.restyle(p, m.styles)

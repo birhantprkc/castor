@@ -4,8 +4,6 @@ package picker
 import (
 	"context"
 	"fmt"
-	"image/color"
-	"os"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -20,10 +18,7 @@ import (
 
 // Device blocks until device selected or quit; context cancellation doesn't interrupt raw terminal input.
 func Device(ctx context.Context, discover Discover, defaultName string) (device.Info, error) {
-	m := newModel(ctx, discover, defaultName)
-	// The first frame already matches the terminal; BackgroundColorMsg follows any later change.
-	m.restyle(lipgloss.HasDarkBackground(os.Stdin, os.Stdout))
-	final, err := tea.NewProgram(m, tea.WithContext(ctx)).Run()
+	final, err := tea.NewProgram(newModel(ctx, discover, defaultName), tea.WithContext(ctx)).Run()
 	if err != nil {
 		return device.Info{}, err
 	}
@@ -89,9 +84,7 @@ func newModel(ctx context.Context, discover Discover, defaultName string) model 
 func (m *model) restyle(dark bool) {
 	m.pal = palette.New(dark)
 	m.spin.Style = lipgloss.NewStyle().Foreground(m.pal.Accent)
-	d := list.NewDefaultDelegate()
-	d.Styles = m.pal.ItemStyles()
-	m.list.SetDelegate(d)
+	m.list.SetDelegate(m.pal.Delegate())
 	m.pal.StyleList(&m.list)
 	m.list.Styles.NoItems = lipgloss.NewStyle().Foreground(m.pal.FgMuted).Padding(0, 2)
 }
@@ -184,7 +177,7 @@ func (m model) render() string {
 	}
 
 	header := lipgloss.NewStyle().
-		Background(m.pal.Pick("#F4F4F5", "#27272A")).
+		Background(m.pal.Bar).
 		Foreground(m.pal.Accent).
 		Bold(true).
 		Width(m.w).
@@ -199,11 +192,11 @@ func (m model) render() string {
 		lipgloss.NewStyle().Foreground(m.pal.Accent).Bold(true).Render("q") + " " + lipgloss.NewStyle().Foreground(m.pal.FgMuted).Render("quit"),
 	}
 	cmdBar := lipgloss.NewStyle().
-		Background(m.pal.Pick("#E4E4E7", "#18181B")).
+		Background(m.pal.Bar).
 		Foreground(m.pal.FgPrimary).
 		Width(m.w).
 		Padding(0, 2).
-		Render(strings.Join(cmds, lipgloss.NewStyle().Foreground(m.dim()).Render(" · ")))
+		Render(strings.Join(cmds, lipgloss.NewStyle().Foreground(m.pal.Rule).Render(" · ")))
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", cmdBar)
 }
@@ -219,7 +212,7 @@ func (m model) renderModal() string {
 			lipgloss.NewStyle().Foreground(m.pal.FgMuted).Render("[ No ]"),
 		),
 		"",
-		lipgloss.NewStyle().Foreground(m.dim()).Render("↵ / q to quit  •  esc to go back"),
+		lipgloss.NewStyle().Foreground(m.pal.Rule).Render("↵ / q to quit  •  esc to go back"),
 	)
 	box := lipgloss.NewStyle().
 		Width(modalW).
@@ -229,8 +222,6 @@ func (m model) renderModal() string {
 		Render(content)
 	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, box)
 }
-
-func (m model) dim() color.Color { return m.pal.Pick("#D4D4D8", "#3F3F46") }
 
 type keyMap struct {
 	enter key.Binding
