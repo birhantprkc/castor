@@ -1,0 +1,19 @@
+version: v2
+managed:
+  enabled: true
+  # The rules' own Go code is published by Buf; only castor's files take castor's package prefix.
+  disable:
+    - module: buf.build/bufbuild/protovalidate
+  override:
+    - file_option: go_package_prefix
+      value: github.com/stupside/castor/gen
+plugins:
+  - local: ["go", "tool", "protoc-gen-go"]
+    out: gen
+    opt: paths=source_relative
+  - local: ["go", "tool", "protoc-gen-connect-go"]
+    out: gen
+    opt:
+      - paths=source_relative
+      - simple
+clean: true

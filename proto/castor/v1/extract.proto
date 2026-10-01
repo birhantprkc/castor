@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package castor.v1;
+
+import "buf/validate/validate.proto";
+import "castor/v1/stream.proto";
+
+// ExtractService finds the streams pages play, opening them in a browser on the server.
+service ExtractService {
+  // Extract opens every page and returns the streams they fetched, deduplicated; it fails only when none was found.
+  rpc Extract(ExtractRequest) returns (ExtractResponse);
+}
+
+message ExtractRequest {
+  repeated string pages = 1 [
+    (buf.validate.field).repeated.min_items = 1,
+    (buf.validate.field).repeated.items.string.uri = true
+  ];
+}
+
+message ExtractResponse {
+  repeated Stream streams = 1;
+}

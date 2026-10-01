@@ -1,0 +1,72 @@
+syntax = "proto3";
+
+package castor.v1;
+
+import "buf/validate/validate.proto";
+
+// LoggerService lets anyone follow a cast; following never drives it.
+service LoggerService {
+  // Watch sends the cast's status at once and as it changes, with its log lines at the asked level; it ends with the cast's outcome.
+  rpc Watch(WatchRequest) returns (stream WatchResponse);
+}
+
+message WatchRequest {
+  string cast_id = 1 [(buf.validate.field).string.min_len = 1];
+  // logs is the least severe server log this watcher is sent, live and never kept; unset sends none.
+  LogLevel logs = 2 [(buf.validate.field).enum.defined_only = true];
+}
+
+// WatchResponse is one update; the stream's own status is the outcome: OK ended, canceled stopped, aborted failed.
+message WatchResponse {
+  oneof update {
+    CastStatus status = 1;
+    LogLine line = 2;
+  }
+}
+
+// CastStatus is where a cast stands; nothing decides on it, it is for people to read.
+message CastStatus {
+  Phase phase = 1;
+  // streams is how many streams the cast was handed.
+  int32 streams = 2;
+  // castable is how many measuring kept, once it has.
+  int32 castable = 3;
+  // attempt counts tries from 1, once casting.
+  int32 attempt = 4;
+  // revision is the latest change of plan, unset before any.
+  Revision revision = 5;
+
+  enum Phase {
+    PHASE_UNSPECIFIED = 0;
+    PHASE_AWAITING_DEVICE = 1;
+    PHASE_MEASURING = 2;
+    PHASE_CASTING = 3;
+  }
+
+  message Revision {
+    string strategy = 1;
+    string why = 2;
+  }
+}
+
+enum LogLevel {
+  // LOG_LEVEL_UNSPECIFIED asks for no logs.
+  LOG_LEVEL_UNSPECIFIED = 0;
+  LOG_LEVEL_DEBUG = 1;
+  LOG_LEVEL_INFO = 2;
+  LOG_LEVEL_WARN = 3;
+  LOG_LEVEL_ERROR = 4;
+}
+
+// LogLine is one line the server logged for a cast, sent live and never kept.
+message LogLine {
+  LogLevel level = 1;
+  string message = 2;
+  // attrs keep the order they were logged in.
+  repeated Attr attrs = 3;
+
+  message Attr {
+    string key = 1;
+    string value = 2;
+  }
+}

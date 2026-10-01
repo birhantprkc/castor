@@ -14,7 +14,7 @@ export LIBRARY_PATH  := $(LIBRARY_PATH):$(CURDIR)/$(BUILD)/ggml/src/ggml-blas:$(
 export CGO_LDFLAGS   := -framework Foundation -framework Metal -framework MetalKit
 endif
 
-.PHONY: build env clean hooks
+.PHONY: build env clean hooks generate
 
 # eval "$(make env)" once per shell, then plain `go run .` / `go build` work.
 env:
@@ -28,6 +28,10 @@ build: $(LIB)
 
 clean:
 	rm -rf $(BUILD) castor
+
+# Regenerate gen/ from proto/; buf runs the protoc plugins pinned as go tools.
+generate:
+	buf generate
 
 # Enable the Conventional Commits commit-msg hook (git + bash only, no installs).
 hooks:

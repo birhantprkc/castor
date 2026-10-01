@@ -1,0 +1,135 @@
+syntax = "proto3";
+
+package castor.v1;
+
+import "buf/validate/validate.proto";
+
+// DeviceService lends a client's device to a cast: the cast's calls on it arrive through Drive and are answered with Answer.
+service DeviceService {
+  // Drive lends the device for the cast's life: a cast takes one, starts once it is lent, and fails if its client leaves.
+  rpc Drive(DriveRequest) returns (stream DriveResponse);
+  // Answer answers one of the cast's calls on the device.
+  rpc Answer(AnswerRequest) returns (AnswerResponse);
+}
+
+message DriveRequest {
+  string cast_id = 1 [(buf.validate.field).string.min_len = 1];
+  Device device = 2 [(buf.validate.field).required = true];
+  // profile is what is known of the device before connecting to it.
+  Capabilities profile = 3;
+}
+
+message DriveResponse {
+  DeviceCommand command = 1;
+}
+
+message AnswerRequest {
+  string cast_id = 1 [(buf.validate.field).string.min_len = 1];
+  string command_id = 2 [(buf.validate.field).string.min_len = 1];
+  oneof answer {
+    option (buf.validate.oneof).required = true;
+    Done done = 3;
+    Capabilities capabilities = 4;
+    Headers headers = 5;
+    DeviceError error = 6;
+  }
+
+  message Done {}
+
+  message Headers {
+    map<string, string> headers = 1;
+  }
+}
+
+message AnswerResponse {}
+
+// Device names the device a cast plays on; the client reaches it, the server only logs it.
+message Device {
+  string name = 1;
+  string type = 2 [(buf.validate.field).string.min_len = 1];
+  string address = 3;
+}
+
+// Capabilities is what a renderer decodes natively and how it takes a stream.
+message Capabilities {
+  repeated string containers = 1;
+  repeated VideoSupport video = 2;
+  repeated AudioSupport audio = 3;
+  // self_fetch is whether the renderer fetches a stream URL itself.
+  bool self_fetch = 4;
+  // served_container is what a served cast that remuxes is muxed into.
+  string served_container = 5;
+  bool deinterlaces = 6;
+}
+
+message VideoSupport {
+  string codec = 1;
+  repeated string profiles = 2;
+  repeated int32 bit_depths = 3;
+  int32 max_level = 4;
+}
+
+message AudioSupport {
+  string codec = 1;
+  int32 max_channels = 2;
+}
+
+// DeviceCommand is one call the server's cast makes on the client's renderer.
+message DeviceCommand {
+  string id = 1;
+  oneof command {
+    // connect opens the lent device; its id is the handle later commands name.
+    Connect connect = 2;
+    Play play = 3;
+    StreamHeaders stream_headers = 4;
+    AwaitEnd await_end = 5;
+    Close close = 6;
+    // cancel abandons a command still running; it is never answered.
+    Cancel cancel = 7;
+  }
+
+  message Connect {}
+
+  message Play {
+    string handle = 1;
+    oneof target {
+      // url is handed to the renderer as is: the source itself.
+      string url = 2;
+      // relay_path is served by the server; the client relays it to the renderer.
+      string relay_path = 3;
+    }
+    string content_type = 4;
+  }
+
+  message StreamHeaders {
+    string handle = 1;
+    string content_type = 2;
+  }
+
+  message AwaitEnd {
+    string handle = 1;
+  }
+
+  message Close {
+    string handle = 1;
+  }
+
+  message Cancel {
+    string command_id = 1;
+  }
+}
+
+// DeviceError is a renderer's failure, typed where the server's recovery reads its kind.
+message DeviceError {
+  oneof error {
+    string message = 1;
+    Gone gone = 2;
+  }
+
+  // Gone is a renderer established unreachable.
+  message Gone {
+    string renderer = 1;
+    string observed = 2;
+    string cause = 3;
+  }
+}

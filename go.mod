@@ -3,10 +3,12 @@ module github.com/stupside/castor
 go 1.27.0
 
 require (
+	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.1
 	charm.land/bubbles/v2 v2.2.1
 	charm.land/bubbletea/v2 v2.0.10
 	charm.land/lipgloss/v2 v2.0.6
 	charm.land/log/v2 v2.0.1
+	connectrpc.com/connect v1.21.0
 	github.com/Eyevinn/dash-mpd v0.18.1
 	github.com/Eyevinn/hls-m3u8 v0.6.5
 	github.com/Eyevinn/mp4ff v0.57.0
@@ -33,6 +35,7 @@ require (
 	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/net v0.59.0
 	golang.org/x/sync v0.23.0
+	google.golang.org/protobuf v1.36.12
 )
 
 // The whisper.cpp Go bindings are vendored as a git submodule at
@@ -82,4 +85,9 @@ require (
 	golang.org/x/image v0.46.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
+)
+
+tool (
+	connectrpc.com/connect/cmd/protoc-gen-connect-go
+	google.golang.org/protobuf/cmd/protoc-gen-go
 )

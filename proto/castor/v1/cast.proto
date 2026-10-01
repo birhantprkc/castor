@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package castor.v1;
+
+import "buf/validate/validate.proto";
+import "castor/v1/stream.proto";
+
+// CastService starts and stops casts; a cast plays once a device is lent to it through DeviceService.
+service CastService {
+  // StopCast stops a cast and returns at once.
+  rpc StopCast(StopCastRequest) returns (StopCastResponse);
+  // StartCast begins a cast and returns at once; it plays once a device is lent to it.
+  rpc StartCast(StartCastRequest) returns (StartCastResponse);
+}
+
+message StartCastRequest {
+  oneof streams {
+    option (buf.validate.oneof).required = true;
+    // found streams are ranked by the server, which may refuse them all.
+    Found found = 1;
+    // named is a stream the operator chose, measured and cast as is.
+    Stream named = 2;
+  }
+  Preferences preferences = 3 [(buf.validate.field).required = true];
+
+  message Found {
+    repeated Stream streams = 1 [(buf.validate.field).repeated.min_items = 1];
+  }
+}
+
+message StartCastResponse {
+  string cast_id = 1;
+}
+
+message StopCastRequest {
+  string cast_id = 1 [(buf.validate.field).string.min_len = 1];
+}
+
+message StopCastResponse {}
