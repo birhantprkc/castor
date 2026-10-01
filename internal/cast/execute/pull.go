@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/stupside/castor/internal/cast/deliver"
+	"github.com/stupside/castor/internal/cast/fetch"
+	"github.com/stupside/castor/internal/cast/health"
 	"github.com/stupside/castor/internal/cast/plan"
-	"github.com/stupside/castor/internal/cast/read"
 	"github.com/stupside/castor/internal/cast/transcode"
-	"github.com/stupside/castor/internal/cast/watch"
 	"github.com/stupside/castor/internal/ffmpeg"
 	"github.com/stupside/castor/internal/media"
 )
@@ -22,7 +22,7 @@ type pull struct {
 	pcm    io.ReadCloser
 	pcmOut *io.PipeWriter
 
-	policy read.Plan
+	policy fetch.Plan
 	floor  plan.MediaPlan
 	spool  *deliver.Spool
 	proc   *ffmpeg.Process
@@ -32,13 +32,13 @@ type pull struct {
 	err  error
 }
 
-var _ watch.Producer = (*pull)(nil)
+var _ health.Producer = (*pull)(nil)
 
 // pullSpec is everything one upstream read starts with.
 type pullSpec struct {
 	ffmpegPath string
 	program    media.Program
-	policy     read.Plan
+	policy     fetch.Plan
 	source     transcode.ProgramSource
 	probe      media.ProbeInfo
 	spoolPath  string

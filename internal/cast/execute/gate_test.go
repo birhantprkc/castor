@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/stupside/castor/internal/cast/deliver"
+	"github.com/stupside/castor/internal/cast/fetch"
+	"github.com/stupside/castor/internal/cast/health"
 	"github.com/stupside/castor/internal/cast/plan"
-	"github.com/stupside/castor/internal/cast/read"
-	"github.com/stupside/castor/internal/cast/watch"
 	"github.com/stupside/castor/internal/media"
 )
 
@@ -83,9 +83,9 @@ func TestBothWindowsJudgeTheSameReadAgainstTheSamePace(t *testing.T) {
 			close(buf.reader.done)
 			before := paceBehindTheVerdict(t, func(ctx context.Context) error { return gate(ctx, buf) })
 
-			never := stoppedRenderer{last: time.Now().Add(-watch.StallWindow - time.Second)}
+			never := stoppedRenderer{last: time.Now().Add(-health.StallWindow - time.Second)}
 			inFlight := paceBehindTheVerdict(t, func(ctx context.Context) error {
-				return watch.Watch(ctx, playingMonitor(feed{buffered: buf}, delivery{}, never))
+				return health.Watch(ctx, playingMonitor(feed{buffered: buf}, delivery{}, never))
 			})
 
 			if before != inFlight {
@@ -104,7 +104,7 @@ func paceBehindTheVerdict(t *testing.T, watching func(context.Context) error) fl
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
-	var fault *watch.Fault
+	var fault *health.Fault
 	if err := watching(ctx); !errors.As(err, &fault) {
 		t.Fatalf("the watch ended with %v rather than a verdict carrying the numbers it was reached on", err)
 	}
@@ -132,6 +132,6 @@ func gateFixture(t *testing.T, pace float64) *buffered {
 	return &buffered{reader: &pull{
 		spool:  sp,
 		done:   make(chan struct{}),
-		policy: read.Plan{media.PrimaryInputID: {Pace: read.Pace{Realtime: pace}}},
+		policy: fetch.Plan{media.PrimaryInputID: {Pace: fetch.Pace{Realtime: pace}}},
 	}}
 }

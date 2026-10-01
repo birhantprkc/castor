@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stupside/castor/internal/cast/read"
+	"github.com/stupside/castor/internal/cast/fetch"
 	"github.com/stupside/castor/internal/ffmpeg"
 	"github.com/stupside/castor/internal/media"
 )
@@ -17,12 +17,12 @@ import (
 // ProgramSource binds execution-only read policies to inputs without leaking into media's source model.
 type ProgramSource struct {
 	program media.Program
-	plan    read.Plan
+	plan    fetch.Plan
 	binary  ffmpeg.Binary
 }
 
 // NewProgramSource snapshots a program and its complete read plan.
-func NewProgramSource(program media.Program, plan read.Plan, binary ffmpeg.Binary) (ProgramSource, error) {
+func NewProgramSource(program media.Program, plan fetch.Plan, binary ffmpeg.Binary) (ProgramSource, error) {
 	_, video := program.Track(media.TrackVideo)
 	_, audio := program.Track(media.TrackAudio)
 	if !video && !audio {
@@ -48,7 +48,7 @@ func (s ProgramSource) inputs() []sourceInput {
 			url:         input.URL,
 			headers:     input.Headers,
 			contentType: input.ContentType,
-			read:        s.plan[input.ID],
+			fetch:       s.plan[input.ID],
 			offset:      s.program.Offsets[input.ID],
 		})
 	}
@@ -80,9 +80,9 @@ func (s ProgramSource) ProbeInputs() []ffmpeg.ProbeInput {
 	inputs := s.inputs()
 	out := make([]ffmpeg.ProbeInput, 0, len(inputs))
 	for i, input := range inputs {
-		args := readArgs(input.read)
+		args := readArgs(input.fetch)
 		args = append(args, ffmpeg.HeaderArgs(input.headers)...)
-		args = append(args, ffmpeg.AdaptiveInputArgs(input.contentType, input.read.SegmentRetries)...)
+		args = append(args, ffmpeg.AdaptiveInputArgs(input.contentType, input.fetch.SegmentRetries)...)
 		out = append(out, ffmpeg.ProbeInput{ID: s.program.Inputs[i].ID, URL: input.url.String(), Args: args})
 	}
 	return out
@@ -92,7 +92,7 @@ type sourceInput struct {
 	url         *url.URL
 	headers     http.Header
 	contentType string
-	read        read.Policy
+	fetch       fetch.Policy
 	offset      time.Duration
 }
 
@@ -103,7 +103,7 @@ type sourceTrack struct {
 }
 
 // paceArgs renders read pace as ffmpeg input flags (nil if unpaced).
-func paceArgs(p read.Pace, binary ffmpeg.Binary) []string {
+func paceArgs(p fetch.Pace, binary ffmpeg.Binary) []string {
 	if p.Realtime <= 0 {
 		return nil
 	}
@@ -133,7 +133,7 @@ func formatSeconds(d time.Duration) string {
 }
 
 // readArgs renders protocol-level fetch terms (deadline and reconnect).
-func readArgs(p read.Policy) []string {
+func readArgs(p fetch.Policy) []string {
 	var args []string
 	if p.Deadline > 0 {
 		args = append(args, "-rw_timeout", strconv.FormatInt(p.Deadline.Microseconds(), 10))
@@ -141,7 +141,7 @@ func readArgs(p read.Policy) []string {
 	return append(args,
 		"-reconnect", "1",
 		"-reconnect_streamed", "1",
-		"-reconnect_delay_max", strconv.Itoa(int(read.BackoffMax.Seconds())),
+		"-reconnect_delay_max", strconv.Itoa(int(fetch.BackoffMax.Seconds())),
 		// Transient statuses are retried; any other refusal is the origin's answer.
 		"-reconnect_on_http_error", "429,500,502,503,504",
 	)
@@ -159,10 +159,10 @@ func sourceInputArgs(source ProgramSource) []string {
 	}
 	for _, input := range source.inputs() {
 		args = append(args, demuxFlags...)
-		args = append(args, paceArgs(input.read.Pace, source.binary)...)
-		args = append(args, readArgs(input.read)...)
+		args = append(args, paceArgs(input.fetch.Pace, source.binary)...)
+		args = append(args, readArgs(input.fetch)...)
 		args = append(args, ffmpeg.HeaderArgs(input.headers)...)
-		args = append(args, ffmpeg.AdaptiveInputArgs(input.contentType, input.read.SegmentRetries)...)
+		args = append(args, ffmpeg.AdaptiveInputArgs(input.contentType, input.fetch.SegmentRetries)...)
 		if input.offset != 0 {
 			args = append(args, "-itsoffset", formatSeconds(input.offset))
 		}

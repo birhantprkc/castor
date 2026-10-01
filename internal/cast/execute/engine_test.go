@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/stupside/castor/internal/cast/attempt"
-	"github.com/stupside/castor/internal/cast/read"
+	"github.com/stupside/castor/internal/cast/fetch"
 	"github.com/stupside/castor/internal/cast/transcode"
 	"github.com/stupside/castor/internal/device"
 	"github.com/stupside/castor/internal/ffmpeg"
@@ -158,7 +158,7 @@ func TestADeadReadIsReportedAsTheReadsOwnFailure(t *testing.T) {
 	defer cancel()
 	program := programFromStream(t, &source.Candidate{URL: sourceURL, ContentType: media.MP4})
 	out := newExecutorAt(castConfig(pushOnly(), ffmpegPath, ffprobePath), connectTo(&fakeDevice{caps: dlnaLike()}), noStage, "127.0.0.1").
-		Run(ctx, attempt.Attempt{Try: 1, Program: program, Read: sourceReadPlan(t, program, testReadDeadline)})
+		Run(ctx, attempt.Attempt{Try: 1, Program: program, Fetch: sourceReadPlan(t, program, testReadDeadline)})
 
 	if out.Evidence.ReadErr == nil || !errors.Is(out.Err, out.Evidence.ReadErr) {
 		t.Fatalf("the cast reports %v with read error %v, want the read's own failure", out.Err, out.Evidence.ReadErr)
@@ -183,17 +183,17 @@ func castOnce(ctx context.Context, t *testing.T, cfg Config, connect acquireFunc
 	return newExecutorAt(cfg, connect, noStage, "127.0.0.1").Run(ctx, attempt.Attempt{
 		Try:     1,
 		Program: program,
-		Read:    sourceReadPlan(t, program, testReadDeadline),
+		Fetch:   sourceReadPlan(t, program, testReadDeadline),
 	}).Err
 }
 
-func sourceReadPlan(t *testing.T, program media.Program, rwTimeout time.Duration) read.Plan {
+func sourceReadPlan(t *testing.T, program media.Program, rwTimeout time.Duration) fetch.Plan {
 	t.Helper()
-	return uniformReadPlan(program, read.For(media.Fetch{}, rwTimeout))
+	return uniformReadPlan(program, fetch.For(media.Fetch{}, rwTimeout))
 }
 
-func uniformReadPlan(program media.Program, policy read.Policy) read.Plan {
-	plan := make(read.Plan, len(program.Inputs))
+func uniformReadPlan(program media.Program, policy fetch.Policy) fetch.Plan {
+	plan := make(fetch.Plan, len(program.Inputs))
 	for _, input := range program.Inputs {
 		plan[input.ID] = policy
 	}

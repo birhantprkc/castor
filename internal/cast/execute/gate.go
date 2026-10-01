@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 
-	"github.com/stupside/castor/internal/cast/watch"
+	"github.com/stupside/castor/internal/cast/health"
 	"github.com/stupside/castor/internal/device"
 )
 
-func readMonitor(reader *pull, m watch.Monitor) watch.Monitor {
+func readMonitor(reader *pull, m health.Monitor) health.Monitor {
 	m.Producer = reader
 	m.Telemetry = reader
 	m.Landed = reader.spool.Size
@@ -18,22 +18,22 @@ func readMonitor(reader *pull, m watch.Monitor) watch.Monitor {
 
 // gate holds a buffered cast until its read has proven it can deliver, and its transcription leads.
 func gate(ctx context.Context, buf *buffered) error {
-	return watch.Watch(ctx, readMonitor(buf.reader, watch.Monitor{
+	return health.Watch(ctx, readMonitor(buf.reader, health.Monitor{
 		Subject: "playback gate",
-		Window:  watch.BeforePlay,
+		Window:  health.BeforePlay,
 		Lead:    buf.burn,
 	}))
 }
 
 // producer is what writes the served bytes, judged by the media it has made rather than bytes a muxer pads.
 type producer interface {
-	watch.Producer
-	watch.Telemetry
+	health.Producer
+	health.Telemetry
 }
 
 // playingMonitor judges a buffered cast by its read, and one reading its source by the encoder serving it.
-func playingMonitor(f feed, d delivery, aud watch.Audience) watch.Monitor {
-	m := watch.Monitor{Subject: "the playing cast", Window: watch.Playing, Audience: aud}
+func playingMonitor(f feed, d delivery, aud health.Audience) health.Monitor {
+	m := health.Monitor{Subject: "the playing cast", Window: health.Playing, Audience: aud}
 	if f.buffered != nil {
 		return readMonitor(f.buffered.reader, m)
 	}
@@ -56,7 +56,7 @@ func supervising(ctx context.Context, dev device.Device, d delivery, f feed) (bo
 	var judged chan error
 	if aud := d.sink.Audience(); aud != nil {
 		judged = make(chan error, 1)
-		go func() { judged <- watch.Watch(ctx, playingMonitor(f, d, aud)) }()
+		go func() { judged <- health.Watch(ctx, playingMonitor(f, d, aud)) }()
 	}
 
 	select {

@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/stupside/castor/internal/cast/read"
+	"github.com/stupside/castor/internal/cast/fetch"
 	"github.com/stupside/castor/internal/media"
 )
 
@@ -42,7 +42,7 @@ func (f facts) sounds(p media.Program) bool {
 }
 
 // probeBudget bounds probe time; ffmpeg HLS demuxer walks whole 403-playlist (199s seen).
-const probeBudget = read.BackoffMax / 2
+const probeBudget = fetch.BackoffMax / 2
 
 // startSlack is under a frame at any real rate: two inputs this close already open together.
 const startSlack = 10 * time.Millisecond

@@ -1,5 +1,5 @@
-// Package read holds the fetch and pace decisions for the bytes of a source.
-package read
+// Package fetch decides how a cast fetches the bytes of a source, and how fast.
+package fetch
 
 import (
 	"cmp"

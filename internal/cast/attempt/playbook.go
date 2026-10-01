@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/stupside/castor/internal/cast/watch"
+	"github.com/stupside/castor/internal/cast/health"
 )
 
 // playbook maps fault kinds to retry strategies in cheapest-first order; switchCandidate is last.
@@ -70,7 +70,7 @@ func revisable(o Outcome) bool {
 	if o.Evidence.Reached >= PhasePlaying {
 		return false
 	}
-	if judged, ok := errors.AsType[*watch.Fault](o.Err); ok {
+	if judged, ok := errors.AsType[*health.Fault](o.Err); ok {
 		return judged.Revise
 	}
 	return o.Evidence.PlayErr != nil || o.Evidence.TimelineErr != nil

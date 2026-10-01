@@ -3,7 +3,7 @@ package attempt
 import (
 	"errors"
 
-	"github.com/stupside/castor/internal/cast/watch"
+	"github.com/stupside/castor/internal/cast/health"
 	"github.com/stupside/castor/internal/media"
 )
 
@@ -48,7 +48,7 @@ type Outcome struct {
 
 // attribute decides whose account of a failure the cast reports: a verdict is left alone.
 func attribute(err, readErr error) error {
-	_, judged := errors.AsType[*watch.Fault](err)
+	_, judged := errors.AsType[*health.Fault](err)
 	switch {
 	case err == nil || readErr == nil || judged:
 		return err
@@ -65,8 +65,8 @@ type Evidence struct {
 
 	Cancelled bool
 
-	Verdict watch.Kind
-	Health  watch.Health
+	Verdict health.Kind
+	Health  health.Health
 
 	ReadErr error
 

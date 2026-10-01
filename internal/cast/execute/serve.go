@@ -12,8 +12,8 @@ import (
 	"github.com/stupside/castor/internal/cast/attempt"
 	"github.com/stupside/castor/internal/cast/container"
 	"github.com/stupside/castor/internal/cast/deliver"
+	"github.com/stupside/castor/internal/cast/health"
 	"github.com/stupside/castor/internal/cast/transcode"
-	"github.com/stupside/castor/internal/cast/watch"
 	"github.com/stupside/castor/internal/device"
 	"github.com/stupside/castor/internal/media"
 )
@@ -144,7 +144,7 @@ const (
 	idleGrace = 30 * time.Second
 
 	// writeDeadline outlasts a stall verdict, so the watch judges a quiet renderer before a write gives up.
-	writeDeadline = watch.StallWindow + idleGrace
+	writeDeadline = health.StallWindow + idleGrace
 )
 
 // sinkFor opens the mechanism the format's delivery kind names, judged against what the encoder made.
@@ -182,13 +182,13 @@ type streamedSink struct {
 	made func() media.Progress
 }
 
-func (s streamedSink) Audience() watch.Audience { return s }
+func (s streamedSink) Audience() health.Audience { return s }
 
 func (s streamedSink) Buffered() time.Duration { return s.made().Position }
 
 func (s streamedSink) Settled() error {
 	handed, _ := s.Handed()
-	return watch.Shortfall(handed, s.made())
+	return health.Shortfall(handed, s.made())
 }
 
 // segmentedSink can only state whether anything was fetched: its window deletes behind the live edge.
@@ -197,16 +197,16 @@ type segmentedSink struct {
 	made func() media.Progress
 }
 
-func (segmentedSink) Audience() watch.Audience { return nil }
+func (segmentedSink) Audience() health.Audience { return nil }
 
-func (s segmentedSink) Settled() error { return watch.NoneFetched(s.Served(), s.made()) }
+func (s segmentedSink) Settled() error { return health.NoneFetched(s.Served(), s.made()) }
 
 // awaitArtifact waits for the artifact the renderer will fetch to exist.
 func awaitArtifact(ctx context.Context, d delivery) error {
 	artifact := d.sink.Artifact()
-	return watch.Watch(ctx, watch.Monitor{
+	return health.Watch(ctx, health.Monitor{
 		Subject:  artifact.Subject,
-		Window:   watch.Opening,
+		Window:   health.Opening,
 		Producer: d.output,
 		Landed:   artifact.Landed,
 		Grace:    artifact.Grace,

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/stupside/castor/internal/cast/attempt"
-	"github.com/stupside/castor/internal/cast/watch"
+	"github.com/stupside/castor/internal/cast/health"
 	"github.com/stupside/castor/internal/media"
 )
 
@@ -17,7 +17,7 @@ func TestTheOutcomeCarriesWhatTheRecoveryLoopClassifies(t *testing.T) {
 	playing := ran{reached: attempt.PhasePlaying}
 
 	t.Run("an undelivered stream", func(t *testing.T) {
-		short := &watch.Undelivered{Handed: 2 * time.Minute, Produced: 2 * time.Hour}
+		short := &health.Undelivered{Handed: 2 * time.Minute, Produced: 2 * time.Hour}
 		if e := evidence(playing, fmt.Errorf("delivering the stream: %w", short), false); e.Undelivered != short {
 			t.Errorf("evidence Undelivered = %v, want the delivery's own account", e.Undelivered)
 		}
@@ -31,8 +31,8 @@ func TestTheOutcomeCarriesWhatTheRecoveryLoopClassifies(t *testing.T) {
 	})
 
 	t.Run("a watch verdict", func(t *testing.T) {
-		verdict := &watch.Fault{Kind: watch.Dead, Health: watch.Health{Speed: 0.159}, Evidence: []string{"404"}}
-		if e := evidence(playing, verdict, false); e.Verdict != watch.Dead || e.Health.Speed != 0.159 || len(e.Lines) != 1 {
+		verdict := &health.Fault{Kind: health.Dead, Health: health.Health{Speed: 0.159}, Evidence: []string{"404"}}
+		if e := evidence(playing, verdict, false); e.Verdict != health.Dead || e.Health.Speed != 0.159 || len(e.Lines) != 1 {
 			t.Errorf("evidence = %+v, want the verdict, its measurements and its lines", e)
 		}
 	})

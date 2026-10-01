@@ -8,8 +8,8 @@ import (
 	"log/slog"
 
 	"github.com/stupside/castor/internal/cast/container"
+	"github.com/stupside/castor/internal/cast/fetch"
 	"github.com/stupside/castor/internal/cast/plan"
-	"github.com/stupside/castor/internal/cast/read"
 	"github.com/stupside/castor/internal/cast/transcode"
 	"github.com/stupside/castor/internal/device"
 	"github.com/stupside/castor/internal/ffmpeg"
@@ -31,7 +31,7 @@ func (s *session) encode(dev device.Device, f feed, burn Burn) (transcode.Encode
 		}
 	}
 
-	facts, input, err := s.input(f, read.Ceiling(into.Delivery == container.DeliverSegmented, burnIn != ""))
+	facts, input, err := s.input(f, fetch.Ceiling(into.Delivery == container.DeliverSegmented, burnIn != ""))
 	if err != nil {
 		return transcode.EncodeOptions{}, err
 	}
@@ -50,12 +50,12 @@ func (s *session) encode(dev device.Device, f feed, burn Burn) (transcode.Encode
 }
 
 // input is what the encoder reads from f, measured where it reads it: the spool as it grows, or the source itself.
-func (s *session) input(f feed, ceiling read.Pace) (facts, transcode.EncodeInput, error) {
+func (s *session) input(f feed, ceiling fetch.Pace) (facts, transcode.EncodeInput, error) {
 	if f.buffered != nil {
 		measured := measure(s.ctx, "the local buffer this encode reads", s.cfg.Probes.File(f.buffered.reader.spool.Path()))
 		return measured, transcode.FromPipe(transcode.SpoolFormat, ceiling), nil
 	}
-	policies := s.attempt.Read.Encoding(f.program, ceiling)
+	policies := s.attempt.Fetch.Encoding(f.program, ceiling)
 	source, err := transcode.NewProgramSource(f.program, policies, s.cfg.Binary)
 	if err != nil {
 		return facts{}, transcode.EncodeInput{}, err

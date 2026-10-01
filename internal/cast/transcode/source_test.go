@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stupside/castor/internal/cast/fetch"
 	"github.com/stupside/castor/internal/cast/plan"
-	"github.com/stupside/castor/internal/cast/read"
 	"github.com/stupside/castor/internal/ffmpeg"
 	"github.com/stupside/castor/internal/media"
 )
@@ -22,10 +22,10 @@ func TestEachInputIsOpenedOnItsOwnTerms(t *testing.T) {
 		{Input: "picture", Kind: media.TrackVideo},
 		{Input: "sound", Kind: media.TrackAudio, Index: 2},
 	}, ClockInput: "picture", EndPolicy: media.EndAtLongest})
-	source := mustProgramSource(t, program, read.Plan{
+	source := mustProgramSource(t, program, fetch.Plan{
 		"picture": {
 			Deadline: time.Second, SegmentRetries: 4,
-			Pace: read.Pace{Realtime: 2, Burst: 90 * time.Second},
+			Pace: fetch.Pace{Realtime: 2, Burst: 90 * time.Second},
 		},
 		// A direct file is never handed -seg_max_retry, which its demuxer aborts on.
 		"sound": {Deadline: 2 * time.Second, SegmentRetries: 4},
@@ -102,7 +102,7 @@ func TestAProbeOpensEachInputAsItsReadWill(t *testing.T) {
 		{Input: "picture", Kind: media.TrackVideo},
 		{Input: "sound", Kind: media.TrackAudio, Index: 1},
 	}, ClockInput: "picture", EndPolicy: media.EndAtLongest})
-	inputs := mustProgramSource(t, program, read.Plan{
+	inputs := mustProgramSource(t, program, fetch.Plan{
 		"picture": {Deadline: time.Second, SegmentRetries: 4},
 		"sound":   {Deadline: 2 * time.Second},
 	}).ProbeInputs()
@@ -131,12 +131,12 @@ func mustProgram(t *testing.T, program media.Program) media.Program {
 	return program
 }
 
-func mustProgramSource(t *testing.T, program media.Program, policies read.Plan) ProgramSource {
+func mustProgramSource(t *testing.T, program media.Program, policies fetch.Plan) ProgramSource {
 	t.Helper()
 	if policies == nil {
-		policies = make(read.Plan, len(program.Inputs))
+		policies = make(fetch.Plan, len(program.Inputs))
 		for _, input := range program.Inputs {
-			policies[input.ID] = read.Policy{}
+			policies[input.ID] = fetch.Policy{}
 		}
 	}
 	source, err := NewProgramSource(program, policies, ffmpeg.Binary{})
@@ -146,7 +146,7 @@ func mustProgramSource(t *testing.T, program media.Program, policies read.Plan) 
 	return source
 }
 
-func muxedSource(t *testing.T, u *url.URL, contentType string, policy read.Policy) ProgramSource {
+func muxedSource(t *testing.T, u *url.URL, contentType string, policy fetch.Policy) ProgramSource {
 	t.Helper()
 	program := mustProgram(t, media.Program{
 		Inputs: []media.Input{{ID: media.PrimaryInputID, URL: u, ContentType: contentType}},
@@ -157,7 +157,7 @@ func muxedSource(t *testing.T, u *url.URL, contentType string, policy read.Polic
 		ClockInput: media.PrimaryInputID,
 		EndPolicy:  media.EndAtLongest,
 	})
-	return mustProgramSource(t, program, read.Plan{media.PrimaryInputID: policy})
+	return mustProgramSource(t, program, fetch.Plan{media.PrimaryInputID: policy})
 }
 
 // ffmpeg holds the discontinuity threshold for the whole read, so a program states it once or not at all.
@@ -179,7 +179,7 @@ func TestAProgramWithASeamDeclaresItsDiscontinuityThresholdOnce(t *testing.T) {
 				{Input: "picture", Kind: media.TrackVideo},
 				{Input: "sound", Kind: media.TrackAudio},
 			}, ClockInput: "picture", EndPolicy: media.EndAtLongest})
-			args := mustPullArgs(t, copyingPull(mustProgramSource(t, program, read.Plan{"picture": {}, "sound": {}})))
+			args := mustPullArgs(t, copyingPull(mustProgramSource(t, program, fetch.Plan{"picture": {}, "sound": {}})))
 			at := slices.Index(args, "-dts_delta_threshold")
 			if got := strings.Count(strings.Join(args, " "), "-dts_delta_threshold"); got != tt.want {
 				t.Fatalf("the threshold is declared %d times, want %d: %v", got, tt.want, args)

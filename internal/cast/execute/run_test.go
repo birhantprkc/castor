@@ -135,7 +135,7 @@ func TestEveryAttemptOwnsAFreshWorkDirectoryAndLeavesNoneBehind(t *testing.T) {
 			Renderer:  rendererOf(pushOnly(), &fakeDevice{caps: dlnaLike()}),
 			Subtitles: watchDir, Addresses: fixedAddress("127.0.0.1"), Probes: probe.FFprobe(""), Timelines: direct{},
 		}
-		out := NewExecutor(cfg).Run(t.Context(), attempt.Attempt{Program: program, Read: sourceReadPlan(t, program, 30*time.Second)})
+		out := NewExecutor(cfg).Run(t.Context(), attempt.Attempt{Program: program, Fetch: sourceReadPlan(t, program, 30*time.Second)})
 		if out.Err == nil {
 			t.Fatal("a cast with no ffmpeg to read with reported success")
 		}
@@ -164,7 +164,7 @@ func TestABufferCopiedWholeIsServedAsItIs(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(t.Context(), castTimeout)
 	defer cancel()
-	s := open(ctx, cfg, attempt.Attempt{Try: 1, Program: program, Read: sourceReadPlan(t, program, testReadDeadline)})
+	s := open(ctx, cfg, attempt.Attempt{Try: 1, Program: program, Fetch: sourceReadPlan(t, program, testReadDeadline)})
 	t.Cleanup(func() { _ = s.releases.release() })
 	r, err := s.play()
 	if err != nil {

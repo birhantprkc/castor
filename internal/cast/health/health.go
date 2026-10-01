@@ -1,10 +1,10 @@
-package watch
+package health
 
 import (
 	"fmt"
 	"time"
 
-	"github.com/stupside/castor/internal/cast/read"
+	"github.com/stupside/castor/internal/cast/fetch"
 	"github.com/stupside/castor/internal/media"
 )
 
@@ -143,16 +143,16 @@ func (h Health) starving() bool {
 
 const (
 	// Transcription lead before playback starts.
-	transcriptionLeadSeconds = read.EncodeBurstSeconds + 10
+	transcriptionLeadSeconds = fetch.EncodeBurstSeconds + 10
 
 	// Silence timeout; derived from read policy's reconnect ceiling.
-	StallWindow = 2*read.BackoffMax + 30*time.Second
+	StallWindow = 2*fetch.BackoffMax + 30*time.Second
 
 	// One reconnect ceiling; legitimate backoff timeout.
-	deficitWindow = read.BackoffMax
+	deficitWindow = fetch.BackoffMax
 
 	// Reconnect ceiling; renderer on local network, so shorter window.
-	fetchWindow = read.BackoffMax
+	fetchWindow = fetch.BackoffMax
 
 	// paceSpan is how far back growth is judged, and minPace the share of playback that counts as growing.
 	paceSpan = 10 * time.Second

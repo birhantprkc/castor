@@ -15,10 +15,10 @@ import (
 
 	"github.com/stupside/castor/internal/cast/container"
 	"github.com/stupside/castor/internal/cast/deliver"
+	"github.com/stupside/castor/internal/cast/fetch"
+	"github.com/stupside/castor/internal/cast/health"
 	"github.com/stupside/castor/internal/cast/plan"
-	"github.com/stupside/castor/internal/cast/read"
 	"github.com/stupside/castor/internal/cast/transcode"
-	"github.com/stupside/castor/internal/cast/watch"
 	"github.com/stupside/castor/internal/device"
 	"github.com/stupside/castor/internal/ffmpeg"
 	"github.com/stupside/castor/internal/media"
@@ -51,7 +51,7 @@ func over(context.Context) error { return nil }
 // fakeMechanism is a delivery whose answers a test states outright.
 type fakeMechanism struct {
 	wait     func(ctx context.Context) error
-	audience watch.Audience
+	audience health.Audience
 	settled  error
 	asked    atomic.Int64
 }
@@ -59,7 +59,7 @@ type fakeMechanism struct {
 func (m *fakeMechanism) URL() *url.URL                  { return &url.URL{} }
 func (m *fakeMechanism) Wait(ctx context.Context) error { return m.wait(ctx) }
 func (m *fakeMechanism) Drained() <-chan struct{}       { return nil }
-func (m *fakeMechanism) Audience() watch.Audience       { return m.audience }
+func (m *fakeMechanism) Audience() health.Audience      { return m.audience }
 func (m *fakeMechanism) Settled() error                 { m.asked.Add(1); return m.settled }
 func (m *fakeMechanism) Close() error                   { return nil }
 
@@ -80,17 +80,17 @@ func (r observedRenderer) AwaitEnd(ctx context.Context) error         { return r
 
 func TestAPlayingRemuxIsWatchedOverItsEncoder(t *testing.T) {
 	p := took(t, blocking)
-	p.mech.audience = stoppedRenderer{last: time.Now().Add(-watch.StallWindow - time.Second), buffered: 20 * time.Minute}
+	p.mech.audience = stoppedRenderer{last: time.Now().Add(-health.StallWindow - time.Second), buffered: 20 * time.Minute}
 
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	_, err := supervising(ctx, p.dev, p.delivery(), feed{})
-	fault, ok := errors.AsType[*watch.Fault](err)
+	fault, ok := errors.AsType[*health.Fault](err)
 	if !ok {
 		t.Fatal("a remux whose renderer took nothing was never judged in flight")
 	}
-	if fault.Kind != watch.Unfetched || fault.Health.Headroom != 0 {
-		t.Errorf("verdict %s at %gx headroom, want %s judged on castor's own encoder", fault.Kind, fault.Health.Headroom, watch.Unfetched)
+	if fault.Kind != health.Unfetched || fault.Health.Headroom != 0 {
+		t.Errorf("verdict %s at %gx headroom, want %s judged on castor's own encoder", fault.Kind, fault.Health.Headroom, health.Unfetched)
 	}
 }
 
@@ -174,8 +174,8 @@ func TestARelayedCastIsOpenedOverItsRead(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	err = awaitArtifact(ctx, d)
-	if fault, ok := errors.AsType[*watch.Fault](err); !ok || fault.Kind != watch.Dead {
-		t.Fatalf("a read that ended having buffered nothing opened as %v, want a %s verdict", err, watch.Dead)
+	if fault, ok := errors.AsType[*health.Fault](err); !ok || fault.Kind != health.Dead {
+		t.Fatalf("a read that ended having buffered nothing opened as %v, want a %s verdict", err, health.Dead)
 	}
 }
 
@@ -197,7 +197,7 @@ func TestARelayedCastFailsWithItsRead(t *testing.T) {
 // verbatim is an encode that would rewrite the buffer unchanged, so the buffer is served instead.
 func verbatim() transcode.EncodeOptions {
 	return transcode.EncodeOptions{
-		Input:  transcode.FromPipe(transcode.SpoolFormat, read.Pace{}),
+		Input:  transcode.FromPipe(transcode.SpoolFormat, fetch.Pace{}),
 		Format: transcode.SpoolFormat,
 		Video:  plan.CopyVideo(),
 		Audio:  plan.CopyAudio(),
@@ -257,7 +257,7 @@ func TestTeardownStopsAnEncoderParkedOnAnInputThatWentQuiet(t *testing.T) {
 			if _, err := sp.Write(head); err != nil {
 				t.Fatal(err)
 			}
-			opts := copying(transcode.FromPipe(transcode.SpoolFormat, read.Pace{}))
+			opts := copying(transcode.FromPipe(transcode.SpoolFormat, fetch.Pace{}))
 			// A buffer copied whole into its own container is served with no encoder at all.
 			opts.Audio = plan.EncodeAudio(plan.AudioEncode{Codec: media.CodecAAC})
 			return feed{buffered: &buffered{reader: &pull{spool: sp, done: make(chan struct{})}}}, opts
@@ -403,8 +403,8 @@ func programSourceWithin(t *testing.T, sourceURL *url.URL, contentType string, r
 	if err != nil {
 		t.Fatal(err)
 	}
-	source, err := transcode.NewProgramSource(program, map[media.InputID]read.Policy{
-		media.PrimaryInputID: read.For(media.Fetch{}, rwTimeout),
+	source, err := transcode.NewProgramSource(program, map[media.InputID]fetch.Policy{
+		media.PrimaryInputID: fetch.For(media.Fetch{}, rwTimeout),
 	}, ffmpeg.Binary{})
 	if err != nil {
 		t.Fatal(err)

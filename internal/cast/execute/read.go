@@ -19,14 +19,14 @@ type buffered struct {
 // read buffers program under its own context, so releasing it stops the read and its transcription before the work dir goes.
 func (s *session) read(ws workspace, program media.Program) (*buffered, error) {
 	ctx, stop := context.WithCancel(s.ctx)
-	source, err := transcode.NewProgramSource(program, s.attempt.Read, s.cfg.Binary)
+	source, err := transcode.NewProgramSource(program, s.attempt.Fetch, s.cfg.Binary)
 	if err != nil {
 		stop()
 		return nil, err
 	}
 	facts := measure(ctx, "the source this cast buffers", s.cfg.Probes.Source(program, source.ProbeInputs()))
 	program = aligned(program, facts.probe.InputStarts)
-	if source, err = transcode.NewProgramSource(program, s.attempt.Read, s.cfg.Binary); err != nil {
+	if source, err = transcode.NewProgramSource(program, s.attempt.Fetch, s.cfg.Binary); err != nil {
 		stop()
 		return nil, err
 	}
@@ -49,7 +49,7 @@ func (s *session) read(ws workspace, program media.Program) (*buffered, error) {
 	reader, err := startPull(ctx, pullSpec{
 		ffmpegPath: s.cfg.FFmpegPath,
 		program:    program,
-		policy:     s.attempt.Read,
+		policy:     s.attempt.Fetch,
 		source:     source,
 		probe:      facts.probe,
 		spoolPath:  filepath.Join(ws.dir, "spool"+transcode.SpoolFormat.Extension),

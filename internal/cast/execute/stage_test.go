@@ -127,7 +127,7 @@ func TestASilentSourceRunsNoStageAtAll(t *testing.T) {
 	program := programFromStream(t, origin.stream())
 	cfg := castConfig(pushOnly(), ffmpegPath, ffprobePath)
 	cfg.Subtitles = staging(&fakeStage{})
-	s := readingSession(t, cfg, attempt.Attempt{Program: program, Read: sourceReadPlan(t, program, testReadDeadline)})
+	s := readingSession(t, cfg, attempt.Attempt{Program: program, Fetch: sourceReadPlan(t, program, testReadDeadline)})
 
 	followed, err := s.follow(program)
 	if err != nil {
@@ -158,7 +158,7 @@ func TestReleasingAReadStopsItsTranscriptionBeforeTheWorkDirGoes(t *testing.T) {
 	cfg := castConfig(pushOnly(), ffmpegPath, ffprobePath)
 	cfg.Subtitles = staging(stage)
 	program := programFromStream(t, origin.stream())
-	s := readingSession(t, cfg, attempt.Attempt{Program: program, Read: sourceReadPlan(t, program, testReadDeadline)})
+	s := readingSession(t, cfg, attempt.Attempt{Program: program, Fetch: sourceReadPlan(t, program, testReadDeadline)})
 
 	// Stands for the workspace, acquired before the read and so released after it.
 	var running int64
@@ -183,7 +183,7 @@ func TestReleasingAReadStopsItWhileItsSourceStillAnswers(t *testing.T) {
 	ffmpegPath, ffprobePath := requireFFmpegTools(t)
 	stream := &source.Candidate{URL: quietOrigin(t, programHead(t, ffmpegPath)), ContentType: media.MPEGTS}
 	program := programFromStream(t, stream)
-	s := readingSession(t, castConfig(pushOnly(), ffmpegPath, ffprobePath), attempt.Attempt{Program: program, Read: sourceReadPlan(t, program, time.Hour)})
+	s := readingSession(t, castConfig(pushOnly(), ffmpegPath, ffprobePath), attempt.Attempt{Program: program, Fetch: sourceReadPlan(t, program, time.Hour)})
 
 	buf, err := s.read(workspace{dir: t.TempDir()}, program)
 	if err != nil {
@@ -213,7 +213,7 @@ func TestABurnInIsFedAndAwaitedByTheCastThatRunsIt(t *testing.T) {
 	defer cancel()
 	program := programFromStream(t, origin.stream())
 	out := newExecutorAt(castConfig(pushOnly(), ffmpegPath, ffprobePath), connectTo(dev), staging(stage), "127.0.0.1").
-		Run(ctx, attempt.Attempt{Try: 1, Program: program, Read: sourceReadPlan(t, program, testReadDeadline)})
+		Run(ctx, attempt.Attempt{Try: 1, Program: program, Fetch: sourceReadPlan(t, program, testReadDeadline)})
 	if out.Err != nil {
 		t.Fatalf("casting with a stage: %v", out.Err)
 	}

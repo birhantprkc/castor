@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	"github.com/stupside/castor/internal/cast/attempt"
-	"github.com/stupside/castor/internal/cast/watch"
+	"github.com/stupside/castor/internal/cast/health"
 	"github.com/stupside/castor/internal/media"
 )
 
@@ -35,14 +35,14 @@ func evidence(r ran, err error, cancelled bool) attempt.Evidence {
 	if unread, ok := errors.AsType[*timelineUnreadable](err); ok {
 		e.TimelineErr = unread.err
 	}
-	if undelivered, ok := errors.AsType[*watch.Undelivered](err); ok {
+	if undelivered, ok := errors.AsType[*health.Undelivered](err); ok {
 		e.Undelivered = undelivered
 	}
 	// A renderer its family saw go away while the cast played (see supervising).
 	if gone, ok := errors.AsType[*media.Gone](err); ok {
 		e.RendererGone = gone
 	}
-	if verdict, ok := errors.AsType[*watch.Fault](err); ok {
+	if verdict, ok := errors.AsType[*health.Fault](err); ok {
 		e.Verdict, e.Health = verdict.Kind, verdict.Health
 		if len(e.Lines) == 0 {
 			e.Lines = verdict.Evidence

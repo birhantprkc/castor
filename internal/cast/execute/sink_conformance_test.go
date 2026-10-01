@@ -14,8 +14,8 @@ import (
 
 	"github.com/stupside/castor/internal/cast/container"
 	"github.com/stupside/castor/internal/cast/deliver"
+	"github.com/stupside/castor/internal/cast/health"
 	"github.com/stupside/castor/internal/cast/transcode"
-	"github.com/stupside/castor/internal/cast/watch"
 	"github.com/stupside/castor/internal/media"
 )
 
@@ -158,8 +158,8 @@ func TestEveryMechanismSettlesOnlyWhatTheRendererTook(t *testing.T) {
 	each(t, func(t *testing.T, _ mechanism, sink sink, producer *io.PipeWriter) {
 		_ = producer.Close()
 		<-sink.Drained()
-		if _, ok := errors.AsType[*watch.Undelivered](sink.Settled()); !ok {
-			t.Errorf("nobody fetched a delivery and Settled = %v, want *watch.Undelivered", sink.Settled())
+		if _, ok := errors.AsType[*health.Undelivered](sink.Settled()); !ok {
+			t.Errorf("nobody fetched a delivery and Settled = %v, want *health.Undelivered", sink.Settled())
 		}
 	})
 	each(t, func(t *testing.T, m mechanism, sink sink, producer *io.PipeWriter) {

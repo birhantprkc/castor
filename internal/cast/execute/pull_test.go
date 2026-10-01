@@ -19,7 +19,7 @@ func TestTheReadsFloorEncodeIsCappedAtTheCastsCeiling(t *testing.T) {
 	cfg.Subtitles = noStage
 	program := programFromStream(t, origin.stream())
 
-	s := readingSession(t, cfg, attempt.Attempt{Program: program, Read: sourceReadPlan(t, program, testReadDeadline), Decode: media.Axes{Video: true}})
+	s := readingSession(t, cfg, attempt.Attempt{Program: program, Fetch: sourceReadPlan(t, program, testReadDeadline), Decode: media.Axes{Video: true}})
 	followed, err := s.follow(program)
 	if err != nil {
 		t.Fatal(err)

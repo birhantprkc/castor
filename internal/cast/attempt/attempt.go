@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/stupside/castor/internal/cast/compose"
-	"github.com/stupside/castor/internal/cast/read"
+	"github.com/stupside/castor/internal/cast/fetch"
 	"github.com/stupside/castor/internal/media"
 	"github.com/stupside/castor/internal/source"
 )
@@ -40,8 +40,8 @@ type Attempt struct {
 	// Rendition: Program's selected rung; zero is absence of evidence, not free rendition.
 	Rendition source.Rendition
 
-	// Read: how inputs are fetched; value not flags, so both readers use identical terms.
-	Read read.Plan
+	// Fetch: how inputs are fetched; value not flags, so both readers use identical terms.
+	Fetch fetch.Plan
 
 	// Decode: axes to decode not copy; only gains, never reinstates (strict descent).
 	Decode media.Axes
@@ -68,7 +68,7 @@ func (a Attempt) identify(redactURLSecrets bool) identity {
 		program:   programIdentity(a.Program, redactURLSecrets),
 		bitrate:   a.Rendition.Bitrate,
 		height:    a.Rendition.Height,
-		read:      cmp.Or(a.Read.String(), "unset"),
+		read:      cmp.Or(a.Fetch.String(), "unset"),
 		delivery:  cmp.Or(a.Delivery, compose.DeliveryAuto),
 		decode:    a.Decode,
 	}
@@ -116,6 +116,6 @@ func (a Attempt) key() string { return a.identify(false).String() }
 // reading binds a resolution to the attempt with a read plan derived for its program.
 func (a Attempt) reading(r source.Resolution, deadline time.Duration) Attempt {
 	a.Program, a.Origin, a.Rendition = r.Program, r.Origin, r.Rendition
-	a.Read = read.ForProgram(a.Program, deadline)
+	a.Fetch = fetch.ForProgram(a.Program, deadline)
 	return a
 }

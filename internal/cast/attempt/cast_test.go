@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/stupside/castor/internal/cast/compose"
-	"github.com/stupside/castor/internal/cast/watch"
+	"github.com/stupside/castor/internal/cast/health"
 	"github.com/stupside/castor/internal/media"
 	"github.com/stupside/castor/internal/source"
 )
@@ -78,9 +78,9 @@ func publishing(head *source.Candidate, origin source.Origin, chosen source.Rend
 }
 
 // judged is an outcome the watch ended, revisable only before playback.
-func judged(k watch.Kind, reached Phase, h watch.Health) Outcome {
+func judged(k health.Kind, reached Phase, h health.Health) Outcome {
 	return Outcome{
-		Err:      &watch.Fault{Kind: k, Subject: "the cast under watch", Revise: reached < PhasePlaying, Health: h},
+		Err:      &health.Fault{Kind: k, Subject: "the cast under watch", Revise: reached < PhasePlaying, Health: h},
 		Evidence: Evidence{Reached: reached, Verdict: k, Health: h},
 	}
 }
@@ -88,7 +88,7 @@ func judged(k watch.Kind, reached Phase, h watch.Health) Outcome {
 var delivered = Outcome{Evidence: Evidence{Reached: PhaseDelivered}}
 
 // starving is an observed run: 33KB and 1s of media in 30s.
-var starving = watch.Health{Landed: 33088, Position: time.Second, Speed: 0.159, Headroom: 2, Samples: 4}
+var starving = health.Health{Landed: 33088, Position: time.Second, Speed: 0.159, Headroom: 2, Samples: 4}
 
 func link(t *testing.T, raw string) *source.Candidate {
 	t.Helper()
@@ -187,7 +187,7 @@ func TestUnreadableLinksAreMovedPastInRankOrder(t *testing.T) {
 		"https://cdn.example/expired.m3u8": {err: errors.New("HTTP 403")},
 		"https://third.example/403.m3u8":   {err: errors.New("HTTP 403")},
 	}}
-	run := &scriptedRunner{outcomes: []Outcome{judged(watch.Dead, PhaseReading, watch.Health{}), delivered}}
+	run := &scriptedRunner{outcomes: []Outcome{judged(health.Dead, PhaseReading, health.Health{}), delivered}}
 
 	if err := Cast(t.Context(), in, run, prog); err != nil {
 		t.Fatalf("cast: %v", err)
@@ -230,7 +230,7 @@ func TestCastSwitchesToTheNextLinkOnItsOwnLadder(t *testing.T) {
 		"https://cdn.example/2160.m3u8":     {origin: sole, rung: sole.Renditions[0]},
 		"https://other.example/master.m3u8": {url: "https://other.example/720.m3u8", origin: other, rung: other.Renditions[1]},
 	}}
-	run := &scriptedRunner{outcomes: []Outcome{judged(watch.Undeliverable, PhaseReading, starving), delivered}}
+	run := &scriptedRunner{outcomes: []Outcome{judged(health.Undeliverable, PhaseReading, starving), delivered}}
 
 	if err := Cast(t.Context(), in, run, prog); err != nil {
 		t.Fatalf("cast: %v", err)
@@ -245,7 +245,7 @@ func TestCastSwitchesToTheNextLinkOnItsOwnLadder(t *testing.T) {
 	if second.Rendition.Bitrate != 1200000 || len(second.Origin.Renditions) != 2 {
 		t.Errorf("second attempt carries rung %d over %d renditions, want the new link's own ladder", second.Rendition.Bitrate, len(second.Origin.Renditions))
 	}
-	if got := second.Read.Primary(second.Program).Name; got != "segment-in-band" {
+	if got := second.Fetch.Primary(second.Program).Name; got != "segment-in-band" {
 		t.Errorf("second attempt reads on %q, want the policy of the new link's own framing", got)
 	}
 }
@@ -258,7 +258,7 @@ func TestCastDegradesToTheHeaviestRungTheLinkCarried(t *testing.T) {
 	head := link(t, "https://cdn.example/2160.m3u8")
 	head.Probe = &media.ProbeInfo{VideoHeight: 2160}
 	in := Intent{Candidates: []*source.Candidate{head}, Deadline: 30 * time.Second}
-	run := &scriptedRunner{outcomes: []Outcome{judged(watch.Undeliverable, PhaseReading, starving), delivered}}
+	run := &scriptedRunner{outcomes: []Outcome{judged(health.Undeliverable, PhaseReading, starving), delivered}}
 	resolver := publishing(head, ladder(top, mid, low), top)
 
 	if err := Cast(t.Context(), in, run, resolver); err != nil {
@@ -289,7 +289,7 @@ func TestDegradeOnlyMovesDownTheLadder(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := Attempt{Program: program, Origin: ladder(top, low), Rendition: low}
-	ahead := judged(watch.Undeliverable, PhaseReading, watch.Health{Landed: 4 << 20, Speed: 1.4, Headroom: 2, Samples: 4})
+	ahead := judged(health.Undeliverable, PhaseReading, health.Health{Landed: 4 << 20, Speed: 1.4, Headroom: 2, Samples: 4})
 	if _, ok := degradeRendition.apply(t.Context(), change{attempt: a, outcome: ahead}); ok {
 		t.Error("a read measured above its own rung was offered a heavier one")
 	}
@@ -297,7 +297,7 @@ func TestDegradeOnlyMovesDownTheLadder(t *testing.T) {
 
 func TestCastRelaxesAStalledReadBeforeAbandoningTheLink(t *testing.T) {
 	in := Intent{Candidates: candidates(t, "https://cdn.example/one.m3u8", "https://other.example/two.m3u8"), Deadline: 30 * time.Second}
-	stalled := judged(watch.Stalled, PhaseReading, watch.Health{Landed: 33088})
+	stalled := judged(health.Stalled, PhaseReading, health.Health{Landed: 33088})
 	run := &scriptedRunner{outcomes: []Outcome{stalled, stalled, delivered}}
 
 	if err := Cast(t.Context(), in, run, publishing(in.Candidates[0], source.Origin{Segmented: true}, source.Rendition{})); err != nil {
@@ -310,7 +310,7 @@ func TestCastRelaxesAStalledReadBeforeAbandoningTheLink(t *testing.T) {
 	if second.candidate != 0 {
 		t.Errorf("the second attempt changed link before asking the first one politely")
 	}
-	if pace := second.Read.Primary(second.Program).Pace; pace.Realtime != 1 || pace.Burst != 0 {
+	if pace := second.Fetch.Primary(second.Program).Pace; pace.Realtime != 1 || pace.Burst != 0 {
 		t.Errorf("the relaxed read is paced %+v, want playback pace with no burst", pace)
 	}
 	if run.seen[2].candidate != 1 {
@@ -339,8 +339,8 @@ func TestCastDecodesTheAxisWhoseCopyBrokeUpstream(t *testing.T) {
 func TestAPlayingCastIsNotRevisedEvenByAFaultThatClaimsItCanBe(t *testing.T) {
 	in := Intent{Candidates: candidates(t, "https://cdn.example/one.m3u8", "https://other.example/two.m3u8"), Deadline: 30 * time.Second}
 	claimed := Outcome{
-		Err:      &watch.Fault{Kind: watch.Stalled, Revise: true, Health: starving},
-		Evidence: Evidence{Reached: PhasePlaying, Verdict: watch.Stalled, Health: starving},
+		Err:      &health.Fault{Kind: health.Stalled, Revise: true, Health: starving},
+		Evidence: Evidence{Reached: PhasePlaying, Verdict: health.Stalled, Health: starving},
 	}
 	run := &scriptedRunner{outcomes: []Outcome{claimed, delivered}}
 
@@ -388,7 +388,7 @@ func TestTheLedgerStopsAStrategyRepeatingAnAttempt(t *testing.T) {
 	t.Cleanup(func() { playbook = shipped })
 
 	in := Intent{Candidates: candidates(t, "https://cdn.example/one.m3u8"), Deadline: 30 * time.Second}
-	stalled := judged(watch.Stalled, PhaseReading, watch.Health{})
+	stalled := judged(health.Stalled, PhaseReading, health.Health{})
 	run := &scriptedRunner{outcomes: []Outcome{stalled, stalled, stalled}}
 
 	if err := Cast(t.Context(), in, run, &fakeProgram{}); err == nil || len(run.seen) != 1 {
@@ -402,7 +402,7 @@ func TestCastEndsWithTheCancellationRatherThanAFault(t *testing.T) {
 	in := Intent{Candidates: candidates(t, "https://cdn.example/one.m3u8", "https://other.example/two.m3u8"), Deadline: 30 * time.Second}
 	run := &scriptedRunner{outcomes: []Outcome{{
 		Err:      context.Canceled,
-		Evidence: Evidence{Reached: PhaseReading, Cancelled: true, Verdict: watch.Stalled},
+		Evidence: Evidence{Reached: PhaseReading, Cancelled: true, Verdict: health.Stalled},
 	}, delivered}}
 
 	err := Cast(ctx, in, run, &fakeProgram{})
@@ -418,8 +418,8 @@ func TestTheRefusalNamesWhatWasTriedAndItsMeasurements(t *testing.T) {
 		Duration:   2*time.Hour + time.Minute + 55*time.Second,
 	}
 	in := Intent{Candidates: candidates(t, "https://cdn.example/2160.m3u8", "https://other.example/two.m3u8"), Deadline: 30 * time.Second}
-	slow := watch.Health{Landed: 33088, Position: time.Second, Speed: 0.0627, Headroom: 2, Samples: 4}
-	run := &scriptedRunner{outcomes: []Outcome{judged(watch.Undeliverable, PhaseReading, slow), judged(watch.Undeliverable, PhaseReading, slow)}}
+	slow := health.Health{Landed: 33088, Position: time.Second, Speed: 0.0627, Headroom: 2, Samples: 4}
+	run := &scriptedRunner{outcomes: []Outcome{judged(health.Undeliverable, PhaseReading, slow), judged(health.Undeliverable, PhaseReading, slow)}}
 	prog := &fakeProgram{answers: map[string]published{
 		"https://cdn.example/2160.m3u8":  {origin: sole, rung: sole.Renditions[0]},
 		"https://other.example/two.m3u8": {origin: sole, rung: sole.Renditions[0]},
@@ -440,9 +440,9 @@ func TestTheRefusalNamesWhatWasTriedAndItsMeasurements(t *testing.T) {
 
 func broke(copied media.Axes) Outcome {
 	dead := errors.New("upstream pull: exit status 183")
-	health := watch.Health{Landed: 4 << 20, Speed: 1.8, Headroom: 2, Samples: 12}
+	measured := health.Health{Landed: 4 << 20, Speed: 1.8, Headroom: 2, Samples: 12}
 	return Outcome{
-		Err:      &watch.Fault{Kind: watch.Dead, Revise: true, Health: health, Err: dead},
-		Evidence: Evidence{Reached: PhaseReading, Verdict: watch.Dead, Health: health, ReadErr: dead, ReadExit: 183, Copied: copied},
+		Err:      &health.Fault{Kind: health.Dead, Revise: true, Health: measured, Err: dead},
+		Evidence: Evidence{Reached: PhaseReading, Verdict: health.Dead, Health: measured, ReadErr: dead, ReadExit: 183, Copied: copied},
 	}
 }

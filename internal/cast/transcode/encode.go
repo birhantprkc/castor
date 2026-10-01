@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/stupside/castor/internal/cast/container"
+	"github.com/stupside/castor/internal/cast/fetch"
 	"github.com/stupside/castor/internal/cast/plan"
-	"github.com/stupside/castor/internal/cast/read"
 	"github.com/stupside/castor/internal/ffmpeg"
 	"github.com/stupside/castor/internal/media"
 )
@@ -14,12 +14,12 @@ import (
 // EncodeInput is what an encode reads: the zero value reads nothing and is refused.
 type EncodeInput struct {
 	pipe   container.FormatInfo
-	pace   read.Pace
+	pace   fetch.Pace
 	source ProgramSource
 }
 
 // FromPipe reads the container fed to stdin, at pace.
-func FromPipe(format container.FormatInfo, pace read.Pace) EncodeInput {
+func FromPipe(format container.FormatInfo, pace fetch.Pace) EncodeInput {
 	return EncodeInput{pipe: format, pace: pace}
 }
 

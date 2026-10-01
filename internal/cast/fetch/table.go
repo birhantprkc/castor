@@ -1,4 +1,4 @@
-package read
+package fetch
 
 import (
 	"time"

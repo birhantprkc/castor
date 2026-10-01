@@ -1,5 +1,5 @@
-// Package watch judges whether a cast is working: the rules, and the loop that applies them.
-package watch
+// Package health judges whether a cast is working: the rules, and the loop that applies them.
+package health
 
 import (
 	"cmp"

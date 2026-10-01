@@ -127,11 +127,11 @@ var relaxRead = strategy{
 	why:  "ask for the same link at playback pace with no wire-speed burst, in case the burst is what it stopped answering",
 	apply: func(_ context.Context, c change) (Attempt, bool) {
 		a := c.attempt
-		plan, ok := a.Read.Cautious()
+		plan, ok := a.Fetch.Cautious()
 		if !ok {
 			return a, false
 		}
-		a.Read = plan
+		a.Fetch = plan
 		return a, true
 	},
 }

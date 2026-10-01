@@ -6,7 +6,7 @@ import (
 	"net/url"
 
 	"github.com/stupside/castor/internal/cast/deliver"
-	"github.com/stupside/castor/internal/cast/watch"
+	"github.com/stupside/castor/internal/cast/health"
 	"github.com/stupside/castor/internal/device"
 	"github.com/stupside/castor/internal/media"
 )
@@ -23,7 +23,7 @@ type Subtitles func(ctx context.Context, workDir string) Burn
 
 type Burn interface {
 	// Lead is how far the transcription has committed, which the playback gate waits on.
-	watch.Lead
+	health.Lead
 
 	// Run transcribes the PCM feed until it ends, and closes it.
 	Run(ctx context.Context, pcm io.ReadCloser)
@@ -50,7 +50,7 @@ type sink interface {
 
 	Drained() <-chan struct{}
 
-	Audience() watch.Audience
+	Audience() health.Audience
 
 	Settled() error
 

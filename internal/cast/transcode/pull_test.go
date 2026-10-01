@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stupside/castor/internal/cast/read"
+	"github.com/stupside/castor/internal/cast/fetch"
 	"github.com/stupside/castor/internal/ffmpeg"
 	"github.com/stupside/castor/internal/media"
 )
@@ -35,7 +35,7 @@ func TestTheExtraPipesCarryWhatTheFlagsSay(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	opts := copyingPull(muxedSource(t, mustURL(t, srv.URL+"/video.mp4"), media.MP4, read.For(media.Fetch{}, 30*time.Second)))
+	opts := copyingPull(muxedSource(t, mustURL(t, srv.URL+"/video.mp4"), media.MP4, fetch.For(media.Fetch{}, 30*time.Second)))
 	opts.PCM, opts.PCMSampleRate = true, 16000
 	cmd, err := PullArgs(opts)
 	if err != nil {

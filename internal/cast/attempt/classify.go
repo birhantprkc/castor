@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stupside/castor/internal/cast/watch"
+	"github.com/stupside/castor/internal/cast/health"
 )
 
 // kind classifies attempt failures: two failures share a kind exactly when the same change would answer both.
@@ -84,7 +84,7 @@ var classes = []classRule{{
 	// Media landed then died is deliberately not unreachable; that would send a working cast to recovery.
 	why: "the source read reached a terminal error having landed no media and never stated a speed, so nothing about this link was established",
 	when: func(e Evidence) bool {
-		return e.Verdict == watch.Dead && e.Reached <= PhaseReading && e.Health.Landed == 0 && e.Health.Samples == 0
+		return e.Verdict == health.Dead && e.Reached <= PhaseReading && e.Health.Landed == 0 && e.Health.Samples == 0
 	},
 	kind: unreachable,
 }, {
@@ -104,26 +104,26 @@ var classes = []classRule{{
 	// One change (stop asking renderer to fetch) answers all three shapes at different moments.
 	why: "the renderer would not play what it was pointed at, never came for the bytes, or stopped taking them with the program still being served",
 	when: func(e Evidence) bool {
-		return e.PlayErr != nil || e.Undelivered != nil || e.Verdict == watch.Unfetched
+		return e.PlayErr != nil || e.Undelivered != nil || e.Verdict == health.Unfetched
 	},
 	kind: rendererRefused,
 }, {
 	// Container refuses tracks at header-write time or reader's every segment answered 404; or it fell silent over a buffer already proven.
 	why: "the delivery ended, or went silent over castor's own proven buffer, without producing anything a renderer could fetch",
 	when: func(e Evidence) bool {
-		return e.Reached == PhaseOpening && (e.Verdict == watch.Dead || e.Verdict == watch.Stalled && e.Buffered)
+		return e.Reached == PhaseOpening && (e.Verdict == health.Dead || e.Verdict == health.Stalled && e.Buffered)
 	},
 	kind: producedNothing,
 }}
 
-var verdictClasses = map[watch.Kind]classRule{
+var verdictClasses = map[health.Kind]classRule{
 	// It already waited out two reconnect ceilings.
-	watch.Stalled: {
+	health.Stalled: {
 		why:  "the source stopped delivering entirely while it was still supposed to be delivering",
 		kind: sourceStalled,
 	},
 	// The failure this whole layer was built for; a fact about the LINK, not media.
-	watch.Undeliverable: {
+	health.Undeliverable: {
 		why:  "the source delivers fewer media seconds per wall-clock second than playback consumes, so the cast can never catch up however long it is given",
 		kind: underDelivering,
 	},

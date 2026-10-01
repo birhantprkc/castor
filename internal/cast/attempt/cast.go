@@ -95,11 +95,11 @@ func announce(ctx context.Context, in Intent, a Attempt) {
 		"live", a.Origin.Live,
 		"duration", a.Origin.Duration,
 	)
-	primaryRead := a.Read.Primary(a.Program)
+	primaryRead := a.Fetch.Primary(a.Program)
 	slog.InfoContext(ctx, "source read policy",
 		"policy", primaryRead.Name,
 		"why", primaryRead.Why,
-		"inputs", a.Read.String(),
+		"inputs", a.Fetch.String(),
 		// Zero deadline is valid for some sources, not missing.
 		"read_deadline", primaryRead.Deadline,
 		"segment_retries", primaryRead.SegmentRetries,

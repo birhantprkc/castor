@@ -6,14 +6,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stupside/castor/internal/cast/watch"
+	"github.com/stupside/castor/internal/cast/health"
 )
 
 func TestTheCastIsReportedUnderThePartyThatFailed(t *testing.T) {
 	readErr := errors.New("upstream pull: exit status 183")
 	noticed := fmt.Errorf("encoder: spool producer failed: %w", readErr)
 	ownFault := errors.New("encoder: an audio repack toward an in-band container")
-	verdict := &watch.Fault{Kind: watch.Dead, Err: readErr}
+	verdict := &health.Fault{Kind: health.Dead, Err: readErr}
 
 	for _, tt := range []struct {
 		name         string
