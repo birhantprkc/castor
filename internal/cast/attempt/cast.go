@@ -41,6 +41,9 @@ func Cast(ctx context.Context, in Intent, run Runner, resolver SourceResolver) e
 
 	for {
 		slog.InfoContext(ctx, "attempt", "try", a.Try, "candidates", len(in.Candidates), "shape", a.String())
+		if in.Turns != nil {
+			in.Turns.Attempting(a.Try)
+		}
 
 		out := run.Run(ctx, a)
 		// Attribute error to runner before cancellation check.
@@ -62,6 +65,9 @@ func Cast(ctx context.Context, in Intent, run Runner, resolver SourceResolver) e
 		}
 
 		revising(ctx, f, rev)
+		if in.Turns != nil {
+			in.Turns.Revising(rev.strategy.name, f.why)
+		}
 		tried = append(tried, rev.strategy.name)
 		a = rev.attempt
 	}

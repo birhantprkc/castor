@@ -45,7 +45,7 @@ func (a *app) castURLCommand() *cli.Command {
 			if err != nil {
 				return fmt.Errorf("measuring direct URL: %w", err)
 			}
-			return cast.Play(ctx, playback(cfg, cfg.Target()), []*source.Stream{measured})
+			return cast.Play(ctx, playback(cfg, cfg.Target()), []*source.Stream{measured}, nil)
 		},
 	}
 }

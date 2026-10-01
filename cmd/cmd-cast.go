@@ -96,7 +96,7 @@ func (a *app) extractAndCast(ctx context.Context, cfg *config.Config, target dev
 	}
 
 	// Pass all candidates; casting falls back to next if best fails instead of failing.
-	return cast.Play(ctx, playback(cfg, target), ranked)
+	return cast.Play(ctx, playback(cfg, target), ranked, nil)
 }
 
 // dryRunRow formats a stream as bandwidth and URL, with "last resort" label if unmeasured.
