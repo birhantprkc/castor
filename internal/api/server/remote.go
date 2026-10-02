@@ -36,23 +36,22 @@ func (r remoteRenderer) Connect(ctx context.Context) (device.Device, error) {
 	if caps == nil {
 		return nil, errors.New("the device answered connect without its capabilities")
 	}
-	return &remoteDevice{s: r.s, handle: cmd.GetId(), caps: wire.FromCapabilities(caps)}, nil
+	return &remoteDevice{s: r.s, caps: wire.FromCapabilities(caps)}, nil
 }
 
 type remoteDevice struct {
-	s      *session
-	handle string
-	caps   media.Capabilities
+	s    *session
+	caps media.Capabilities
 }
 
 func (d *remoteDevice) Play(ctx context.Context, streamURL *url.URL, contentType string) error {
-	play := &castorv1.DeviceCommand_Play{Handle: d.handle, Url: d.s.deliveries.reached(streamURL).String(), ContentType: contentType}
+	play := &castorv1.DeviceCommand_Play{Url: d.s.deliveries.reached(streamURL).String(), ContentType: contentType}
 	return d.done(ctx, &castorv1.DeviceCommand{Command: &castorv1.DeviceCommand_Play_{Play: play}})
 }
 
 // AwaitEnd waits for the renderer's end; once its client has left, the cast's deliveries decide it.
 func (d *remoteDevice) AwaitEnd(ctx context.Context) error {
-	err := d.done(ctx, &castorv1.DeviceCommand{Command: &castorv1.DeviceCommand_AwaitEnd_{AwaitEnd: &castorv1.DeviceCommand_AwaitEnd{Handle: d.handle}}})
+	err := d.done(ctx, &castorv1.DeviceCommand{Command: &castorv1.DeviceCommand_AwaitEnd_{AwaitEnd: &castorv1.DeviceCommand_AwaitEnd{}}})
 	if errors.Is(err, errDriverLeft) {
 		<-ctx.Done()
 		return ctx.Err()
@@ -64,7 +63,7 @@ func (d *remoteDevice) Capabilities() media.Capabilities { return d.caps }
 
 // StreamHeaders asks under the cast's own context, the port having none of its own.
 func (d *remoteDevice) StreamHeaders(contentType string) map[string]string {
-	a, err := d.s.line.call(d.s.ctx, &castorv1.DeviceCommand{Command: &castorv1.DeviceCommand_StreamHeaders_{StreamHeaders: &castorv1.DeviceCommand_StreamHeaders{Handle: d.handle, ContentType: contentType}}})
+	a, err := d.s.line.call(d.s.ctx, &castorv1.DeviceCommand{Command: &castorv1.DeviceCommand_StreamHeaders_{StreamHeaders: &castorv1.DeviceCommand_StreamHeaders{ContentType: contentType}}})
 	if err != nil || answerErr(a) != nil {
 		return nil
 	}
@@ -75,7 +74,7 @@ func (d *remoteDevice) StreamHeaders(contentType string) map[string]string {
 func (d *remoteDevice) Close() error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(d.s.ctx), closeTimeout)
 	defer cancel()
-	return d.done(ctx, &castorv1.DeviceCommand{Command: &castorv1.DeviceCommand_Close_{Close: &castorv1.DeviceCommand_Close{Handle: d.handle}}})
+	return d.done(ctx, &castorv1.DeviceCommand{Command: &castorv1.DeviceCommand_Close_{Close: &castorv1.DeviceCommand_Close{}}})
 }
 
 func (d *remoteDevice) done(ctx context.Context, cmd *castorv1.DeviceCommand) error {

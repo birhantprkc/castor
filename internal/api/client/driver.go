@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"sync"
@@ -27,7 +28,7 @@ func (c *Client) Drive(parent context.Context, id string, target device.Info) er
 		return fmt.Errorf("driving cast: %w", refused(err))
 	}
 	defer func() { _ = stream.Close() }()
-	d := &driver{ctx: ctx, leave: leave, c: c, castID: id, lent: target, devices: map[string]device.Device{}, running: map[string]context.CancelFunc{}}
+	d := &driver{ctx: ctx, leave: leave, c: c, castID: id, lent: target, running: map[string]context.CancelFunc{}}
 	defer d.release()
 	for stream.Receive() {
 		d.run(stream.Msg().GetCommand())
@@ -50,7 +51,7 @@ type driver struct {
 	lent   device.Info
 
 	mu      sync.Mutex
-	devices map[string]device.Device
+	dev     device.Device
 	running map[string]context.CancelFunc
 	wg      sync.WaitGroup
 }
@@ -86,63 +87,62 @@ func (d *driver) run(cmd *castorv1.DeviceCommand) {
 }
 
 func (d *driver) exec(ctx context.Context, cmd *castorv1.DeviceCommand) *castorv1.AnswerRequest {
-	switch c := cmd.GetCommand().(type) {
+	switch cmd.GetCommand().(type) {
 	case *castorv1.DeviceCommand_Connect_:
+		d.disconnect()
 		dev, err := d.c.renderers.Connect(ctx, d.lent)
 		if err != nil {
 			return failure(err)
 		}
 		d.mu.Lock()
-		d.devices[cmd.GetId()] = dev
+		d.dev = dev
 		d.mu.Unlock()
 		return &castorv1.AnswerRequest{Answer: &castorv1.AnswerRequest_Capabilities{Capabilities: wire.Capabilities(dev.Capabilities())}}
+	case *castorv1.DeviceCommand_Close_:
+		return outcome(d.disconnect())
+	}
+	dev, err := d.connected()
+	if err != nil {
+		return failure(err)
+	}
+	switch c := cmd.GetCommand().(type) {
 	case *castorv1.DeviceCommand_Play_:
-		dev, err := d.device(c.Play.GetHandle())
-		if err != nil {
-			return failure(err)
-		}
 		target, err := url.Parse(c.Play.GetUrl())
 		if err != nil {
 			return failure(err)
 		}
 		return outcome(dev.Play(ctx, target, c.Play.GetContentType()))
 	case *castorv1.DeviceCommand_StreamHeaders_:
-		dev, err := d.device(c.StreamHeaders.GetHandle())
-		if err != nil {
-			return failure(err)
-		}
 		headers := dev.StreamHeaders(c.StreamHeaders.GetContentType())
 		return &castorv1.AnswerRequest{Answer: &castorv1.AnswerRequest_Headers_{Headers: &castorv1.AnswerRequest_Headers{Headers: headers}}}
 	case *castorv1.DeviceCommand_AwaitEnd_:
-		dev, err := d.device(c.AwaitEnd.GetHandle())
-		if err != nil {
-			return failure(err)
-		}
 		return outcome(dev.AwaitEnd(ctx))
-	case *castorv1.DeviceCommand_Close_:
-		d.mu.Lock()
-		dev, ok := d.devices[c.Close.GetHandle()]
-		delete(d.devices, c.Close.GetHandle())
-		d.mu.Unlock()
-		if !ok {
-			return outcome(nil)
-		}
-		return outcome(dev.Close())
 	}
 	return failure(fmt.Errorf("device command %q is one this client does not know", cmd.GetId()))
 }
 
-func (d *driver) device(handle string) (device.Device, error) {
+func (d *driver) connected() (device.Device, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	dev, ok := d.devices[handle]
-	if !ok {
-		return nil, fmt.Errorf("no renderer is connected under %q", handle)
+	if d.dev == nil {
+		return nil, errors.New("no renderer is connected")
 	}
-	return dev, nil
+	return d.dev, nil
 }
 
-// release abandons every call still running and closes every renderer still open: nothing drives them past this drive.
+// disconnect closes the renderer this drive has open, if any.
+func (d *driver) disconnect() error {
+	d.mu.Lock()
+	dev := d.dev
+	d.dev = nil
+	d.mu.Unlock()
+	if dev == nil {
+		return nil
+	}
+	return dev.Close()
+}
+
+// release abandons every call still running and closes the renderer: nothing drives it past this drive.
 func (d *driver) release() {
 	d.mu.Lock()
 	for _, stop := range d.running {
@@ -150,12 +150,7 @@ func (d *driver) release() {
 	}
 	d.mu.Unlock()
 	d.wg.Wait()
-	d.mu.Lock()
-	for handle, dev := range d.devices {
-		_ = dev.Close()
-		delete(d.devices, handle)
-	}
-	d.mu.Unlock()
+	_ = d.disconnect()
 }
 
 func outcome(err error) *castorv1.AnswerRequest {

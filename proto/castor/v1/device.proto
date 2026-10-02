@@ -92,7 +92,7 @@ message DeviceCommand {
   string id = 1;
   oneof command {
     option (buf.validate.oneof).required = true;
-    // connect opens the lent device; its id is the handle later commands name.
+    // connect opens the lent device, closing the one this cast opened before.
     Connect connect = 2;
     Play play = 3;
     StreamHeaders stream_headers = 4;
@@ -105,24 +105,18 @@ message DeviceCommand {
   message Connect {}
 
   message Play {
-    string handle = 1;
     // url is what the renderer fetches: the source itself, or what the server serves it.
-    string url = 2;
-    string content_type = 3;
-  }
-
-  message StreamHeaders {
-    string handle = 1;
+    string url = 1;
     string content_type = 2;
   }
 
-  message AwaitEnd {
-    string handle = 1;
+  message StreamHeaders {
+    string content_type = 1;
   }
 
-  message Close {
-    string handle = 1;
-  }
+  message AwaitEnd {}
+
+  message Close {}
 
   message Cancel {
     string command_id = 1;

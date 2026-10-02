@@ -672,7 +672,7 @@ type isDeviceCommand_Command interface {
 }
 
 type DeviceCommand_Connect_ struct {
-	// connect opens the lent device; its id is the handle later commands name.
+	// connect opens the lent device, closing the one this cast opened before.
 	Connect *DeviceCommand_Connect `protobuf:"bytes,2,opt,name=connect,proto3,oneof"`
 }
 
@@ -909,11 +909,10 @@ func (*DeviceCommand_Connect) Descriptor() ([]byte, []int) {
 }
 
 type DeviceCommand_Play struct {
-	state  protoimpl.MessageState `protogen:"open.v1"`
-	Handle string                 `protobuf:"bytes,1,opt,name=handle,proto3" json:"handle,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
 	// url is what the renderer fetches: the source itself, or what the server serves it.
-	Url           string `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`
-	ContentType   string `protobuf:"bytes,3,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
+	Url           string `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
+	ContentType   string `protobuf:"bytes,2,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -948,13 +947,6 @@ func (*DeviceCommand_Play) Descriptor() ([]byte, []int) {
 	return file_castor_v1_device_proto_rawDescGZIP(), []int{8, 1}
 }
 
-func (x *DeviceCommand_Play) GetHandle() string {
-	if x != nil {
-		return x.Handle
-	}
-	return ""
-}
-
 func (x *DeviceCommand_Play) GetUrl() string {
 	if x != nil {
 		return x.Url
@@ -971,8 +963,7 @@ func (x *DeviceCommand_Play) GetContentType() string {
 
 type DeviceCommand_StreamHeaders struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Handle        string                 `protobuf:"bytes,1,opt,name=handle,proto3" json:"handle,omitempty"`
-	ContentType   string                 `protobuf:"bytes,2,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
+	ContentType   string                 `protobuf:"bytes,1,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1007,13 +998,6 @@ func (*DeviceCommand_StreamHeaders) Descriptor() ([]byte, []int) {
 	return file_castor_v1_device_proto_rawDescGZIP(), []int{8, 2}
 }
 
-func (x *DeviceCommand_StreamHeaders) GetHandle() string {
-	if x != nil {
-		return x.Handle
-	}
-	return ""
-}
-
 func (x *DeviceCommand_StreamHeaders) GetContentType() string {
 	if x != nil {
 		return x.ContentType
@@ -1023,7 +1007,6 @@ func (x *DeviceCommand_StreamHeaders) GetContentType() string {
 
 type DeviceCommand_AwaitEnd struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Handle        string                 `protobuf:"bytes,1,opt,name=handle,proto3" json:"handle,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1058,16 +1041,8 @@ func (*DeviceCommand_AwaitEnd) Descriptor() ([]byte, []int) {
 	return file_castor_v1_device_proto_rawDescGZIP(), []int{8, 3}
 }
 
-func (x *DeviceCommand_AwaitEnd) GetHandle() string {
-	if x != nil {
-		return x.Handle
-	}
-	return ""
-}
-
 type DeviceCommand_Close struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Handle        string                 `protobuf:"bytes,1,opt,name=handle,proto3" json:"handle,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1100,13 +1075,6 @@ func (x *DeviceCommand_Close) ProtoReflect() protoreflect.Message {
 // Deprecated: Use DeviceCommand_Close.ProtoReflect.Descriptor instead.
 func (*DeviceCommand_Close) Descriptor() ([]byte, []int) {
 	return file_castor_v1_device_proto_rawDescGZIP(), []int{8, 4}
-}
-
-func (x *DeviceCommand_Close) GetHandle() string {
-	if x != nil {
-		return x.Handle
-	}
-	return ""
 }
 
 type DeviceCommand_Cancel struct {
@@ -1262,7 +1230,7 @@ const file_castor_v1_device_proto_rawDesc = "" +
 	"\tmax_level\x18\x04 \x01(\rR\bmaxLevel\"G\n" +
 	"\fAudioSupport\x12\x14\n" +
 	"\x05codec\x18\x01 \x01(\tR\x05codec\x12!\n" +
-	"\fmax_channels\x18\x02 \x01(\rR\vmaxChannels\"\xbf\x06\n" +
+	"\fmax_channels\x18\x02 \x01(\rR\vmaxChannels\"\xdf\x05\n" +
 	"\rDeviceCommand\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12<\n" +
 	"\aconnect\x18\x02 \x01(\v2 .castor.v1.DeviceCommand.ConnectH\x00R\aconnect\x123\n" +
@@ -1271,18 +1239,15 @@ const file_castor_v1_device_proto_rawDesc = "" +
 	"\tawait_end\x18\x05 \x01(\v2!.castor.v1.DeviceCommand.AwaitEndH\x00R\bawaitEnd\x126\n" +
 	"\x05close\x18\x06 \x01(\v2\x1e.castor.v1.DeviceCommand.CloseH\x00R\x05close\x129\n" +
 	"\x06cancel\x18\a \x01(\v2\x1f.castor.v1.DeviceCommand.CancelH\x00R\x06cancel\x1a\t\n" +
-	"\aConnect\x1aS\n" +
-	"\x04Play\x12\x16\n" +
-	"\x06handle\x18\x01 \x01(\tR\x06handle\x12\x10\n" +
-	"\x03url\x18\x02 \x01(\tR\x03url\x12!\n" +
-	"\fcontent_type\x18\x03 \x01(\tR\vcontentType\x1aJ\n" +
-	"\rStreamHeaders\x12\x16\n" +
-	"\x06handle\x18\x01 \x01(\tR\x06handle\x12!\n" +
-	"\fcontent_type\x18\x02 \x01(\tR\vcontentType\x1a\"\n" +
-	"\bAwaitEnd\x12\x16\n" +
-	"\x06handle\x18\x01 \x01(\tR\x06handle\x1a\x1f\n" +
-	"\x05Close\x12\x16\n" +
-	"\x06handle\x18\x01 \x01(\tR\x06handle\x1a'\n" +
+	"\aConnect\x1a;\n" +
+	"\x04Play\x12\x10\n" +
+	"\x03url\x18\x01 \x01(\tR\x03url\x12!\n" +
+	"\fcontent_type\x18\x02 \x01(\tR\vcontentType\x1a2\n" +
+	"\rStreamHeaders\x12!\n" +
+	"\fcontent_type\x18\x01 \x01(\tR\vcontentType\x1a\n" +
+	"\n" +
+	"\bAwaitEnd\x1a\a\n" +
+	"\x05Close\x1a'\n" +
 	"\x06Cancel\x12\x1d\n" +
 	"\n" +
 	"command_id\x18\x01 \x01(\tR\tcommandId:y\xbaHv\x1at\n" +
