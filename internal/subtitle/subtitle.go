@@ -5,7 +5,7 @@ package subtitle
 type Whisper struct {
 	Enable    bool     `yaml:"enable"`
 	ModelPath string   `yaml:"model_path"` // override the auto-downloaded tiny.en model
-	Language  Language `yaml:"language"`   // pin a BCP-47 code, or LanguageAuto to detect
+	Language  Language `yaml:"language" validate:"bcp47_language_tag|eq=auto"`
 }
 
 // SampleRate is the rate the PCM feed a transcription reads must be produced at: mono s16le at 16 kHz.

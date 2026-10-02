@@ -58,6 +58,10 @@ func TestLoad(t *testing.T) {
 			}
 		},
 	}, {
+		name:    "a subtitle language is a BCP-47 tag or auto",
+		yaml:    "whisper:\n  language: french\n",
+		wantErr: true,
+	}, {
 		name:    "renderers reach an advertised server at a URL",
 		yaml:    "server:\n  advertise: my-nas\n",
 		wantErr: true,
