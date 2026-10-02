@@ -21,7 +21,7 @@ func (c *Client) Drive(parent context.Context, id string, target device.Info) er
 	stream, err := c.devices.Drive(ctx, &castorv1.DriveRequest{
 		CastId:  id,
 		Device:  &castorv1.Device{Name: target.Name, Type: string(target.Type), Address: target.Address},
-		Profile: wire.Capabilities(c.lan.Renderers.Profile(target.Type)),
+		Profile: wire.Capabilities(c.renderers.Profile(target.Type)),
 	})
 	if err != nil {
 		return fmt.Errorf("driving cast: %w", err)
@@ -50,7 +50,6 @@ type driver struct {
 	lent   device.Info
 
 	mu      sync.Mutex
-	relayed *relay
 	devices map[string]device.Device
 	running map[string]context.CancelFunc
 	wg      sync.WaitGroup
@@ -58,20 +57,6 @@ type driver struct {
 
 func newDriver(ctx context.Context, leave context.CancelCauseFunc, c *Client, castID string, target device.Info) *driver {
 	return &driver{ctx: ctx, leave: leave, c: c, castID: castID, lent: target, devices: map[string]device.Device{}, running: map[string]context.CancelFunc{}}
-}
-
-// relay is this drive's relay, opened by the first play that needs one.
-func (d *driver) relay() (*relay, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.relayed == nil {
-		r, err := openRelay(d.ctx, d.c.base, d.c.lan.Address)
-		if err != nil {
-			return nil, err
-		}
-		d.relayed = r
-	}
-	return d.relayed, nil
 }
 
 func (d *driver) run(cmd *castorv1.DeviceCommand) {
@@ -107,7 +92,7 @@ func (d *driver) run(cmd *castorv1.DeviceCommand) {
 func (d *driver) exec(ctx context.Context, cmd *castorv1.DeviceCommand) *castorv1.AnswerRequest {
 	switch c := cmd.GetCommand().(type) {
 	case *castorv1.DeviceCommand_Connect_:
-		dev, err := d.c.lan.Renderers.Connect(ctx, d.lent)
+		dev, err := d.c.renderers.Connect(ctx, d.lent)
 		if err != nil {
 			return failure(err)
 		}
@@ -120,7 +105,7 @@ func (d *driver) exec(ctx context.Context, cmd *castorv1.DeviceCommand) *castorv
 		if err != nil {
 			return failure(err)
 		}
-		target, err := d.target(c.Play)
+		target, err := url.Parse(c.Play.GetUrl())
 		if err != nil {
 			return failure(err)
 		}
@@ -161,18 +146,6 @@ func (d *driver) device(handle string) (device.Device, error) {
 	return dev, nil
 }
 
-// target is the source as is, or this client's relay of what the server serves.
-func (d *driver) target(play *castorv1.DeviceCommand_Play) (*url.URL, error) {
-	if path := play.GetRelayPath(); path != "" {
-		r, err := d.relay()
-		if err != nil {
-			return nil, err
-		}
-		return r.url(path)
-	}
-	return url.Parse(play.GetUrl())
-}
-
 // release abandons every call still running and closes every renderer still open: nothing drives them past this drive.
 func (d *driver) release() {
 	d.mu.Lock()
@@ -185,9 +158,6 @@ func (d *driver) release() {
 	for handle, dev := range d.devices {
 		_ = dev.Close()
 		delete(d.devices, handle)
-	}
-	if d.relayed != nil {
-		d.relayed.close()
 	}
 	d.mu.Unlock()
 }

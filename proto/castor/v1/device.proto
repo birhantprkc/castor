@@ -6,7 +6,7 @@ import "buf/validate/validate.proto";
 
 // DeviceService lends a client's device to a cast: the cast's calls on it arrive through Drive and are answered with Answer.
 service DeviceService {
-  // Drive lends the device for the cast's life: a cast takes one, starts once it is lent, and fails if its client leaves.
+  // Drive lends the device: a cast takes one, starts once it is lent, and plays on once its client leaves.
   rpc Drive(DriveRequest) returns (stream DriveResponse);
   // Answer answers one of the cast's calls on the device.
   rpc Answer(AnswerRequest) returns (AnswerResponse);
@@ -92,13 +92,9 @@ message DeviceCommand {
 
   message Play {
     string handle = 1;
-    oneof target {
-      // url is handed to the renderer as is: the source itself.
-      string url = 2;
-      // relay_path is served by the server; the client relays it to the renderer.
-      string relay_path = 3;
-    }
-    string content_type = 4;
+    // url is what the renderer fetches: the source itself, or what the server serves it.
+    string url = 2;
+    string content_type = 3;
   }
 
   message StreamHeaders {

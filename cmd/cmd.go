@@ -104,7 +104,7 @@ func infoCommand() *cli.Command {
 // dial is a client of the server every cast command drives: one in this process, or the one config names.
 func (a *app) dial(ctx context.Context, cfg *config.Config) (*client.Client, error) {
 	if !cfg.Embedded() {
-		return client.New(cfg.Remote.URL, cfg.LAN()), nil
+		return client.New(cfg.Remote.URL, cfg.Renderers()), nil
 	}
 	// The embedded engine's own lines are written here only under --debug; its casts' warnings come through their watch.
 	engine := slog.DiscardHandler
@@ -112,11 +112,15 @@ func (a *app) dial(ctx context.Context, cfg *config.Config) (*client.Client, err
 		engine = fromServer(slog.Default().Handler())
 	}
 	slog.SetDefault(slog.New(server.Logs(slog.Default().Handler(), engine)))
-	base, err := server.Embedded(ctx, backend(cfg))
+	lan, err := cfg.RendererListener(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("opening where renderers reach this machine: %w", err)
+	}
+	base, err := server.Embedded(ctx, backend(cfg), lan)
 	if err != nil {
 		return nil, err
 	}
-	return client.New(base, cfg.LAN()), nil
+	return client.New(base, cfg.Renderers()), nil
 }
 
 func fromServer(h slog.Handler) slog.Handler {

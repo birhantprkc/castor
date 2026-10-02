@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"net/url"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -12,7 +13,7 @@ import (
 func TestACastNobodyLendsADeviceIsAbandonedAfterItsGrace(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		const grace = time.Minute
-		c := &casts{ctx: t.Context(), caster: func(*castorv1.Preferences) Caster { return nil }, undriven: grace, registry: newRegistry()}
+		c := &casts{ctx: t.Context(), caster: func(*castorv1.Preferences) Caster { return nil }, undriven: grace, server: &url.URL{Scheme: "http", Host: "127.0.0.1:8410"}, registry: newRegistry()}
 		started, err := c.StartCast(t.Context(), &castorv1.StartCastRequest{})
 		if err != nil {
 			t.Fatal(err)

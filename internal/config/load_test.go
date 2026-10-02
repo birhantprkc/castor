@@ -58,6 +58,10 @@ func TestLoad(t *testing.T) {
 			}
 		},
 	}, {
+		name:    "renderers reach an advertised server at a URL",
+		yaml:    "server:\n  advertise: my-nas\n",
+		wantErr: true,
+	}, {
 		name:    "an unknown device type is a typo, not a discovery failure",
 		yaml:    "device:\n  name: tv\n  type: firetv\n",
 		wantErr: true,

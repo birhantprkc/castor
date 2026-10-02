@@ -14,7 +14,7 @@ import (
 // devices takes the device a client lends a cast, and its answers to what the cast asks of it.
 type devices struct{ registry *registry }
 
-// Drive is the line to the lent device for the cast's life; the cast fails if its client leaves first.
+// Drive is the line to the lent device until the cast ends or its client leaves; the cast plays on without it.
 func (d devices) Drive(ctx context.Context, req *castorv1.DriveRequest, out *connect.ServerStream[castorv1.DriveResponse]) error {
 	s, err := d.registry.find(req.GetCastId())
 	if err != nil {
@@ -30,13 +30,11 @@ func (d devices) Drive(ctx context.Context, req *castorv1.DriveRequest, out *con
 		select {
 		case cmd := <-s.line.outbox:
 			if err := out.Send(&castorv1.DriveResponse{Command: cmd}); err != nil {
-				s.cancel(errDriverLeft)
 				return err
 			}
 		case <-s.ended:
 			return nil
 		case <-ctx.Done():
-			s.cancel(errDriverLeft)
 			return ctx.Err()
 		}
 	}

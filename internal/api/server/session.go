@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/url"
 	"time"
 
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
@@ -25,21 +26,21 @@ type session struct {
 	cancel context.CancelCauseFunc
 	ended  chan struct{}
 
-	status *status
-	line   *line
-	relays *relays
-	logs   logs
+	status     *status
+	line       *line
+	deliveries *deliveries
+	logs       logs
 }
 
-func newSession(ctx context.Context, id string, cancel context.CancelCauseFunc) *session {
+func newSession(ctx context.Context, id string, cancel context.CancelCauseFunc, server *url.URL) *session {
 	s := &session{
-		id:     id,
-		cancel: cancel,
-		ended:  make(chan struct{}),
-		status: newStatus(),
-		line:   newLine(),
-		relays: newRelays(id),
-		logs:   logs{watchers: map[chan *castorv1.WatchResponse]slog.Level{}},
+		id:         id,
+		cancel:     cancel,
+		ended:      make(chan struct{}),
+		status:     newStatus(),
+		line:       newLine(),
+		deliveries: newDeliveries(server, id),
+		logs:       logs{watchers: map[chan *castorv1.WatchResponse]slog.Level{}},
 	}
 	// Everything the cast logs carries it, so its lines reach the watchers who asked for them.
 	s.ctx = context.WithValue(ctx, castKey{}, s)

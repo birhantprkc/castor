@@ -920,12 +920,9 @@ func (*DeviceCommand_Connect) Descriptor() ([]byte, []int) {
 type DeviceCommand_Play struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	Handle string                 `protobuf:"bytes,1,opt,name=handle,proto3" json:"handle,omitempty"`
-	// Types that are valid to be assigned to Target:
-	//
-	//	*DeviceCommand_Play_Url
-	//	*DeviceCommand_Play_RelayPath
-	Target        isDeviceCommand_Play_Target `protobuf_oneof:"target"`
-	ContentType   string                      `protobuf:"bytes,4,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
+	// url is what the renderer fetches: the source itself, or what the server serves it.
+	Url           string `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`
+	ContentType   string `protobuf:"bytes,3,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -967,27 +964,9 @@ func (x *DeviceCommand_Play) GetHandle() string {
 	return ""
 }
 
-func (x *DeviceCommand_Play) GetTarget() isDeviceCommand_Play_Target {
-	if x != nil {
-		return x.Target
-	}
-	return nil
-}
-
 func (x *DeviceCommand_Play) GetUrl() string {
 	if x != nil {
-		if x, ok := x.Target.(*DeviceCommand_Play_Url); ok {
-			return x.Url
-		}
-	}
-	return ""
-}
-
-func (x *DeviceCommand_Play) GetRelayPath() string {
-	if x != nil {
-		if x, ok := x.Target.(*DeviceCommand_Play_RelayPath); ok {
-			return x.RelayPath
-		}
+		return x.Url
 	}
 	return ""
 }
@@ -998,24 +977,6 @@ func (x *DeviceCommand_Play) GetContentType() string {
 	}
 	return ""
 }
-
-type isDeviceCommand_Play_Target interface {
-	isDeviceCommand_Play_Target()
-}
-
-type DeviceCommand_Play_Url struct {
-	// url is handed to the renderer as is: the source itself.
-	Url string `protobuf:"bytes,2,opt,name=url,proto3,oneof"`
-}
-
-type DeviceCommand_Play_RelayPath struct {
-	// relay_path is served by the server; the client relays it to the renderer.
-	RelayPath string `protobuf:"bytes,3,opt,name=relay_path,json=relayPath,proto3,oneof"`
-}
-
-func (*DeviceCommand_Play_Url) isDeviceCommand_Play_Target() {}
-
-func (*DeviceCommand_Play_RelayPath) isDeviceCommand_Play_Target() {}
 
 type DeviceCommand_StreamHeaders struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1311,7 +1272,7 @@ const file_castor_v1_device_proto_rawDesc = "" +
 	"\tmax_level\x18\x04 \x01(\x05R\bmaxLevel\"G\n" +
 	"\fAudioSupport\x12\x14\n" +
 	"\x05codec\x18\x01 \x01(\tR\x05codec\x12!\n" +
-	"\fmax_channels\x18\x02 \x01(\x05R\vmaxChannels\"\xeb\x05\n" +
+	"\fmax_channels\x18\x02 \x01(\x05R\vmaxChannels\"\xbd\x05\n" +
 	"\rDeviceCommand\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12<\n" +
 	"\aconnect\x18\x02 \x01(\v2 .castor.v1.DeviceCommand.ConnectH\x00R\aconnect\x123\n" +
@@ -1320,14 +1281,11 @@ const file_castor_v1_device_proto_rawDesc = "" +
 	"\tawait_end\x18\x05 \x01(\v2!.castor.v1.DeviceCommand.AwaitEndH\x00R\bawaitEnd\x126\n" +
 	"\x05close\x18\x06 \x01(\v2\x1e.castor.v1.DeviceCommand.CloseH\x00R\x05close\x129\n" +
 	"\x06cancel\x18\a \x01(\v2\x1f.castor.v1.DeviceCommand.CancelH\x00R\x06cancel\x1a\t\n" +
-	"\aConnect\x1a\x80\x01\n" +
+	"\aConnect\x1aS\n" +
 	"\x04Play\x12\x16\n" +
-	"\x06handle\x18\x01 \x01(\tR\x06handle\x12\x12\n" +
-	"\x03url\x18\x02 \x01(\tH\x00R\x03url\x12\x1f\n" +
-	"\n" +
-	"relay_path\x18\x03 \x01(\tH\x00R\trelayPath\x12!\n" +
-	"\fcontent_type\x18\x04 \x01(\tR\vcontentTypeB\b\n" +
-	"\x06target\x1aJ\n" +
+	"\x06handle\x18\x01 \x01(\tR\x06handle\x12\x10\n" +
+	"\x03url\x18\x02 \x01(\tR\x03url\x12!\n" +
+	"\fcontent_type\x18\x03 \x01(\tR\vcontentType\x1aJ\n" +
 	"\rStreamHeaders\x12\x16\n" +
 	"\x06handle\x18\x01 \x01(\tR\x06handle\x12!\n" +
 	"\fcontent_type\x18\x02 \x01(\tR\vcontentType\x1a\"\n" +
@@ -1439,10 +1397,6 @@ func file_castor_v1_device_proto_init() {
 	file_castor_v1_device_proto_msgTypes[9].OneofWrappers = []any{
 		(*DeviceError_Message)(nil),
 		(*DeviceError_Gone_)(nil),
-	}
-	file_castor_v1_device_proto_msgTypes[14].OneofWrappers = []any{
-		(*DeviceCommand_Play_Url)(nil),
-		(*DeviceCommand_Play_RelayPath)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

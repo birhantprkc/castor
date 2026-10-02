@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -124,10 +125,6 @@ func (t *tv) Close() error {
 	return nil
 }
 
-type lanAddress struct{}
-
-func (lanAddress) LocalIPv4(context.Context) (string, error) { return "127.0.0.1", nil }
-
 type play func(ctx context.Context, renderer execute.Renderer, listeners deliver.Listeners, streams []*source.Stream, turns attempt.Turns) error
 
 func backend(p play) server.Backend { return machinery(p).backend() }
@@ -160,13 +157,20 @@ func found(raws ...string) *castorv1.StartCastRequest {
 	return &castorv1.StartCastRequest{Streams: &castorv1.StartCastRequest_Found_{Found: &castorv1.StartCastRequest_Found{Streams: streams}}, Preferences: asked}
 }
 
-func serve(t *testing.T, b server.Backend, renderers client.Renderers) (*client.Client, string) {
+// bases are where a served test's API answers, and where its renderers fetch.
+type bases struct{ api, media string }
+
+func serve(t *testing.T, b server.Backend, renderers client.Renderers) (*client.Client, bases) {
 	t.Helper()
-	base, err := server.Embedded(t.Context(), b)
+	lan, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return client.New(base, client.LAN{Renderers: renderers, Address: lanAddress{}}), base
+	api, err := server.Embedded(t.Context(), b, lan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return client.New(api, renderers), bases{api: api, media: "http://" + lan.Addr().String()}
 }
 
 // progress is every status a watcher was shown, in order.
@@ -330,7 +334,7 @@ func TestTheContractRefusesStreamsNoServerCouldFetch(t *testing.T) {
 func TestTheServerAnswersHealthAndDescribesItself(t *testing.T) {
 	_, base := serve(t, backend(handoff), newTV())
 
-	resp, err := http.Post(base+"/grpc.health.v1.Health/Check", "application/json", strings.NewReader("{}"))
+	resp, err := http.Post(base.api+"/grpc.health.v1.Health/Check", "application/json", strings.NewReader("{}"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +346,7 @@ func TestTheServerAnswersHealthAndDescribesItself(t *testing.T) {
 
 	var h2c http.Protocols
 	h2c.SetUnencryptedHTTP2(true)
-	services, err := grpcreflect.NewClient(&http.Client{Transport: &http.Transport{Protocols: &h2c}}, base).NewStream(t.Context()).ListServices()
+	services, err := grpcreflect.NewClient(&http.Client{Transport: &http.Transport{Protocols: &h2c}}, base.api).NewStream(t.Context()).ListServices()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -434,7 +438,7 @@ func TestTheServersLinesForACastReachOnlyTheWatchersThatAskedForThem(t *testing.
 func TestWhatTheServerServesReachesTheRendererThroughTheClientNotTheServer(t *testing.T) {
 	screen := newTV()
 	delivered, delivery := make(chan string, 1), make(chan string, 1)
-	c, _ := serve(t, backend(func(ctx context.Context, r execute.Renderer, listeners deliver.Listeners, _ []*source.Stream, _ attempt.Turns) error {
+	c, base := serve(t, backend(func(ctx context.Context, r execute.Renderer, listeners deliver.Listeners, _ []*source.Stream, _ attempt.Turns) error {
 		// The delivery the engine opens, through the listeners the server binds it to.
 		l, err := listeners.Listen(ctx)
 		if err != nil {
@@ -463,8 +467,8 @@ func TestWhatTheServerServesReachesTheRendererThroughTheClientNotTheServer(t *te
 		t.Fatal(err)
 	}
 	handed, served := <-screen.handed, <-delivery
-	if handed.Host == served || !strings.HasPrefix(handed.Path, "/relay/") {
-		t.Errorf("the renderer was handed %s, want the client's relay rather than the server's delivery at %s", handed, served)
+	if "http://"+handed.Host != base.media || !strings.HasPrefix(handed.Path, "/media/") {
+		t.Errorf("the renderer was handed %s, want the server's media route at %s rather than its delivery at %s", handed, base.media, served)
 	}
 	if got := string(<-screen.played); got != "media bytes" {
 		t.Errorf("the renderer fetched %q, want the served bytes", got)
@@ -474,7 +478,7 @@ func TestWhatTheServerServesReachesTheRendererThroughTheClientNotTheServer(t *te
 	}
 }
 
-func TestASourceOnLoopbackIsHandedToTheRendererAsItIsNotRelayed(t *testing.T) {
+func TestASourceOnLoopbackIsHandedToTheRendererAsItIs(t *testing.T) {
 	screen := newTV()
 	c, _ := serve(t, backend(handoff), screen)
 
@@ -482,11 +486,11 @@ func TestASourceOnLoopbackIsHandedToTheRendererAsItIsNotRelayed(t *testing.T) {
 		t.Fatal("the renderer fetched an origin nothing serves")
 	}
 	if got := (<-screen.handed).String(); got != "http://127.0.0.1:9/movie.mp4" {
-		t.Errorf("the renderer was handed %s, want the source itself: only what the cast serves is relayed", got)
+		t.Errorf("the renderer was handed %s, want the source itself: only what the cast serves goes through the server", got)
 	}
 }
 
-func TestTheRelayServesOnlyPortsACastHandedItsRenderer(t *testing.T) {
+func TestRenderersReachOnlyThePortsACastServesNeverTheAPI(t *testing.T) {
 	released := make(chan struct{})
 	c, base := serve(t, backend(func(ctx context.Context, r execute.Renderer, _ deliver.Listeners, _ []*source.Stream, _ attempt.Turns) error {
 		dev, err := r.Connect(ctx)
@@ -505,13 +509,18 @@ func TestTheRelayServesOnlyPortsACastHandedItsRenderer(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- follow(t, c, id, &progress{}, nil) }()
 
-	resp, err := http.Get(base + "/relay/" + id + "/22/etc/passwd")
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("relaying a port the cast never served answered %d, want 404", resp.StatusCode)
+	for what, path := range map[string]string{
+		"a port the cast never served": "/media/" + id + "/22/etc/passwd",
+		"the API":                      "/" + castorv1connect.CastServiceName + "/StopCast",
+	} {
+		resp, err := http.Post(base.media+path, "application/json", strings.NewReader(`{"castId":"`+id+`"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("renderers reaching %s were answered %d, want 404", what, resp.StatusCode)
+		}
 	}
 	close(released)
 	if err := <-done; err != nil {
@@ -584,9 +593,9 @@ func TestStoppingTheCastEndsItOnTheServerAndReleasesTheRenderer(t *testing.T) {
 	}
 }
 
-func TestACastHasOneDeviceAndFailsWhenTheClientLendingItLeaves(t *testing.T) {
+func TestACastHasOneDeviceAndPlaysOnWhenTheClientLendingItLeaves(t *testing.T) {
 	playing, ended := make(chan struct{}), make(chan struct{})
-	c, _ := serve(t, backend(func(ctx context.Context, r execute.Renderer, _ deliver.Listeners, _ []*source.Stream, _ attempt.Turns) error {
+	c, _ := serve(t, backend(func(ctx context.Context, r execute.Renderer, _ deliver.Listeners, streams []*source.Stream, _ attempt.Turns) error {
 		dev, err := r.Connect(ctx)
 		if err != nil {
 			return err
@@ -617,11 +626,14 @@ func TestACastHasOneDeviceAndFailsWhenTheClientLendingItLeaves(t *testing.T) {
 	leave()
 	select {
 	case <-ended:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the server kept casting after the device left")
+		t.Fatal("the cast ended with the client that lent its device")
+	case <-time.After(300 * time.Millisecond):
 	}
-	if err := w.Outcome(); err == nil || errors.Is(err, client.ErrStopped) || !strings.Contains(err.Error(), "left") {
-		t.Errorf("the watch ended with %v, want the cast failed for its device's leaving", err)
+	if err := c.Stop(t.Context(), id); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Outcome(); !errors.Is(err, client.ErrStopped) {
+		t.Errorf("the watch ended with %v, want the stop that ended the cast its client had left", err)
 	}
 }
 

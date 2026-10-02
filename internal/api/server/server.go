@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"time"
 
 	"connectrpc.com/connect"
@@ -38,22 +39,20 @@ type Extractor interface {
 type Caster interface {
 	Rank(ctx context.Context, streams []*source.Stream) ([]*source.Stream, error)
 	Measure(ctx context.Context, stream *source.Stream) (*source.Stream, error)
-	// Play casts streams on renderer, serving only on listeners, which the client relays.
 	Play(ctx context.Context, renderer execute.Renderer, listeners deliver.Listeners, streams []*source.Stream, turns attempt.Turns) error
 }
 
-// handler serves the cast services, the relay, health and reflection; casts live until ctx ends.
-func handler(ctx context.Context, b Backend) http.Handler {
+// handlers are the API and the media route renderers reach at server.
+func handlers(ctx context.Context, b Backend, server *url.URL) (api, renderers http.Handler) {
 	reg := newRegistry()
 	// Requests are held to the rules the contract states, before any handler reads them.
 	valid := connect.WithInterceptors(validate.NewInterceptor())
 	mux := http.NewServeMux()
-	mux.Handle(castorv1connect.NewCastServiceHandler(&casts{ctx: ctx, caster: b.Caster, undriven: undriven, registry: reg}, valid))
+	mux.Handle(castorv1connect.NewCastServiceHandler(&casts{ctx: ctx, caster: b.Caster, undriven: undriven, server: server, registry: reg}, valid))
 	mux.Handle(castorv1connect.NewDeviceServiceHandler(devices{registry: reg}, valid))
 	mux.Handle(castorv1connect.NewLoggerServiceHandler(logger{registry: reg}, valid))
 	mux.Handle(castorv1connect.NewStreamServiceHandler(ranking{caster: b.Caster}, valid))
 	mux.Handle(castorv1connect.NewExtractServiceHandler(extraction{b.Extractor}, valid))
-	mux.Handle(relayRoute, newRelay(reg))
 	services := []string{
 		castorv1connect.CastServiceName, castorv1connect.DeviceServiceName,
 		castorv1connect.LoggerServiceName, castorv1connect.StreamServiceName,
@@ -63,25 +62,31 @@ func handler(ctx context.Context, b Backend) http.Handler {
 	reflector := grpcreflect.NewStaticReflector(services...)
 	mux.Handle(grpcreflect.NewHandlerV1(reflector))
 	mux.Handle(grpcreflect.NewHandlerV1Alpha(reflector))
-	return mux
+	media := http.NewServeMux()
+	media.Handle(mediaPattern, newMediaRoute(reg))
+	return mux, media
 }
 
 // shutdownGrace is how long in-flight requests get to finish once ctx ends.
 const shutdownGrace = 5 * time.Second
 
-// Serve answers on l until ctx ends.
-func Serve(ctx context.Context, l net.Listener, b Backend) error {
-	slog.InfoContext(ctx, "api serving", "address", l.Addr().String())
-	return serve(ctx, l, b)
+// Serve answers the API and renderers on l until ctx ends; renderers are told to reach it at server.
+func Serve(ctx context.Context, l net.Listener, server *url.URL, b Backend) error {
+	slog.InfoContext(ctx, "serving", "address", l.Addr().String(), "renderers_reach", server.String())
+	api, renderers := handlers(ctx, b, server)
+	mux := http.NewServeMux()
+	mux.Handle("/", api)
+	mux.Handle(mediaPattern, renderers)
+	return serve(ctx, l, mux)
 }
 
-func serve(ctx context.Context, l net.Listener, b Backend) error {
+func serve(ctx context.Context, l net.Listener, h http.Handler) error {
 	// Cleartext HTTP/2 beside HTTP/1.1, so gRPC tools reach reflection and health on the same port.
 	var protocols http.Protocols
 	protocols.SetHTTP1(true)
 	protocols.SetUnencryptedHTTP2(true)
 	srv := &http.Server{
-		Handler:           handler(ctx, b),
+		Handler:           h,
 		ReadHeaderTimeout: 10 * time.Second,
 		Protocols:         &protocols,
 		// Every request is marked the server's, so what it logs is told apart from its client's in one process.
@@ -91,7 +96,7 @@ func serve(ctx context.Context, l net.Listener, b Backend) error {
 	go func() { served <- srv.Serve(l) }()
 	select {
 	case err := <-served:
-		return fmt.Errorf("api server: %w", err)
+		return fmt.Errorf("castor server: %w", err)
 	case <-ctx.Done():
 	}
 	shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownGrace)
@@ -103,16 +108,20 @@ func serve(ctx context.Context, l net.Listener, b Backend) error {
 	return nil
 }
 
-// Embedded serves b in this process on loopback and returns its base URL.
-func Embedded(ctx context.Context, b Backend) (string, error) {
+// Embedded keeps the API on loopback, for this process alone, and serves renderers on lan; it returns the API's URL.
+func Embedded(ctx context.Context, b Backend, lan net.Listener) (string, error) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return "", fmt.Errorf("embedded api: %w", err)
 	}
-	go func() {
-		if err := serve(ctx, l, b); err != nil {
-			slog.ErrorContext(ctx, "embedded api stopped", "error", err)
-		}
-	}()
+	api, renderers := handlers(ctx, b, &url.URL{Scheme: "http", Host: lan.Addr().String()})
+	go embed(ctx, l, api)
+	go embed(ctx, lan, renderers)
 	return "http://" + l.Addr().String(), nil
+}
+
+func embed(ctx context.Context, l net.Listener, h http.Handler) {
+	if err := serve(ctx, l, h); err != nil {
+		slog.ErrorContext(ctx, "embedded api stopped", "error", err)
+	}
 }

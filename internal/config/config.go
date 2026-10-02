@@ -60,9 +60,11 @@ type RemoteConfig struct {
 	URL string `yaml:"url" validate:"omitempty,http_url"`
 }
 
-// ServerConfig is this machine as `castor server`: where it listens.
+// ServerConfig is this machine as `castor server`: where it listens, and where TVs reach it.
 type ServerConfig struct {
 	Listen string `yaml:"listen" validate:"required,hostname_port|startswith=:"`
+	// Advertise is where TVs reach this server from outside its network.
+	Advertise string `yaml:"advertise" validate:"omitempty,http_url"`
 }
 
 // Embedded reports whether casts run on a server inside castor itself.
@@ -192,12 +194,9 @@ func delivery(d castorv1.Delivery) compose.DeliveryPreference {
 	return compose.DeliveryAuto
 }
 
-// LAN binds a client to the renderers on this machine's network and the address they reach it at.
-func (c *Config) LAN() client.LAN {
-	return client.LAN{
-		Renderers: renderers{families: c.Devices(), timeout: c.Network.Timeout},
-		Address:   client.LANAddress{Interface: c.Network.Interface},
-	}
+// Renderers binds a client to the renderers on this machine's network.
+func (c *Config) Renderers() client.Renderers {
+	return renderers{families: c.Devices(), timeout: c.Network.Timeout}
 }
 
 type renderers struct {
@@ -211,7 +210,7 @@ func (r renderers) Connect(ctx context.Context, target device.Info) (device.Devi
 	return r.families.Connect(ctx, target, r.timeout)
 }
 
-// NetworkConfig: how long discovery and a device protocol are given, and which interface a local relay binds.
+// NetworkConfig: how long discovery and a device protocol are given, and the interface renderers reach castor on.
 type NetworkConfig struct {
 	Timeout   time.Duration `yaml:"timeout" validate:"required"`
 	Interface string        `yaml:"interface"`

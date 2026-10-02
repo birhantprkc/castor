@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"time"
 
@@ -34,23 +35,19 @@ type remoteDevice struct {
 	caps   media.Capabilities
 }
 
-// Play hands what this cast serves on as a path the client relays, and anything else (the source) as is.
 func (d *remoteDevice) Play(ctx context.Context, streamURL *url.URL, contentType string) error {
-	play := &castorv1.DeviceCommand_Play{Handle: d.handle, ContentType: contentType}
-	if relayed, ok := d.s.relays.path(streamURL.Host); ok {
-		relayed += streamURL.EscapedPath()
-		if streamURL.RawQuery != "" {
-			relayed += "?" + streamURL.RawQuery
-		}
-		play.Target = &castorv1.DeviceCommand_Play_RelayPath{RelayPath: relayed}
-	} else {
-		play.Target = &castorv1.DeviceCommand_Play_Url{Url: streamURL.String()}
-	}
+	play := &castorv1.DeviceCommand_Play{Handle: d.handle, Url: d.s.deliveries.reached(streamURL).String(), ContentType: contentType}
 	return d.done(ctx, &castorv1.DeviceCommand{Command: &castorv1.DeviceCommand_Play_{Play: play}})
 }
 
+// AwaitEnd waits for the renderer's end; once its client has left, the cast's deliveries decide it.
 func (d *remoteDevice) AwaitEnd(ctx context.Context) error {
-	return d.done(ctx, &castorv1.DeviceCommand{Command: &castorv1.DeviceCommand_AwaitEnd_{AwaitEnd: &castorv1.DeviceCommand_AwaitEnd{Handle: d.handle}}})
+	err := d.done(ctx, &castorv1.DeviceCommand{Command: &castorv1.DeviceCommand_AwaitEnd_{AwaitEnd: &castorv1.DeviceCommand_AwaitEnd{Handle: d.handle}}})
+	if errors.Is(err, errDriverLeft) {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return err
 }
 
 func (d *remoteDevice) Capabilities() media.Capabilities { return d.caps }

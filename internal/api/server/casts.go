@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"net/url"
 	"time"
 
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
@@ -14,13 +15,14 @@ type casts struct {
 	ctx      context.Context
 	caster   func(asked *castorv1.Preferences) Caster
 	undriven time.Duration
+	server   *url.URL
 	registry *registry
 }
 
 func (c *casts) StartCast(_ context.Context, req *castorv1.StartCastRequest) (*castorv1.StartCastResponse, error) {
 	caster := c.caster(req.GetPreferences())
 	ctx, cancel := context.WithCancelCause(c.ctx)
-	s := newSession(ctx, rand.Text(), cancel)
+	s := newSession(ctx, rand.Text(), cancel, c.server)
 	ctx = s.ctx
 	c.registry.add(s)
 
@@ -50,7 +52,7 @@ func (c *casts) run(ctx context.Context, s *session, caster Caster, req *castorv
 	ready, err := ready(ctx, caster, req)
 	if err == nil {
 		s.status.update(func(now *castorv1.CastStatus) { now.Castable = int32(len(ready)) })
-		err = caster.Play(ctx, remoteRenderer{s: s}, s.relays, ready, s)
+		err = caster.Play(ctx, remoteRenderer{s: s}, s.deliveries, ready, s)
 	}
 	return outcome(ctx, err)
 }
