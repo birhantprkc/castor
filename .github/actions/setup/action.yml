@@ -21,4 +21,4 @@ runs:
         path: third_party/whisper.cpp/build_go
         key: libwhisper-${{ runner.os }}-${{ steps.whisper.outputs.rev }}
     - shell: bash
-      run: make build && go mod download
+      run: make lib && go mod download

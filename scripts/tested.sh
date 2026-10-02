@@ -6,7 +6,7 @@ set -euo pipefail
 # t.Skip is green, so a suite that never ran looks exactly like one that passed, and
 # this job passed for a long time having run none of the real-encode tests: the
 # served-path engine test, every delivery encode, the gate tests, encoder selection,
-# the ranker's playlist fixtures and the whole of e2e. ffmpeg is not on the runner
+# the ranker's playlist fixtures. ffmpeg is not on the runner
 # image, every one of those tests is gated on finding it, and nothing said a word.
 # The setup action installs the tools now; this refuses to go green if they vanish.
 #

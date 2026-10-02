@@ -14,7 +14,7 @@ export LIBRARY_PATH  := $(LIBRARY_PATH):$(CURDIR)/$(BUILD)/ggml/src/ggml-blas:$(
 export CGO_LDFLAGS   := -framework Foundation -framework Metal -framework MetalKit
 endif
 
-.PHONY: build env clean hooks generate
+.PHONY: build lib env clean hooks generate
 
 # eval "$(make env)" once per shell, then plain `go run .` / `go build` work.
 env:
@@ -23,8 +23,11 @@ env:
 	@echo 'export GGML_METAL_PATH_RESOURCES="$(GGML_METAL_PATH_RESOURCES)"'
 	@echo 'export CGO_LDFLAGS="$(CGO_LDFLAGS)"'
 
-build: $(LIB)
+build: lib
 	go build -o castor .
+
+# The cgo library alone, which CI links its tests and lint runs against.
+lib: $(LIB)
 
 clean:
 	rm -rf $(BUILD) castor

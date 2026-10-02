@@ -1,7 +1,3 @@
-variable "IMAGE" {
-  default = "ghcr.io/stupside/castor"
-}
-
 # Filled in by docker/metadata-action in CI; empty for local builds.
 target "docker-metadata-action" {}
 

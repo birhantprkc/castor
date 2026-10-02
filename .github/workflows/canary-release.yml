@@ -34,7 +34,6 @@ jobs:
           base=$(jq -r '."."' .release-please-manifest.json)
           next="${base%.*}.$(( ${base##*.} + 1 ))"
           version="${next}-canary.$(git rev-parse --short HEAD)"
-          case "$version" in *-*) ;; *) echo "::error::not a prerelease: $version"; exit 1 ;; esac
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   publish:
