@@ -19,7 +19,7 @@ func (d devices) Drive(ctx context.Context, req *castorv1.DriveRequest, out *con
 	if err != nil {
 		return err
 	}
-	if err := s.line.attach(req.GetSelfFetch()); err != nil {
+	if err := s.lend(req.GetSelfFetch()); err != nil {
 		return err
 	}
 	defer s.line.leave()
@@ -31,7 +31,7 @@ func (d devices) Drive(ctx context.Context, req *castorv1.DriveRequest, out *con
 			if err := out.Send(&castorv1.DriveResponse{Command: cmd}); err != nil {
 				return err
 			}
-		case <-s.ended:
+		case <-s.done:
 			return nil
 		case <-ctx.Done():
 			return ctx.Err()

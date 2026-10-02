@@ -6,8 +6,6 @@ import (
 	"testing"
 	"testing/synctest"
 
-	"connectrpc.com/connect"
-
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
 )
 
@@ -19,9 +17,6 @@ func connectCommand() *castorv1.DeviceCommand {
 func attached(t *testing.T) (*line, <-chan *castorv1.DeviceCommand) {
 	t.Helper()
 	l := newLine()
-	if err := l.attach(false); err != nil {
-		t.Fatal(err)
-	}
 	sent := make(chan *castorv1.DeviceCommand, 8)
 	go func() {
 		for {
@@ -34,15 +29,6 @@ func attached(t *testing.T) (*line, <-chan *castorv1.DeviceCommand) {
 		}
 	}()
 	return l, sent
-}
-
-func TestACastTakesOneDevice(t *testing.T) {
-	l, _ := attached(t)
-	defer l.leave()
-	err := l.attach(false)
-	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
-		t.Errorf("a second device was met with %v, want it refused", err)
-	}
 }
 
 func TestACallIsAnsweredByItsDevice(t *testing.T) {
@@ -98,6 +84,7 @@ func TestAnAbandonedCallIsCancelledOnTheDevice(t *testing.T) {
 		if cancel := (<-sent).GetCancel(); cancel.GetCommandId() != cmd.GetId() {
 			t.Errorf("the device was sent %v, want the call cancelled", cancel)
 		}
+		synctest.Wait()
 		if l.answer(&castorv1.AnswerRequest{CommandId: cmd.GetId()}) {
 			t.Error("an abandoned call still awaited its answer")
 		}

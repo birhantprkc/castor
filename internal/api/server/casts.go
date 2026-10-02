@@ -3,9 +3,7 @@ package server
 import (
 	"context"
 	"crypto/rand"
-	"errors"
 	"net/url"
-	"time"
 
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
 )
@@ -19,53 +17,10 @@ type casts struct {
 }
 
 func (c *casts) Start(_ context.Context, req *castorv1.StartRequest) (*castorv1.StartResponse, error) {
-	caster := c.caster(req.GetPreferences())
 	ctx, cancel := context.WithCancelCause(c.ctx)
-	s := newSession(ctx, rand.Text(), cancel, c.server)
-	ctx = s.ctx
+	s := newSession(ctx, rand.Text(), cancel, c.server, c.caster(req.GetPreferences()), req)
 	c.registry.add(s)
-
-	go func() {
-		defer cancel(nil)
-		// Nothing starts before a device is lent; a watcher opened first then misses nothing.
-		waiting := time.NewTimer(undriven)
-		select {
-		case <-s.line.attached:
-			waiting.Stop()
-			s.end(run(ctx, s, caster, req))
-		case <-waiting.C:
-			s.end(errUndriven)
-		case <-ctx.Done():
-			s.end(outcome(ctx, nil))
-		}
-		c.registry.retire(s)
-	}()
 	return &castorv1.StartResponse{CastId: s.id}, nil
-}
-
-// run measures streams and casts them on the lent device, returning the outcome: nil ended, errStopped stopped, else why it failed.
-func run(ctx context.Context, s *session, caster Caster, req *castorv1.StartRequest) error {
-	s.status.update(func(now *castorv1.CastStatus) {
-		now.Streams = uint32(handed(req))
-	})
-	ready, err := ready(ctx, caster, req)
-	if err == nil {
-		s.status.update(func(now *castorv1.CastStatus) { now.Castable = uint32(len(ready)) })
-		err = caster.Play(ctx, remoteRenderer{s: s}, s.deliveries, ready, s)
-	}
-	return outcome(ctx, err)
-}
-
-// outcome is how a cast that returned err ended: why its context ended if it did, stopped when nobody said why.
-func outcome(ctx context.Context, err error) error {
-	switch cause := context.Cause(ctx); {
-	case cause == nil:
-		return err
-	case errors.Is(cause, context.Canceled):
-		return errStopped
-	default:
-		return cause
-	}
 }
 
 func (c *casts) Stop(_ context.Context, req *castorv1.StopRequest) (*castorv1.StopResponse, error) {

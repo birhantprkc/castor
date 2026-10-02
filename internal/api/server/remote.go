@@ -16,7 +16,7 @@ import (
 type remoteRenderer struct{ s *session }
 
 func (r remoteRenderer) Profile() media.Capabilities {
-	return media.Capabilities{SelfFetch: r.s.line.fetchesItself()}
+	return media.Capabilities{SelfFetch: r.s.selfFetch}
 }
 
 func (r remoteRenderer) Connect(ctx context.Context) (device.Device, error) {

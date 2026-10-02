@@ -2,60 +2,33 @@ package server
 
 import (
 	"context"
-	"errors"
 	"strconv"
 	"sync"
-
-	"connectrpc.com/connect"
 
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
 )
 
 // line is a cast's one link to its device: the calls Drive sends down its stream, and those awaiting answers.
 type line struct {
-	attached chan struct{}
-	left     chan struct{}
+	left chan struct{}
 	// outbox hands each command to the Drive handler, the only goroutine that sends on its stream.
 	outbox chan *castorv1.DeviceCommand
 
-	mu        sync.Mutex
-	selfFetch bool
-	next      int
-	awaiting  map[string]chan *castorv1.AnswerRequest
+	mu       sync.Mutex
+	next     int
+	awaiting map[string]chan *castorv1.AnswerRequest
 }
 
 func newLine() *line {
 	return &line{
-		attached: make(chan struct{}),
 		left:     make(chan struct{}),
 		outbox:   make(chan *castorv1.DeviceCommand),
 		awaiting: map[string]chan *castorv1.AnswerRequest{},
 	}
 }
 
-// attach lends the line a device; a cast takes one device, so a second is refused.
-func (l *line) attach(selfFetch bool) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	select {
-	case <-l.attached:
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("this cast already has its device"))
-	default:
-	}
-	l.selfFetch = selfFetch
-	close(l.attached)
-	return nil
-}
-
 // leave cuts the line: every call on it fails from now on.
 func (l *line) leave() { close(l.left) }
-
-// fetchesItself is whether the lent device fetches a stream URL itself.
-func (l *line) fetchesItself() bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.selfFetch
-}
 
 // call has the device run cmd and waits for its answer; abandoning the wait cancels it there too.
 func (l *line) call(ctx context.Context, cmd *castorv1.DeviceCommand) (*castorv1.AnswerRequest, error) {
@@ -77,10 +50,8 @@ func (l *line) call(ctx context.Context, cmd *castorv1.DeviceCommand) (*castorv1
 	case <-l.left:
 		return nil, errDriverLeft
 	case <-ctx.Done():
-		// The cancel waits for the stream, never the caller: it goes once Drive takes it, or never once the line is cut.
-		go func() {
-			_ = l.send(context.Background(), &castorv1.DeviceCommand{Command: &castorv1.DeviceCommand_Cancel_{Cancel: &castorv1.DeviceCommand_Cancel{CommandId: id}}})
-		}()
+		// The cancel waits for the stream, never the caller that gave up.
+		go l.send(context.Background(), &castorv1.DeviceCommand{Command: &castorv1.DeviceCommand_Cancel_{Cancel: &castorv1.DeviceCommand_Cancel{CommandId: id}}})
 		return nil, ctx.Err()
 	}
 }

@@ -19,19 +19,19 @@ type registry struct {
 
 func newRegistry() *registry { return &registry{byID: map[string]*session{}} }
 
+// add keeps s findable until it has lingered past its end.
 func (r *registry) add(s *session) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.byID[s.id] = s
-}
-
-// retire forgets an ended cast once it has lingered.
-func (r *registry) retire(s *session) {
-	time.AfterFunc(linger, func() {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		delete(r.byID, s.id)
-	})
+	go func() {
+		<-s.done
+		time.AfterFunc(linger, func() {
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			delete(r.byID, s.id)
+		})
+	}()
 }
 
 func (r *registry) find(id string) (*session, error) {

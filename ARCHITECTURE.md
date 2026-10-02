@@ -39,6 +39,23 @@ The server alone holds the contract's rules: protovalidate checks every request 
 
 A cast has one device, starts once it is lent, and is abandoned if none is lent within a minute; the client watches before it drives, so it misses nothing.
 
+## A cast's lifecycle
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> awaiting
+    awaiting --> measuring: lend
+    measuring --> measuring: rank
+    measuring --> casting: attempt
+    casting --> casting: attempt, revise
+    awaiting --> ended: abandon
+    measuring --> ended: end
+    casting --> ended: end
+```
+
+A looplab/fsm machine holds it. Every event it takes publishes the status watchers read without a lock, and an event its state does not allow is refused: a cast takes one device, a grace that runs out once a device is lent changes nothing, and nothing changes after the end, which releases the device.
+
 ## A cast, start to end
 
 ```mermaid
