@@ -23,12 +23,10 @@ func Device(ctx context.Context, discover Discover, defaultName string) (device.
 	if err != nil {
 		return device.Info{}, err
 	}
-	// Zero Info without error looks like success; require explicit selection.
-	fm, ok := final.(model)
-	if !ok || (fm.err == nil && fm.selected == (device.Info{})) {
-		return device.Info{}, errors.New("cancelled")
+	if fm := final.(model); fm.selected != (device.Info{}) {
+		return fm.selected, nil
 	}
-	return fm.selected, fm.err
+	return device.Info{}, errors.New("cancelled")
 }
 
 type devicesDoneMsg struct {
@@ -44,7 +42,6 @@ type model struct {
 	list        list.Model
 	spin        spinner.Model
 	loading     bool
-	err         error
 	selected    device.Info
 	w           int
 }
@@ -127,7 +124,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch {
 		case key.Matches(msg, keys.quit):
-			m.err = errors.New("cancelled")
 			return m, tea.Quit
 		case key.Matches(msg, keys.enter):
 			if it, ok := m.list.SelectedItem().(item); ok {
@@ -154,9 +150,6 @@ func (m model) View() tea.View {
 func (m model) render() string {
 	if m.loading {
 		return m.spin.View() + lipgloss.NewStyle().Foreground(m.pal.FgMuted).Render(" Discovering devices…")
-	}
-	if m.err != nil && m.selected == (device.Info{}) {
-		return lipgloss.NewStyle().Foreground(m.pal.Error).Bold(true).Render("error: " + m.err.Error())
 	}
 
 	header := lipgloss.NewStyle().
@@ -190,8 +183,8 @@ type keyMap struct {
 }
 
 var keys = keyMap{
-	enter: key.NewBinding(key.WithKeys("enter"), key.WithHelp("↵", "select")),
-	quit:  key.NewBinding(key.WithKeys("ctrl+c", "q"), key.WithHelp("q", "quit")),
+	enter: key.NewBinding(key.WithKeys("enter")),
+	quit:  key.NewBinding(key.WithKeys("ctrl+c", "q")),
 }
 
 // discoverDevicesCmd prevents discovery sweeps from outliving app shutdown.

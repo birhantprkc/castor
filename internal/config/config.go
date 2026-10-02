@@ -203,7 +203,7 @@ type renderers struct {
 	timeout  time.Duration
 }
 
-func (r renderers) SelfFetches(t device.Type) bool { return r.families.Profile(t).SelfFetch }
+func (r renderers) SelfFetches(t device.Type) bool { return r.families.SelfFetches(t) }
 
 func (r renderers) Connect(ctx context.Context, target device.Info) (device.Device, error) {
 	return r.families.Connect(ctx, target, r.timeout)

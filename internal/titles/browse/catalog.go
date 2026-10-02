@@ -16,5 +16,5 @@ type Catalog interface {
 	Details(ctx context.Context, mediaType string, id int) (*tmdb.Details, error)
 	TV(ctx context.Context, id int) (*tmdb.TVDetails, error)
 	Season(ctx context.Context, tvID, seasonNumber int) (*tmdb.SeasonDetails, error)
-	Poster(ctx context.Context, posterPath, size string) (io.ReadCloser, error)
+	Poster(ctx context.Context, posterPath string) (io.ReadCloser, error)
 }

@@ -177,7 +177,7 @@ func detailKey(mediaType string, id int) string { return mediaType + ":" + strco
 // fetchPosterCmd renders the poster to ANSI escapes; half-blocks show 2 pixels per cell.
 func fetchPosterCmd(ctx context.Context, c Catalog, posterPath string) tea.Cmd {
 	return func() tea.Msg {
-		body, err := c.Poster(ctx, posterPath, "w500")
+		body, err := c.Poster(ctx, posterPath)
 		if err != nil {
 			return posterReadyMsg{posterPath: posterPath, err: err}
 		}

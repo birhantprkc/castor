@@ -46,8 +46,8 @@ func TestQQuitsWithoutSelecting(t *testing.T) {
 	if _, isQuit := cmd().(tea.QuitMsg); !isQuit {
 		t.Fatal("q did not quit")
 	}
-	if m := tm.(model); m.err == nil || m.selected != (device.Info{}) {
-		t.Errorf("q left %+v selected with %v, want a cancel", m.selected, m.err)
+	if m := tm.(model); m.selected != (device.Info{}) {
+		t.Errorf("q left %+v selected, want nothing", m.selected)
 	}
 }
 

@@ -96,12 +96,10 @@ func (r Registry) Known(t Type) error {
 	return err
 }
 
-func (r Registry) Profile(t Type) media.Capabilities {
+// SelfFetches is whether renderers of type t fetch a stream URL themselves.
+func (r Registry) SelfFetches(t Type) bool {
 	f, err := r.family(t)
-	if err != nil {
-		return media.Capabilities{}
-	}
-	return media.Capabilities{SelfFetch: f.SelfFetches()}
+	return err == nil && f.SelfFetches()
 }
 
 // hostLabel is the default label when config pins an address but names no device.

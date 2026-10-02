@@ -64,7 +64,7 @@ func TestErrorsNeverCarryTheAPIKey(t *testing.T) {
 
 	_, searchErr := c.Search(t.Context(), "dune")
 	_, detailsErr := c.Details(t.Context(), MediaMovie, 42)
-	_, posterErr := c.Poster(t.Context(), "/p.jpg", "w500")
+	_, posterErr := c.Poster(t.Context(), "/p.jpg")
 	for name, err := range map[string]error{"search": searchErr, "details": detailsErr, "poster": posterErr} {
 		if err == nil {
 			t.Fatalf("%s: want an error from a failing transport", name)
@@ -87,7 +87,7 @@ func TestPosterStreamsTheImageAndRejectsMissingOnes(t *testing.T) {
 	c := New("secret")
 	c.images = srv.URL + "/"
 
-	body, err := c.Poster(t.Context(), "/p.jpg", "w500")
+	body, err := c.Poster(t.Context(), "/p.jpg")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestPosterStreamsTheImageAndRejectsMissingOnes(t *testing.T) {
 		t.Fatalf("poster body = %q, %v", got, err)
 	}
 
-	if _, err := c.Poster(t.Context(), "/gone.jpg", "w500"); err == nil {
+	if _, err := c.Poster(t.Context(), "/gone.jpg"); err == nil {
 		t.Fatal("a 404 poster should be an error, not an empty image")
 	}
 }

@@ -282,9 +282,6 @@ func (w *chromecastPlayback) disarm() {
 }
 
 func (w *chromecastPlayback) observe(status castmedia.Media) (bool, error) {
-	if !w.armed {
-		return false, nil
-	}
 	if w.session == 0 {
 		if status.Media.ContentId != w.content || status.MediaSessionId == 0 {
 			return false, nil

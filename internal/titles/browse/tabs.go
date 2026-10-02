@@ -72,7 +72,7 @@ func (m *model) applyMode() {
 }
 
 func (m *model) ensureTabLoaded() tea.Cmd {
-	if m.topsLoaded[m.tab] {
+	if m.topsCache[m.tab] != nil {
 		m.applyTab()
 		return m.inspector.hover()
 	}

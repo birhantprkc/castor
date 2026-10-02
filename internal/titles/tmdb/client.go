@@ -362,9 +362,12 @@ func (c *Client) Season(ctx context.Context, tvID, seasonNumber int) (*SeasonDet
 	return &d, nil
 }
 
-// Poster streams the image at size (w92, w154, w185, w342, w500, original); caller closes it.
-func (c *Client) Poster(ctx context.Context, posterPath, size string) (io.ReadCloser, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.images+size+posterPath, nil)
+// posterSize is the width the browser shows posters at.
+const posterSize = "w500"
+
+// Poster streams a poster at posterSize; caller closes it.
+func (c *Client) Poster(ctx context.Context, posterPath string) (io.ReadCloser, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.images+posterSize+posterPath, nil)
 	if err != nil {
 		return nil, fmt.Errorf("tmdb: build poster request: %w", err)
 	}

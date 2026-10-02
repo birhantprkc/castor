@@ -62,7 +62,7 @@ func (shelf) Season(context.Context, int, int) (*tmdb.SeasonDetails, error) {
 	}}, nil
 }
 
-func (shelf) Poster(context.Context, string, string) (io.ReadCloser, error) {
+func (shelf) Poster(context.Context, string) (io.ReadCloser, error) {
 	return nil, errors.New("the shelf has no posters")
 }
 

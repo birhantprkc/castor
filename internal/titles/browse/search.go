@@ -53,7 +53,6 @@ func (m model) onTopsLoaded(msg topsLoadedMsg) (tea.Model, tea.Cmd) {
 	}
 	items := toResultItems(msg.res)
 	m.topsCache[msg.tab] = items
-	m.topsLoaded[msg.tab] = true
 	if m.scr == screenBrowse && m.mode == modeCurated && m.tab == msg.tab && m.query.Value() == "" {
 		m.results.SetItems(items)
 		m.results.Select(m.topsCursor[msg.tab])

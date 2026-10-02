@@ -77,7 +77,6 @@ type model struct {
 	queryTok   int // monotonic; only the latest debounce tick fires
 	results    list.Model
 	topsCache  [tabCount][]list.Item
-	topsLoaded [tabCount]bool
 	topsCursor [tabCount]int
 	disc       discoverState
 

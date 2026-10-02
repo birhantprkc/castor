@@ -468,9 +468,7 @@ func (d *dlnaDevice) transportState(ctx context.Context) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, device.PollTimeout)
 	defer cancel()
 	var response struct {
-		CurrentTransportState  string
-		CurrentTransportStatus string
-		CurrentSpeed           string
+		CurrentTransportState string
 	}
 	err := d.transport.SOAPClient.PerformActionCtx(ctx, d.transport.Service.ServiceType,
 		"GetTransportInfo", &struct{ InstanceID string }{"0"}, &response)
