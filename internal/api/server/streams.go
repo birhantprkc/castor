@@ -52,9 +52,9 @@ func sourceStreams(wired []*castorv1.Stream) ([]*source.Stream, error) {
 
 // wireStream is s on the wire, with the headers fetching it needs.
 func wireStream(s *source.Stream) *castorv1.Stream {
-	headers := make(map[string]*castorv1.HeaderValues, len(s.Headers))
-	for k, v := range s.Headers {
-		headers[k] = &castorv1.HeaderValues{Values: v}
+	headers := make(map[string]string, len(s.Headers))
+	for k := range s.Headers {
+		headers[k] = s.Headers.Get(k)
 	}
 	return &castorv1.Stream{Url: s.URL.String(), Headers: headers, ContentType: s.ContentType}
 }
@@ -69,7 +69,7 @@ func sourceStream(s *castorv1.Stream) (*source.Stream, error) {
 	if len(s.GetHeaders()) > 0 {
 		headers = make(http.Header, len(s.GetHeaders()))
 		for k, v := range s.GetHeaders() {
-			headers[k] = v.GetValues()
+			headers.Set(k, v)
 		}
 	}
 	return &source.Stream{URL: u, Headers: headers, ContentType: s.GetContentType()}, nil

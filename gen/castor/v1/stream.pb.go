@@ -79,8 +79,8 @@ type Stream struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Url   string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
 	// headers are replayed on every fetch, as captured where the link was found.
-	Headers map[string]*HeaderValues `protobuf:"bytes,2,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	// content_type is empty when the finder did not learn it.
+	Headers map[string]string `protobuf:"bytes,2,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// content_type is empty for a named link, which the server then identifies.
 	ContentType   string `protobuf:"bytes,3,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -123,7 +123,7 @@ func (x *Stream) GetUrl() string {
 	return ""
 }
 
-func (x *Stream) GetHeaders() map[string]*HeaderValues {
+func (x *Stream) GetHeaders() map[string]string {
 	if x != nil {
 		return x.Headers
 	}
@@ -135,50 +135,6 @@ func (x *Stream) GetContentType() string {
 		return x.ContentType
 	}
 	return ""
-}
-
-type HeaderValues struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Values        []string               `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *HeaderValues) Reset() {
-	*x = HeaderValues{}
-	mi := &file_castor_v1_stream_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *HeaderValues) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*HeaderValues) ProtoMessage() {}
-
-func (x *HeaderValues) ProtoReflect() protoreflect.Message {
-	mi := &file_castor_v1_stream_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use HeaderValues.ProtoReflect.Descriptor instead.
-func (*HeaderValues) Descriptor() ([]byte, []int) {
-	return file_castor_v1_stream_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *HeaderValues) GetValues() []string {
-	if x != nil {
-		return x.Values
-	}
-	return nil
 }
 
 // Preferences is what the operator asks of one cast.
@@ -195,7 +151,7 @@ type Preferences struct {
 
 func (x *Preferences) Reset() {
 	*x = Preferences{}
-	mi := &file_castor_v1_stream_proto_msgTypes[2]
+	mi := &file_castor_v1_stream_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -207,7 +163,7 @@ func (x *Preferences) String() string {
 func (*Preferences) ProtoMessage() {}
 
 func (x *Preferences) ProtoReflect() protoreflect.Message {
-	mi := &file_castor_v1_stream_proto_msgTypes[2]
+	mi := &file_castor_v1_stream_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -220,7 +176,7 @@ func (x *Preferences) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Preferences.ProtoReflect.Descriptor instead.
 func (*Preferences) Descriptor() ([]byte, []int) {
-	return file_castor_v1_stream_proto_rawDescGZIP(), []int{2}
+	return file_castor_v1_stream_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *Preferences) GetDelivery() Delivery {
@@ -254,7 +210,7 @@ type RankRequest struct {
 
 func (x *RankRequest) Reset() {
 	*x = RankRequest{}
-	mi := &file_castor_v1_stream_proto_msgTypes[3]
+	mi := &file_castor_v1_stream_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -266,7 +222,7 @@ func (x *RankRequest) String() string {
 func (*RankRequest) ProtoMessage() {}
 
 func (x *RankRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_castor_v1_stream_proto_msgTypes[3]
+	mi := &file_castor_v1_stream_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -279,7 +235,7 @@ func (x *RankRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RankRequest.ProtoReflect.Descriptor instead.
 func (*RankRequest) Descriptor() ([]byte, []int) {
-	return file_castor_v1_stream_proto_rawDescGZIP(), []int{3}
+	return file_castor_v1_stream_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *RankRequest) GetStreams() []*Stream {
@@ -306,7 +262,7 @@ type RankResponse struct {
 
 func (x *RankResponse) Reset() {
 	*x = RankResponse{}
-	mi := &file_castor_v1_stream_proto_msgTypes[4]
+	mi := &file_castor_v1_stream_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -318,7 +274,7 @@ func (x *RankResponse) String() string {
 func (*RankResponse) ProtoMessage() {}
 
 func (x *RankResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_castor_v1_stream_proto_msgTypes[4]
+	mi := &file_castor_v1_stream_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -331,7 +287,7 @@ func (x *RankResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RankResponse.ProtoReflect.Descriptor instead.
 func (*RankResponse) Descriptor() ([]byte, []int) {
-	return file_castor_v1_stream_proto_rawDescGZIP(), []int{4}
+	return file_castor_v1_stream_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *RankResponse) GetRanked() []*RankedStream {
@@ -353,7 +309,7 @@ type RankedStream struct {
 
 func (x *RankedStream) Reset() {
 	*x = RankedStream{}
-	mi := &file_castor_v1_stream_proto_msgTypes[5]
+	mi := &file_castor_v1_stream_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -365,7 +321,7 @@ func (x *RankedStream) String() string {
 func (*RankedStream) ProtoMessage() {}
 
 func (x *RankedStream) ProtoReflect() protoreflect.Message {
-	mi := &file_castor_v1_stream_proto_msgTypes[5]
+	mi := &file_castor_v1_stream_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -378,7 +334,7 @@ func (x *RankedStream) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RankedStream.ProtoReflect.Descriptor instead.
 func (*RankedStream) Descriptor() ([]byte, []int) {
-	return file_castor_v1_stream_proto_rawDescGZIP(), []int{5}
+	return file_castor_v1_stream_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *RankedStream) GetUrl() string {
@@ -406,18 +362,14 @@ var File_castor_v1_stream_proto protoreflect.FileDescriptor
 
 const file_castor_v1_stream_proto_rawDesc = "" +
 	"\n" +
-	"\x16castor/v1/stream.proto\x12\tcastor.v1\x1a\x1bbuf/validate/validate.proto\"\xe5\x01\n" +
+	"\x16castor/v1/stream.proto\x12\tcastor.v1\x1a\x1bbuf/validate/validate.proto\"\xd6\x01\n" +
 	"\x06Stream\x12\x1a\n" +
-	"\x03url\x18\x01 \x01(\tB\b\xbaH\x05r\x03\x88\x01\x01R\x03url\x12G\n" +
-	"\aheaders\x18\x02 \x03(\v2\x1e.castor.v1.Stream.HeadersEntryB\r\xbaH\n" +
-	"\x9a\x01\a\"\x05r\x03\xc0\x01\x01R\aheaders\x12!\n" +
-	"\fcontent_type\x18\x03 \x01(\tR\vcontentType\x1aS\n" +
+	"\x03url\x18\x01 \x01(\tB\b\xbaH\x05r\x03\x88\x01\x01R\x03url\x12Q\n" +
+	"\aheaders\x18\x02 \x03(\v2\x1e.castor.v1.Stream.HeadersEntryB\x17\xbaH\x14\x9a\x01\x11\"\x05r\x03\xc0\x01\x01*\br\x06\xc8\x01\x00\xc0\x01\x02R\aheaders\x12!\n" +
+	"\fcontent_type\x18\x03 \x01(\tR\vcontentType\x1a:\n" +
 	"\fHeadersEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12-\n" +
-	"\x05value\x18\x02 \x01(\v2\x17.castor.v1.HeaderValuesR\x05value:\x028\x01\"8\n" +
-	"\fHeaderValues\x12(\n" +
-	"\x06values\x18\x01 \x03(\tB\x10\xbaH\r\x92\x01\n" +
-	"\"\br\x06\xc8\x01\x00\xc0\x01\x02R\x06values\"\xc4\x01\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc4\x01\n" +
 	"\vPreferences\x12;\n" +
 	"\bdelivery\x18\x01 \x01(\x0e2\x13.castor.v1.DeliveryB\n" +
 	"\xbaH\a\x82\x01\x04\x10\x01 \x00R\bdelivery\x12&\n" +
@@ -456,31 +408,29 @@ func file_castor_v1_stream_proto_rawDescGZIP() []byte {
 }
 
 var file_castor_v1_stream_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_castor_v1_stream_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_castor_v1_stream_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_castor_v1_stream_proto_goTypes = []any{
 	(Delivery)(0),        // 0: castor.v1.Delivery
 	(*Stream)(nil),       // 1: castor.v1.Stream
-	(*HeaderValues)(nil), // 2: castor.v1.HeaderValues
-	(*Preferences)(nil),  // 3: castor.v1.Preferences
-	(*RankRequest)(nil),  // 4: castor.v1.RankRequest
-	(*RankResponse)(nil), // 5: castor.v1.RankResponse
-	(*RankedStream)(nil), // 6: castor.v1.RankedStream
-	nil,                  // 7: castor.v1.Stream.HeadersEntry
+	(*Preferences)(nil),  // 2: castor.v1.Preferences
+	(*RankRequest)(nil),  // 3: castor.v1.RankRequest
+	(*RankResponse)(nil), // 4: castor.v1.RankResponse
+	(*RankedStream)(nil), // 5: castor.v1.RankedStream
+	nil,                  // 6: castor.v1.Stream.HeadersEntry
 }
 var file_castor_v1_stream_proto_depIdxs = []int32{
-	7, // 0: castor.v1.Stream.headers:type_name -> castor.v1.Stream.HeadersEntry
+	6, // 0: castor.v1.Stream.headers:type_name -> castor.v1.Stream.HeadersEntry
 	0, // 1: castor.v1.Preferences.delivery:type_name -> castor.v1.Delivery
 	1, // 2: castor.v1.RankRequest.streams:type_name -> castor.v1.Stream
-	3, // 3: castor.v1.RankRequest.preferences:type_name -> castor.v1.Preferences
-	6, // 4: castor.v1.RankResponse.ranked:type_name -> castor.v1.RankedStream
-	2, // 5: castor.v1.Stream.HeadersEntry.value:type_name -> castor.v1.HeaderValues
-	4, // 6: castor.v1.StreamService.Rank:input_type -> castor.v1.RankRequest
-	5, // 7: castor.v1.StreamService.Rank:output_type -> castor.v1.RankResponse
-	7, // [7:8] is the sub-list for method output_type
-	6, // [6:7] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	2, // 3: castor.v1.RankRequest.preferences:type_name -> castor.v1.Preferences
+	5, // 4: castor.v1.RankResponse.ranked:type_name -> castor.v1.RankedStream
+	3, // 5: castor.v1.StreamService.Rank:input_type -> castor.v1.RankRequest
+	4, // 6: castor.v1.StreamService.Rank:output_type -> castor.v1.RankResponse
+	6, // [6:7] is the sub-list for method output_type
+	5, // [5:6] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_castor_v1_stream_proto_init() }
@@ -494,7 +444,7 @@ func file_castor_v1_stream_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_castor_v1_stream_proto_rawDesc), len(file_castor_v1_stream_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   7,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

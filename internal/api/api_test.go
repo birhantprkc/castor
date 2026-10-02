@@ -142,7 +142,7 @@ var asked = &castorv1.Preferences{Delivery: castorv1.Delivery_DELIVERY_SERVE, Ma
 
 // stream is a found link, with the header its page fetched it with.
 func stream(raw string) *castorv1.Stream {
-	return &castorv1.Stream{Url: raw, Headers: map[string]*castorv1.HeaderValues{"Referer": {Values: []string{"https://page.example/"}}}}
+	return &castorv1.Stream{Url: raw, Headers: map[string]string{"Referer": "https://page.example/"}}
 }
 
 func named(raw string) *castorv1.StartCastRequest {
@@ -313,7 +313,7 @@ func TestTheServerRefusesACastTheContractForbids(t *testing.T) {
 	unspoken := named("https://cdn.example/direct")
 	unspoken.Preferences = &castorv1.Preferences{Delivery: castorv1.Delivery_DELIVERY_AUTO, MaxHeight: 720, Subtitles: "not a language"}
 	misheaded := named("https://cdn.example/direct")
-	misheaded.GetNamed().Headers = map[string]*castorv1.HeaderValues{"Bad Header": {Values: []string{"x"}}}
+	misheaded.GetNamed().Headers = map[string]string{"Bad Header": "x"}
 	for name, req := range map[string]*castorv1.StartCastRequest{
 		"no preferences":       unasked,
 		"no delivery":          undelivered,
@@ -703,7 +703,7 @@ func TestPagesAreOpenedOnTheServerAndTheirStreamsReturnWithWhatFetchingThemNeeds
 	if len(streams) != 2 || streams[0].GetUrl() != "https://cdn.example/a.m3u8" {
 		t.Fatalf("extracted %v, want the page's two streams", streams)
 	}
-	if referer := streams[1].GetHeaders()["Referer"].GetValues(); len(referer) != 1 || referer[0] != "https://site.example/watch" || streams[1].GetContentType() != "application/vnd.apple.mpegurl" {
+	if streams[1].GetHeaders()["Referer"] != "https://site.example/watch" || streams[1].GetContentType() != "application/vnd.apple.mpegurl" {
 		t.Errorf("a stream came back as %v, without what fetching it needs", streams[1])
 	}
 

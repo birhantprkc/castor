@@ -13,16 +13,19 @@ service StreamService {
 message Stream {
   string url = 1 [(buf.validate.field).string.uri = true];
   // headers are replayed on every fetch, as captured where the link was found.
-  map<string, HeaderValues> headers = 2 [(buf.validate.field).map.keys.string.well_known_regex = KNOWN_REGEX_HTTP_HEADER_NAME];
-  // content_type is empty when the finder did not learn it.
-  string content_type = 3;
-}
-
-message HeaderValues {
-  repeated string values = 1 [(buf.validate.field).repeated.items.string = {
-    well_known_regex: KNOWN_REGEX_HTTP_HEADER_VALUE
-    strict: false
+  map<string, string> headers = 2 [(buf.validate.field).map = {
+    keys: {
+      string: {well_known_regex: KNOWN_REGEX_HTTP_HEADER_NAME}
+    }
+    values: {
+      string: {
+        well_known_regex: KNOWN_REGEX_HTTP_HEADER_VALUE
+        strict: false
+      }
+    }
   }];
+  // content_type is empty for a named link, which the server then identifies.
+  string content_type = 3;
 }
 
 // Preferences is what the operator asks of one cast.
