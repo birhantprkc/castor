@@ -80,11 +80,13 @@ tmdb:
   # or set CASTOR_TMDB__API_KEY in the environment.
   api_key: "<YOUR_TMDB_API_KEY>"
 
-api:
-  # The castor server this machine's commands drive. "embedded" (the default)
-  # runs it in the same process. A URL drives another instance running
-  # `castor api server`, which does the heavy work from wherever it runs while
-  # this machine keeps finding and controlling the devices on its network.
-  # endpoint: http://my-server:8410
-  # Where `castor api server` listens. Defaults to :8410.
+# Connecting: the castor server on another machine your casts run on. It does
+# the heavy work from wherever it runs, while this machine finds and controls
+# the devices on its network. Unset (the default) runs one inside castor itself.
+remote:
+  # url: http://my-server:8410
+
+# Serving: this machine as `castor server`, for castor on other machines.
+server:
+  # Where it listens. Defaults to :8410.
   # listen: ":8410"

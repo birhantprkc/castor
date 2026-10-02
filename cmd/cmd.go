@@ -82,7 +82,7 @@ func Root() *cli.Command {
 		Commands: []*cli.Command{
 			a.castCommand(),
 			a.scanCommand(),
-			a.apiCommand(),
+			a.serverCommand(),
 			infoCommand(),
 		},
 	}
@@ -103,8 +103,8 @@ func infoCommand() *cli.Command {
 
 // dial is a client of the server every cast command drives: one in this process, or the one config names.
 func (a *app) dial(ctx context.Context, cfg *config.Config) (*client.Client, error) {
-	if !cfg.API.Embedded() {
-		return client.New(cfg.API.Endpoint, cfg.LAN()), nil
+	if !cfg.Embedded() {
+		return client.New(cfg.Remote.URL, cfg.LAN()), nil
 	}
 	// The embedded engine's own lines are written here only under --debug; its casts' warnings come through their watch.
 	engine := slog.DiscardHandler
@@ -132,7 +132,7 @@ func (a *app) cast(ctx context.Context, cfg *config.Config, c *client.Client, re
 	// A cast's warnings always show, its detail under --debug; an embedded engine under --debug already writes both.
 	engine, level := fromServer(slog.Default().Handler()), slog.LevelWarn
 	switch {
-	case a.debug && cfg.API.Embedded():
+	case a.debug && cfg.Embedded():
 		engine = nil
 	case a.debug:
 		level = slog.LevelDebug

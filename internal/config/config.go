@@ -43,7 +43,8 @@ type Config struct {
 	Transcode TranscodeConfig       `yaml:"transcode" validate:"required"`
 	Whisper   subtitle.Whisper      `yaml:"whisper"`
 	TMDB      TMDB                  `yaml:"tmdb"`
-	API       APIConfig             `yaml:"api" validate:"required"`
+	Remote    RemoteConfig          `yaml:"remote"`
+	Server    ServerConfig          `yaml:"server" validate:"required"`
 
 	// client is the one origin session of this process, so every cast and identification share its cookies.
 	client func() source.Client
@@ -54,15 +55,18 @@ type TMDB struct {
 	APIKey string `yaml:"api_key"`
 }
 
-// APIConfig is the server this machine's commands drive, and where `castor api server` listens.
-type APIConfig struct {
-	// Endpoint is "embedded" (serve in this process) or a remote server's base URL.
-	Endpoint string `yaml:"endpoint" validate:"required,eq=embedded|http_url"`
-	Listen   string `yaml:"listen" validate:"required,hostname_port|startswith=:"`
+// RemoteConfig is the castor server on another machine this one's casts run on.
+type RemoteConfig struct {
+	URL string `yaml:"url" validate:"omitempty,http_url"`
 }
 
-// Embedded reports whether frontends serve the API in their own process.
-func (a APIConfig) Embedded() bool { return a.Endpoint == "embedded" }
+// ServerConfig is this machine as `castor server`: where it listens.
+type ServerConfig struct {
+	Listen string `yaml:"listen" validate:"required,hostname_port|startswith=:"`
+}
+
+// Embedded reports whether casts run on a server inside castor itself.
+func (c *Config) Embedded() bool { return c.Remote.URL == "" }
 
 // TranscodeConfig is the transcode section: the ffmpeg binary, and how long one upstream read may stall.
 type TranscodeConfig struct {

@@ -36,7 +36,7 @@ func Defaults() *Config {
 		Capture:   extract.CaptureConfig{ParallelURLs: 4},
 		Transcode: TranscodeConfig{FFmpegPath: "ffmpeg", RWTimeout: 30 * time.Second},
 		Whisper:   subtitle.Whisper{Language: "en"},
-		API:       APIConfig{Endpoint: "embedded", Listen: ":8410"},
+		Server:    ServerConfig{Listen: ":8410"},
 	}
 	cfg.client = sync.OnceValue(func() source.Client { return web.Client(cfg.Resolver.PlaylistTimeout) })
 	return cfg

@@ -85,7 +85,7 @@ See [Configuration](#configuration) for subtitles, quality, and title search.
 | `castor cast` | Browse titles and cast, interactively (needs a [TMDB key](#tmdb-key)) |
 | `castor cast movie <id>` | Resolve a movie id against your [sources](#sources) and cast |
 | `castor cast episode <id> --season N --episode N` | Same, for a TV episode |
-| `castor api server` | Do the heavy work of casts for castor on other machines ([remote server](#remote-server)) |
+| `castor server` | Run casts for castor on other machines ([remote server](#remote-server)) |
 
 Run `castor --help` for all flags.
 
@@ -223,14 +223,17 @@ Any key works that way, e.g. `CASTOR_RESOLVER__MAX_HEIGHT=720`.
 
 Every `castor` command drives a castor server. By default that server runs inside the same process. Point the command at another instance instead, and the heavy work (finding the streams on a page, measuring, reading, transcoding, subtitles) runs there:
 
+On the server, any machine your laptop can reach:
+
 ```sh
-castor api server   # on any machine your laptop can reach, listens on api.listen
+castor server   # listens on :8410 (server.listen)
 ```
 
+On the machine you cast from:
+
 ```yaml
-api:
-  endpoint: http://my-server:8410   # "embedded" (the default) serves in this process
-  listen: ":8410"                   # where `castor api server` listens
+remote:
+  url: http://my-server:8410
 ```
 
 The command you run stays the one on your TV's network. It finds the devices, controls the one you pick, and relays whatever the server streams to it. The server never connects into your network and the TV never connects to the server, so the server can sit anywhere, behind any NAT. Keep the command running for the whole cast.
@@ -335,7 +338,7 @@ docker run --rm --network host --device /dev/dri \
 - `--device /dev/dri` lets Castor encode on an Intel GPU (VA-API). Without it, Castor encodes in software. Video your TV already plays is copied, not encoded.
 - Run from the directory holding your [`config.yaml`](config.yaml).
 - The `castor-cache` volume keeps downloaded whisper models.
-- `docker run -d -p 8410:8410 ghcr.io/stupside/castor:latest api server` runs the image as a [remote server](#remote-server) for castor on your laptop. It needs no `--network host`: only the laptop talks to the TV.
+- `docker run -d -p 8410:8410 ghcr.io/stupside/castor:latest server` runs the image as a [remote server](#remote-server) for castor on your laptop. It needs no `--network host`: only the laptop talks to the TV.
 
 | Tag | Build |
 | --- | --- |
