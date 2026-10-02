@@ -19,7 +19,7 @@ func (l logger) Watch(ctx context.Context, req *castorv1.WatchRequest, out *conn
 	if err != nil {
 		return err
 	}
-	level, logged := wire.FromLogLevel(req.GetLogs())
+	level, logged := wire.FromLogLevel(req.GetLogs()), req.Logs != nil
 	outcome, err := s.watch(ctx, level, logged, out.Send)
 	switch {
 	case err != nil:

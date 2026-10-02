@@ -27,7 +27,11 @@ type Watch struct {
 
 // Watch observes cast id, its lines from level on going to logs (nil asks none), and returns once its status is shown.
 func (c *Client) Watch(ctx context.Context, id string, progress Progress, logs slog.Handler, level slog.Level) (*Watch, error) {
-	stream, err := c.logger.Watch(ctx, &castorv1.WatchRequest{CastId: id, Logs: wire.LogLevel(level, logs != nil)})
+	req := &castorv1.WatchRequest{CastId: id}
+	if logs != nil {
+		req.Logs = wire.LogLevel(level).Enum()
+	}
+	stream, err := c.logger.Watch(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("watching cast: %w", err)
 	}

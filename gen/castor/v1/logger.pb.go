@@ -25,7 +25,6 @@ const (
 type LogLevel int32
 
 const (
-	// LOG_LEVEL_UNSPECIFIED asks for no logs.
 	LogLevel_LOG_LEVEL_UNSPECIFIED LogLevel = 0
 	LogLevel_LOG_LEVEL_DEBUG       LogLevel = 1
 	LogLevel_LOG_LEVEL_INFO        LogLevel = 2
@@ -82,7 +81,7 @@ type WatchRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	CastId string                 `protobuf:"bytes,1,opt,name=cast_id,json=castId,proto3" json:"cast_id,omitempty"`
 	// logs is the least severe server log this watcher is sent, live and never kept; unset sends none.
-	Logs          LogLevel `protobuf:"varint,2,opt,name=logs,proto3,enum=castor.v1.LogLevel" json:"logs,omitempty"`
+	Logs          *LogLevel `protobuf:"varint,2,opt,name=logs,proto3,enum=castor.v1.LogLevel,oneof" json:"logs,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -125,8 +124,8 @@ func (x *WatchRequest) GetCastId() string {
 }
 
 func (x *WatchRequest) GetLogs() LogLevel {
-	if x != nil {
-		return x.Logs
+	if x != nil && x.Logs != nil {
+		return *x.Logs
 	}
 	return LogLevel_LOG_LEVEL_UNSPECIFIED
 }
@@ -457,10 +456,12 @@ var File_castor_v1_logger_proto protoreflect.FileDescriptor
 
 const file_castor_v1_logger_proto_rawDesc = "" +
 	"\n" +
-	"\x16castor/v1/logger.proto\x12\tcastor.v1\x1a\x1bbuf/validate/validate.proto\"c\n" +
+	"\x16castor/v1/logger.proto\x12\tcastor.v1\x1a\x1bbuf/validate/validate.proto\"s\n" +
 	"\fWatchRequest\x12 \n" +
-	"\acast_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x06castId\x121\n" +
-	"\x04logs\x18\x02 \x01(\x0e2\x13.castor.v1.LogLevelB\b\xbaH\x05\x82\x01\x02\x10\x01R\x04logs\"{\n" +
+	"\acast_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x06castId\x128\n" +
+	"\x04logs\x18\x02 \x01(\x0e2\x13.castor.v1.LogLevelB\n" +
+	"\xbaH\a\x82\x01\x04\x10\x01 \x00H\x00R\x04logs\x88\x01\x01B\a\n" +
+	"\x05_logs\"{\n" +
 	"\rWatchResponse\x12/\n" +
 	"\x06status\x18\x01 \x01(\v2\x15.castor.v1.CastStatusH\x00R\x06status\x12(\n" +
 	"\x04line\x18\x02 \x01(\v2\x12.castor.v1.LogLineH\x00R\x04lineB\x0f\n" +
@@ -473,10 +474,9 @@ const file_castor_v1_logger_proto_rawDesc = "" +
 	"\brevision\x18\x04 \x01(\v2\x1e.castor.v1.CastStatus.RevisionR\brevision\x1a8\n" +
 	"\bRevision\x12\x1a\n" +
 	"\bstrategy\x18\x01 \x01(\tR\bstrategy\x12\x10\n" +
-	"\x03why\x18\x02 \x01(\tR\x03why\"\xb9\x01\n" +
-	"\aLogLine\x125\n" +
-	"\x05level\x18\x01 \x01(\x0e2\x13.castor.v1.LogLevelB\n" +
-	"\xbaH\a\x82\x01\x04\x10\x01 \x00R\x05level\x12\x18\n" +
+	"\x03why\x18\x02 \x01(\tR\x03why\"\xb7\x01\n" +
+	"\aLogLine\x123\n" +
+	"\x05level\x18\x01 \x01(\x0e2\x13.castor.v1.LogLevelB\b\xbaH\x05\x82\x01\x02 \x00R\x05level\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12-\n" +
 	"\x05attrs\x18\x03 \x03(\v2\x17.castor.v1.LogLine.AttrR\x05attrs\x1a.\n" +
 	"\x04Attr\x12\x10\n" +
@@ -537,6 +537,7 @@ func file_castor_v1_logger_proto_init() {
 	if File_castor_v1_logger_proto != nil {
 		return
 	}
+	file_castor_v1_logger_proto_msgTypes[0].OneofWrappers = []any{}
 	file_castor_v1_logger_proto_msgTypes[1].OneofWrappers = []any{
 		(*WatchResponse_Status)(nil),
 		(*WatchResponse_Line)(nil),

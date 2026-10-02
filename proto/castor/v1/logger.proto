@@ -13,7 +13,10 @@ service LoggerService {
 message WatchRequest {
   string cast_id = 1 [(buf.validate.field).string.min_len = 1];
   // logs is the least severe server log this watcher is sent, live and never kept; unset sends none.
-  LogLevel logs = 2 [(buf.validate.field).enum.defined_only = true];
+  optional LogLevel logs = 2 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
 }
 
 // WatchResponse is one update; the stream's own status is the outcome: OK ended, canceled stopped, aborted failed.
@@ -43,7 +46,6 @@ message CastStatus {
 }
 
 enum LogLevel {
-  // LOG_LEVEL_UNSPECIFIED asks for no logs.
   LOG_LEVEL_UNSPECIFIED = 0;
   LOG_LEVEL_DEBUG = 1;
   LOG_LEVEL_INFO = 2;
@@ -53,10 +55,7 @@ enum LogLevel {
 
 // LogLine is one line the server logged for a cast, sent live and never kept.
 message LogLine {
-  LogLevel level = 1 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
+  LogLevel level = 1 [(buf.validate.field).enum.not_in = 0];
   string message = 2;
   // attrs keep the order they were logged in.
   repeated Attr attrs = 3;

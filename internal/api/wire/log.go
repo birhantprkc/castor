@@ -7,11 +7,9 @@ import (
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
 )
 
-// LogLevel is the least severe log a watcher asks for; ok false asks for none.
-func LogLevel(level slog.Level, ok bool) castorv1.LogLevel {
+// LogLevel is level on the wire.
+func LogLevel(level slog.Level) castorv1.LogLevel {
 	switch {
-	case !ok:
-		return castorv1.LogLevel_LOG_LEVEL_UNSPECIFIED
 	case level <= slog.LevelDebug:
 		return castorv1.LogLevel_LOG_LEVEL_DEBUG
 	case level <= slog.LevelInfo:
@@ -22,19 +20,17 @@ func LogLevel(level slog.Level, ok bool) castorv1.LogLevel {
 	return castorv1.LogLevel_LOG_LEVEL_ERROR
 }
 
-// FromLogLevel is the level a watcher asked for, ok false when it asked for none.
-func FromLogLevel(l castorv1.LogLevel) (slog.Level, bool) {
+// FromLogLevel is the level the wire names.
+func FromLogLevel(l castorv1.LogLevel) slog.Level {
 	switch l {
 	case castorv1.LogLevel_LOG_LEVEL_DEBUG:
-		return slog.LevelDebug, true
+		return slog.LevelDebug
 	case castorv1.LogLevel_LOG_LEVEL_INFO:
-		return slog.LevelInfo, true
+		return slog.LevelInfo
 	case castorv1.LogLevel_LOG_LEVEL_WARN:
-		return slog.LevelWarn, true
-	case castorv1.LogLevel_LOG_LEVEL_ERROR:
-		return slog.LevelError, true
+		return slog.LevelWarn
 	}
-	return 0, false
+	return slog.LevelError
 }
 
 // Log is r on the wire, its attributes flattened to text under dotted group keys.
@@ -45,7 +41,7 @@ func Log(r slog.Record, attrs []slog.Attr) *castorv1.LogLine {
 		add(a)
 	}
 	r.Attrs(add)
-	return &castorv1.LogLine{Level: LogLevel(r.Level, true), Message: r.Message, Attrs: flat}
+	return &castorv1.LogLine{Level: LogLevel(r.Level), Message: r.Message, Attrs: flat}
 }
 
 func flatten(into []*castorv1.LogLine_Attr, prefix string, a slog.Attr) []*castorv1.LogLine_Attr {
@@ -62,7 +58,7 @@ func flatten(into []*castorv1.LogLine_Attr, prefix string, a slog.Attr) []*casto
 
 // FromLog is the record a watcher re-logs, stamped when it arrived.
 func FromLog(l *castorv1.LogLine) slog.Record {
-	level, _ := FromLogLevel(l.GetLevel())
+	level := FromLogLevel(l.GetLevel())
 	r := slog.NewRecord(time.Now(), level, l.GetMessage(), 0)
 	for _, a := range l.GetAttrs() {
 		r.AddAttrs(slog.String(a.GetKey(), a.GetValue()))
