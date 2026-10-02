@@ -41,7 +41,6 @@ message Preferences {
 }
 
 enum Delivery {
-  // DELIVERY_UNSPECIFIED is refused: a cast states its delivery.
   DELIVERY_UNSPECIFIED = 0;
   // DELIVERY_AUTO lets the evidence decide between pass-through and serving.
   DELIVERY_AUTO = 1;
@@ -61,7 +60,7 @@ message RankResponse {
 
 message RankedStream {
   string url = 1 [(buf.validate.field).string.uri = true];
-  int64 bitrate = 2 [(buf.validate.field).int64.gte = 0];
+  uint64 bitrate = 2;
   // last_resort marks a stream admitted without a measurement to back it.
   bool last_resort = 3;
 }

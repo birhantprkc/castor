@@ -56,7 +56,7 @@ message AnswerResponse {}
 // Device names the device a cast plays on; the client reaches it, the server only logs it.
 message Device {
   string name = 1;
-  string type = 2 [(buf.validate.field).string.min_len = 1];
+  string type = 2;
   string address = 3;
 }
 

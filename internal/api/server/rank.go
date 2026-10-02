@@ -24,7 +24,7 @@ func (r ranking) Rank(ctx context.Context, req *castorv1.RankRequest) (*castorv1
 	}
 	out := &castorv1.RankResponse{Ranked: make([]*castorv1.RankedStream, len(ranked))}
 	for i, s := range ranked {
-		out.Ranked[i] = &castorv1.RankedStream{Url: s.URL.String(), Bitrate: int64(s.Bitrate()), LastResort: s.LastResort}
+		out.Ranked[i] = &castorv1.RankedStream{Url: s.URL.String(), Bitrate: uint64(s.Bitrate()), LastResort: s.LastResort}
 	}
 	return out, nil
 }

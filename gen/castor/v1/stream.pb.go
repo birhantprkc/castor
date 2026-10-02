@@ -25,7 +25,6 @@ const (
 type Delivery int32
 
 const (
-	// DELIVERY_UNSPECIFIED is refused: a cast states its delivery.
 	Delivery_DELIVERY_UNSPECIFIED Delivery = 0
 	// DELIVERY_AUTO lets the evidence decide between pass-through and serving.
 	Delivery_DELIVERY_AUTO Delivery = 1
@@ -300,7 +299,7 @@ func (x *RankResponse) GetRanked() []*RankedStream {
 type RankedStream struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	Url     string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
-	Bitrate int64                  `protobuf:"varint,2,opt,name=bitrate,proto3" json:"bitrate,omitempty"`
+	Bitrate uint64                 `protobuf:"varint,2,opt,name=bitrate,proto3" json:"bitrate,omitempty"`
 	// last_resort marks a stream admitted without a measurement to back it.
 	LastResort    bool `protobuf:"varint,3,opt,name=last_resort,json=lastResort,proto3" json:"last_resort,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -344,7 +343,7 @@ func (x *RankedStream) GetUrl() string {
 	return ""
 }
 
-func (x *RankedStream) GetBitrate() int64 {
+func (x *RankedStream) GetBitrate() uint64 {
 	if x != nil {
 		return x.Bitrate
 	}
@@ -380,10 +379,10 @@ const file_castor_v1_stream_proto_rawDesc = "" +
 	"\astreams\x18\x01 \x03(\v2\x11.castor.v1.StreamB\b\xbaH\x05\x92\x01\x02\b\x01R\astreams\x12@\n" +
 	"\vpreferences\x18\x02 \x01(\v2\x16.castor.v1.PreferencesB\x06\xbaH\x03\xc8\x01\x01R\vpreferences\"?\n" +
 	"\fRankResponse\x12/\n" +
-	"\x06ranked\x18\x01 \x03(\v2\x17.castor.v1.RankedStreamR\x06ranked\"n\n" +
+	"\x06ranked\x18\x01 \x03(\v2\x17.castor.v1.RankedStreamR\x06ranked\"e\n" +
 	"\fRankedStream\x12\x1a\n" +
-	"\x03url\x18\x01 \x01(\tB\b\xbaH\x05r\x03\x88\x01\x01R\x03url\x12!\n" +
-	"\abitrate\x18\x02 \x01(\x03B\a\xbaH\x04\"\x02(\x00R\abitrate\x12\x1f\n" +
+	"\x03url\x18\x01 \x01(\tB\b\xbaH\x05r\x03\x88\x01\x01R\x03url\x12\x18\n" +
+	"\abitrate\x18\x02 \x01(\x04R\abitrate\x12\x1f\n" +
 	"\vlast_resort\x18\x03 \x01(\bR\n" +
 	"lastResort*K\n" +
 	"\bDelivery\x12\x18\n" +
