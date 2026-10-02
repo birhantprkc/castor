@@ -104,10 +104,7 @@ func selected(program media.Program, inputs []ffmpeg.ProbeInput, kind media.Trac
 	if !ok {
 		return selection{}, false
 	}
+	// NewProgramSource validated that every track names one of the inputs.
 	index := slices.IndexFunc(inputs, func(in ffmpeg.ProbeInput) bool { return in.ID == ref.Input })
-	if index < 0 {
-		// NewProgramSource validated this; unreachable without ProgramSource bug.
-		return selection{}, false
-	}
 	return selection{input: index, index: ref.Index, optional: ref.Optional}, true
 }

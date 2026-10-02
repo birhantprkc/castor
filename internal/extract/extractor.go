@@ -13,18 +13,12 @@ import (
 )
 
 // Extractor opens pages in a browser and captures the streams they fetch.
-type Extractor struct {
-	browser   BrowserConfig
-	parallel  int
-	documents source.Formats
-}
+type Extractor struct{ cfg Config }
 
-func New(cfg Config) *Extractor {
-	return &Extractor{browser: cfg.Browser, parallel: cfg.Capture.ParallelURLs, documents: cfg.Documents}
-}
+func New(cfg Config) *Extractor { return &Extractor{cfg: cfg} }
 
 func (e *Extractor) extract(ctx context.Context, targetURL string) ([]*source.Stream, error) {
-	session, err := newSession(ctx, e.browser, e.documents, targetURL)
+	session, err := newSession(ctx, e.cfg.Browser, e.cfg.Documents, targetURL)
 	if err != nil {
 		return nil, fmt.Errorf("creating session for %s: %w", targetURL, err)
 	}
@@ -44,7 +38,7 @@ func (e *Extractor) ExtractAll(ctx context.Context, urls []string) ([]*source.St
 	slog.InfoContext(ctx, "extracting streams", "urls", len(urls))
 
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, e.parallel)
+	sem := make(chan struct{}, e.cfg.Capture.ParallelURLs)
 	results := make([][]*source.Stream, len(urls))
 	failures := make([]error, len(urls))
 

@@ -49,8 +49,6 @@ type Process struct {
 	// extra are the side outputs in pipe order, starting at firstExtraFD.
 	extra []*loopback
 
-	// lines fans stderr to tail + markers (marker needs post-deadline lines tail drops).
-	lines   *fanout
 	tail    *ringTail
 	markers *markerWatch
 
@@ -150,19 +148,16 @@ func Start(ctx context.Context, path string, command Command, opts Options) (*Pr
 		Stdout:  stdout,
 		cmd:     cmd,
 		extra:   extra,
-		lines:   &fanout{},
 		tail:    newTail(),
 		markers: &markerWatch{},
 		scanned: scanned,
 		stopped: stopped,
 	}
 	p.status.Store(noExitStatus)
-	p.lines.add(p.tail)
-	p.lines.add(p.markers)
 	go func() {
 		defer close(p.scanned)
 		defer func() { _ = stderrRead.Close() }()
-		drainStderr(ctx, stderrRead, p.lines)
+		drainStderr(ctx, stderrRead, p.tail, p.markers)
 	}()
 	p.followProgress(opts.Progress)
 	p.tee(opts.PCM)

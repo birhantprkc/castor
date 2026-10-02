@@ -138,7 +138,7 @@ func (c *Config) Backend(burn func(subtitle.Whisper) execute.Subtitles) server.B
 			whisper.Language = asked.GetSubtitles()
 			ranking := rank.Config{ProbeMaxConcurrency: c.Resolver.ProbeMaxConcurrency, MaxHeight: media.HeightCap(asked.GetMaxHeight())}
 			return caster{
-				Ranker: rank.New(ranking, probe.Stream(c.Resolver.FFprobePath, c.Resolver.ProbeTimeout)),
+				Ranker: rank.New(ranking, probe.FFprobe(c.Resolver.FFprobePath).Stream(c.Resolver.ProbeTimeout)),
 				config: c,
 				asked:  asked,
 				subs:   burn(whisper),

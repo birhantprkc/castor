@@ -1,2 +1,2 @@
-Object.defineProperty(screen, 'colorDepth', { get: () => __COLOR_DEPTH__ });
-Object.defineProperty(screen, 'pixelDepth', { get: () => __COLOR_DEPTH__ });
+Object.defineProperty(screen, 'colorDepth', { get: () => 24 });
+Object.defineProperty(screen, 'pixelDepth', { get: () => 24 });

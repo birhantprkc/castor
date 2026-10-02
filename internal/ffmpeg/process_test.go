@@ -55,22 +55,18 @@ func TestTheDrainOutlastsALineTooLongToHold(t *testing.T) {
 func drainLines(t *testing.T, lines ...string) (*ringTail, *markerWatch) {
 	t.Helper()
 	tail, markers := newTail(), &markerWatch{}
-	var to fanout
-	to.add(tail)
-	to.add(markers)
-	drainStderr(t.Context(), strings.NewReader(strings.Join(lines, "\n")+"\n"), &to)
+	drainStderr(t.Context(), strings.NewReader(strings.Join(lines, "\n")+"\n"), tail, markers)
 	return tail, markers
 }
 
 func TestWaitDoesNotOutrunTheStderrDrain(t *testing.T) {
 	const last = "castor-final-stderr-line"
-	script := "sleep 0.2; i=0; while [ $i -lt 200 ]; do echo \"line $i\" >&2; i=$((i+1)); done; echo " + last + " >&2"
+	script := "sleep 0.2; i=0; while [ $i -lt 5000 ]; do echo \"line $i\" >&2; i=$((i+1)); done; echo " + last + " >&2"
 
 	proc, err := Start(t.Context(), "/bin/sh", Command{Args: []string{"-c", script}}, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	proc.lines.add(slowObserver{})
 	if _, err := io.Copy(io.Discard, proc.Stdout); err != nil {
 		t.Fatal(err)
 	}
@@ -81,10 +77,6 @@ func TestWaitDoesNotOutrunTheStderrDrain(t *testing.T) {
 		t.Errorf("the last line printed before exit is not in the %d retained", len(lines))
 	}
 }
-
-type slowObserver struct{}
-
-func (slowObserver) Observe(string) { time.Sleep(time.Millisecond) }
 
 func TestAnExitStatusSaysWhoEndedTheProcess(t *testing.T) {
 	cases := []struct {

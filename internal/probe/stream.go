@@ -2,7 +2,6 @@ package probe
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -12,9 +11,10 @@ import (
 	"github.com/stupside/castor/internal/source/rank"
 )
 
-func Stream(ffprobePath string, timeout time.Duration) rank.Probes {
+// Stream measures a found stream within timeout, opening it as castor would read it.
+func (bin FFprobe) Stream(timeout time.Duration) rank.Probes {
 	return func(s *source.Stream) media.Prober {
-		return streamProber{ffprobePath: ffprobePath, timeout: timeout, stream: s}
+		return streamProber{ffprobePath: string(bin), timeout: timeout, stream: s}
 	}
 }
 
@@ -26,12 +26,12 @@ type streamProber struct {
 
 func (p streamProber) Probe(ctx context.Context) (media.ProbeInfo, media.Reach, error) {
 	s := p.stream
-	if s == nil || s.URL == nil {
-		return media.ProbeInfo{}, media.ReachUnproven, fmt.Errorf("probing source: no URL")
-	}
-
 	args := ffmpeg.HeaderArgs(s.Headers)
-	args = append(args, probeInputArgs(s.ContentType)...)
+	if adaptive := ffmpeg.AdaptiveInputArgs(s.ContentType, 0); adaptive != nil {
+		args = append(args, adaptive...)
+	} else {
+		args = append(args, ffmpeg.LenientInputArgs()...)
+	}
 
 	slog.DebugContext(ctx, "running ffprobe", "url", s.URL.String(), "header_count", len(s.Headers))
 
@@ -49,11 +49,4 @@ func (p streamProber) Probe(ctx context.Context) (media.ProbeInfo, media.Reach, 
 			"url", s.URL.String())
 	}
 	return info, reach, nil
-}
-
-func probeInputArgs(contentType string) []string {
-	if args := ffmpeg.AdaptiveInputArgs(contentType, 0); args != nil {
-		return args
-	}
-	return ffmpeg.LenientInputArgs()
 }

@@ -15,10 +15,6 @@ import (
 // stderrTailCapacity bounds retained lines: startup burst (~20) plus two minutes of progress.
 const stderrTailCapacity = 128
 
-type observer interface {
-	Observe(line string)
-}
-
 type Evidence struct {
 	// ExitStatus is the process exit code (noExitStatus = not reaped or castor killed it).
 	ExitStatus int
@@ -44,13 +40,14 @@ func (p *Process) LogStderrTail(ctx context.Context, msg string) {
 // stderrLineBuffer bounds one line read; Scanner would abandon over-long lines (blocks ffmpeg).
 const stderrLineBuffer = 16 << 10
 
-// drainStderr reads stderr line-by-line, handing each to observers; must read to EOF.
-func drainStderr(ctx context.Context, r io.Reader, to observer) {
+// drainStderr reads stderr line by line into the tail and the marker watch; it must read to EOF.
+func drainStderr(ctx context.Context, r io.Reader, tail *ringTail, markers *markerWatch) {
 	buffered := bufio.NewReaderSize(r, stderrLineBuffer)
 	for {
 		chunk, err := buffered.ReadSlice('\n')
 		if line := strings.TrimRight(string(chunk), "\r\n"); line != "" {
-			to.Observe(line)
+			tail.Observe(line)
+			markers.Observe(line)
 			slog.DebugContext(ctx, "ffmpeg", "line", line)
 		}
 		switch {
@@ -63,25 +60,6 @@ func drainStderr(ctx context.Context, r io.Reader, to observer) {
 			slog.WarnContext(ctx, "ffmpeg stderr read error", "error", err)
 			return
 		}
-	}
-}
-
-type fanout struct {
-	mu        sync.Mutex
-	observers []observer
-}
-
-func (f *fanout) add(o observer) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.observers = append(f.observers, o)
-}
-
-func (f *fanout) Observe(line string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	for _, o := range f.observers {
-		o.Observe(line)
 	}
 }
 

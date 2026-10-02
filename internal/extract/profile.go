@@ -25,7 +25,6 @@ type profile struct {
 	deviceMemory        int
 	screenWidth         int
 	screenHeight        int
-	colorDepth          int
 	webGLVendor         string
 	webGLRenderer       string
 	timezoneID          string
@@ -158,7 +157,6 @@ func newProfile() *profile {
 		deviceMemory:        devMem,
 		screenWidth:         scr.width,
 		screenHeight:        scr.height,
-		colorDepth:          24,
 		webGLVendor:         webgl.vendor,
 		webGLRenderer:       webgl.renderer,
 		timezoneID:          loc.timezoneID,

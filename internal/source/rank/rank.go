@@ -32,19 +32,6 @@ func (r *Ranker) Rank(ctx context.Context, streams []*source.Stream) ([]*source.
 	if len(streams) == 0 {
 		return nil, fmt.Errorf("no streams to rank")
 	}
-	valid := make([]*source.Stream, 0, len(streams))
-	for _, stream := range streams {
-		if stream != nil && stream.URL != nil {
-			valid = append(valid, stream)
-		}
-	}
-	if dropped := len(streams) - len(valid); dropped > 0 {
-		slog.WarnContext(ctx, "discarded malformed stream candidates", "dropped", dropped, "kept", len(valid))
-	}
-	if len(valid) == 0 {
-		return nil, fmt.Errorf("no streams with a URL to rank")
-	}
-	streams = valid
 	streams = limitPerHost(ctx, streams)
 
 	pool := make([]*source.Stream, 0, len(streams))
@@ -78,9 +65,6 @@ func (r *Ranker) Rank(ctx context.Context, streams []*source.Stream) ([]*source.
 
 // Measure is the other half of Rank, for the one link an operator named themselves.
 func (r *Ranker) Measure(ctx context.Context, stream *source.Stream) (*source.Stream, error) {
-	if stream == nil || stream.URL == nil {
-		return nil, fmt.Errorf("no stream with a URL to measure")
-	}
 	one := r.measureAll(ctx, []*source.Stream{stream})[0]
 	// The operator named it, so nothing is ranked against it: only the admission is overruled.
 	verdict := admit(one)

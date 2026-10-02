@@ -76,7 +76,6 @@ func buildStealthJS(profile *profile) string {
 
 	r := strings.NewReplacer(
 		"__DEVICE_MEMORY__", fmt.Sprintf("%d", profile.deviceMemory),
-		"__COLOR_DEPTH__", fmt.Sprintf("%d", profile.colorDepth),
 		"__WEBGL_VENDOR__", profile.webGLVendor,
 		"__WEBGL_RENDERER__", profile.webGLRenderer,
 		"__NOISE_SEED__", fmt.Sprintf("%d", profile.noiseSeed),
