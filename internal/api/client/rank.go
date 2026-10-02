@@ -11,7 +11,7 @@ import (
 func (c *Client) Rank(ctx context.Context, req *castorv1.RankRequest) ([]*castorv1.RankedStream, error) {
 	resp, err := c.streams.Rank(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("ranking streams: %w", err)
+		return nil, fmt.Errorf("ranking streams: %w", refused(err))
 	}
 	return resp.GetRanked(), nil
 }

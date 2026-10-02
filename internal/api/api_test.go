@@ -301,10 +301,8 @@ func TestADryRunIsTheServersRankingAsTheCastWouldAskIt(t *testing.T) {
 	}
 }
 
-func TestTheServerRefusesACastTheContractForbids(t *testing.T) {
-	_, base := serve(t, backend(handoff), newTV())
-	// A client that skips the contract's rules, so the server is the one to hold them.
-	raw := castorv1connect.NewCastServiceClient(http.DefaultClient, base.api)
+func TestTheServerRefusesACastTheContractForbidsAndTheClientSaysWhy(t *testing.T) {
+	c, _ := serve(t, backend(handoff), newTV())
 
 	unasked := named("https://cdn.example/direct")
 	unasked.Preferences = nil
@@ -314,16 +312,20 @@ func TestTheServerRefusesACastTheContractForbids(t *testing.T) {
 	unspoken.Preferences = &castorv1.Preferences{Delivery: castorv1.Delivery_DELIVERY_AUTO, MaxHeight: 720, Subtitles: "not a language"}
 	misheaded := named("https://cdn.example/direct")
 	misheaded.GetNamed().Headers = map[string]string{"Bad Header": "x"}
-	for name, req := range map[string]*castorv1.StartCastRequest{
-		"no preferences":       unasked,
-		"no delivery":          undelivered,
-		"no subtitle language": unspoken,
-		"no header name":       misheaded,
-		"a relative link":      named("/movie.m3u8"),
-		"no streams found":     found(),
+	for name, tc := range map[string]struct {
+		req   *castorv1.StartCastRequest
+		broke string
+	}{
+		"no preferences":       {unasked, "preferences"},
+		"no delivery":          {undelivered, "preferences.delivery"},
+		"no subtitle language": {unspoken, "preferences.subtitles"},
+		"no header name":       {misheaded, "named.headers"},
+		"a relative link":      {named("/movie.m3u8"), "named.url"},
+		"no streams found":     {found(), "found.streams"},
 	} {
-		if _, err := raw.StartCast(t.Context(), req); connect.CodeOf(err) != connect.CodeInvalidArgument {
-			t.Errorf("%s started with %v, want the contract's refusal", name, err)
+		_, err := c.Start(t.Context(), tc.req)
+		if !errors.Is(err, client.ErrRefused) || !strings.Contains(err.Error(), tc.broke) {
+			t.Errorf("%s started with %v, want the server's refusal naming %s", name, err, tc.broke)
 		}
 	}
 }
@@ -747,7 +749,7 @@ func TestPagesAreOpenedOnTheServerAndTheirStreamsReturnWithWhatFetchingThemNeeds
 	if _, err := c.Extract(t.Context(), &castorv1.ExtractRequest{Pages: []string{"https://site.example/empty"}}); connect.CodeOf(err) != connect.CodeNotFound {
 		t.Errorf("a page that plays nothing answered %v, want not found", err)
 	}
-	if _, err := c.Extract(t.Context(), &castorv1.ExtractRequest{Pages: []string{"not a page"}}); connect.CodeOf(err) != connect.CodeInvalidArgument {
+	if _, err := c.Extract(t.Context(), &castorv1.ExtractRequest{Pages: []string{"not a page"}}); !errors.Is(err, client.ErrRefused) {
 		t.Errorf("a malformed page answered %v, want the contract's refusal", err)
 	}
 }

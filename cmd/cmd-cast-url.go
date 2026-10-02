@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"net/url"
 
 	"github.com/urfave/cli/v3"
 
@@ -23,13 +22,8 @@ func (a *app) castURLCommand() *cli.Command {
 			},
 		},
 		Action: func(ctx context.Context, _ *cli.Command) error {
-			urlObj, err := url.Parse(urlArg)
-			if err != nil {
-				return fmt.Errorf("invalid URL %q: %w", urlArg, err)
-			}
-
 			if a.dryRun {
-				fmt.Println(urlObj.String())
+				fmt.Println(urlArg)
 				return nil
 			}
 
@@ -48,7 +42,7 @@ func (a *app) castURLCommand() *cli.Command {
 			}
 			// Named, not found: the server measures it to extract the envelope for pass-through, without ranking.
 			return a.cast(ctx, cfg, c, &castorv1.StartCastRequest{
-				Streams:     &castorv1.StartCastRequest_Named{Named: &castorv1.Stream{Url: urlObj.String()}},
+				Streams:     &castorv1.StartCastRequest_Named{Named: &castorv1.Stream{Url: urlArg}},
 				Preferences: cfg.Preferences(),
 			}, target)
 		},

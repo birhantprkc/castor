@@ -6,11 +6,24 @@ import (
 	"fmt"
 	"time"
 
+	"connectrpc.com/connect"
+
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
 )
 
 // ErrStopped is a cast stopped before it ended, by this client or another.
 var ErrStopped = errors.New("cast stopped")
+
+// ErrRefused is a request the server refused as the contract forbids it; the error says what it broke.
+var ErrRefused = errors.New("the server refused it")
+
+// refused names a refusal for what it is; the server holds the contract's rules, so the client checks none itself.
+func refused(err error) error {
+	if e, ok := errors.AsType[*connect.Error](err); ok && e.Code() == connect.CodeInvalidArgument {
+		return fmt.Errorf("%w: %s", ErrRefused, e.Message())
+	}
+	return err
+}
 
 // controlTimeout bounds a start, stop or answer, which run past the caller's cancellation so no cast is left unknown.
 const controlTimeout = 5 * time.Second
@@ -22,7 +35,7 @@ func (c *Client) Start(ctx context.Context, req *castorv1.StartCastRequest) (str
 	defer cancel()
 	started, err := c.casts.StartCast(start, req)
 	if err != nil {
-		return "", fmt.Errorf("starting cast: %w", err)
+		return "", fmt.Errorf("starting cast: %w", refused(err))
 	}
 	return started.GetCastId(), nil
 }
