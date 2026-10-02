@@ -62,10 +62,11 @@ func (l *line) call(ctx context.Context, cmd *castorv1.DeviceCommand) (*castorv1
 	answered := make(chan *castorv1.AnswerRequest, 1)
 	l.mu.Lock()
 	l.next++
-	cmd.Id = strconv.Itoa(l.next)
-	l.awaiting[cmd.Id] = answered
+	id := strconv.Itoa(l.next)
+	l.awaiting[id] = answered
 	l.mu.Unlock()
-	defer l.forget(cmd.Id)
+	cmd.Id = id
+	defer l.forget(id)
 
 	if err := l.send(ctx, cmd); err != nil {
 		return nil, err
@@ -78,7 +79,7 @@ func (l *line) call(ctx context.Context, cmd *castorv1.DeviceCommand) (*castorv1
 	case <-ctx.Done():
 		// The cancel waits for the stream, never the caller: it goes once Drive takes it, or never once the line is cut.
 		go func() {
-			_ = l.send(context.Background(), &castorv1.DeviceCommand{Command: &castorv1.DeviceCommand_Cancel_{Cancel: &castorv1.DeviceCommand_Cancel{CommandId: cmd.Id}}})
+			_ = l.send(context.Background(), &castorv1.DeviceCommand{Command: &castorv1.DeviceCommand_Cancel_{Cancel: &castorv1.DeviceCommand_Cancel{CommandId: id}}})
 		}()
 		return nil, ctx.Err()
 	}

@@ -24,7 +24,7 @@ func (c *Client) Drive(parent context.Context, id string, target device.Info) er
 		SelfFetch: c.renderers.SelfFetches(target.Type),
 	})
 	if err != nil {
-		return fmt.Errorf("driving cast: %w", err)
+		return fmt.Errorf("driving cast: %w", refused(err))
 	}
 	defer func() { _ = stream.Close() }()
 	d := &driver{ctx: ctx, leave: leave, c: c, castID: id, lent: target, devices: map[string]device.Device{}, running: map[string]context.CancelFunc{}}
@@ -36,7 +36,7 @@ func (c *Client) Drive(parent context.Context, id string, target device.Info) er
 		return cause
 	}
 	if err := stream.Err(); err != nil && parent.Err() == nil {
-		return fmt.Errorf("driving cast: %w", err)
+		return fmt.Errorf("driving cast: %w", refused(err))
 	}
 	return nil
 }

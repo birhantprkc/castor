@@ -45,7 +45,7 @@ func (c *Client) Stop(ctx context.Context, id string) error {
 	stop, cancel := context.WithTimeout(context.WithoutCancel(ctx), controlTimeout)
 	defer cancel()
 	if _, err := c.casts.Stop(stop, &castorv1.StopRequest{CastId: id}); err != nil {
-		return fmt.Errorf("stopping cast: %w", err)
+		return fmt.Errorf("stopping cast: %w", refused(err))
 	}
 	return nil
 }

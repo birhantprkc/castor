@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"log/slog"
 
 	"connectrpc.com/connect"
 
@@ -19,8 +20,11 @@ func (l logger) Watch(ctx context.Context, req *castorv1.WatchRequest, out *conn
 	if err != nil {
 		return err
 	}
-	level, logged := wire.FromLogLevel(req.GetLogs()), req.Logs != nil
-	outcome, err := s.watch(ctx, level, logged, out.Send)
+	var level slog.Level
+	if req.Logs != nil {
+		level = wire.FromLogLevel(*req.Logs)
+	}
+	outcome, err := s.watch(ctx, level, req.Logs != nil, out.Send)
 	switch {
 	case err != nil:
 		return err

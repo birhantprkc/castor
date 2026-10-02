@@ -33,7 +33,7 @@ func (c *Client) Watch(ctx context.Context, id string, progress Progress, logs s
 	}
 	stream, err := c.logger.Watch(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("watching cast: %w", err)
+		return nil, fmt.Errorf("watching cast: %w", refused(err))
 	}
 	w := &Watch{ctx: ctx, stream: stream, progress: progress, logs: logs}
 	if !w.next() {
@@ -66,16 +66,19 @@ func (w *Watch) next() bool {
 func (w *Watch) outcome() error {
 	defer func() { _ = w.stream.Close() }()
 	err := w.stream.Err()
-	switch {
-	case w.ctx.Err() != nil:
+	if w.ctx.Err() != nil {
 		return context.Cause(w.ctx)
-	case err == nil:
+	}
+	if err == nil {
 		return nil
-	case connect.CodeOf(err) == connect.CodeCanceled:
-		return ErrStopped
 	}
-	if failed, ok := errors.AsType[*connect.Error](err); ok && failed.Code() == connect.CodeAborted {
-		return errors.New(failed.Message())
+	if e, ok := errors.AsType[*connect.Error](err); ok {
+		switch e.Code() {
+		case connect.CodeCanceled:
+			return ErrStopped
+		case connect.CodeAborted:
+			return errors.New(e.Message())
+		}
 	}
-	return fmt.Errorf("watching cast: %w", err)
+	return fmt.Errorf("watching cast: %w", refused(err))
 }
