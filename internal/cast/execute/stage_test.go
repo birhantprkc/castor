@@ -48,8 +48,6 @@ func (s *fakeStage) Run(_ context.Context, pcm io.ReadCloser) {
 
 func (s *fakeStage) Inputs() (string, error) { return s.burnIn, nil }
 
-func (*fakeStage) SampleRate() int { return 16000 }
-
 func (s *fakeStage) Follow(context.Context) func(media.Progress) {
 	return func(media.Progress) { s.samples.Add(1) }
 }

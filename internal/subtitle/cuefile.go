@@ -18,7 +18,7 @@ const (
 	cueWrapColumns = 42
 )
 
-// CueFile: live subtitle text file for encoder (swapped as cues commit).
+// CueFile is the live subtitle text file the encoder reads, swapped as cues commit.
 type CueFile struct {
 	path string
 	cues *Builder

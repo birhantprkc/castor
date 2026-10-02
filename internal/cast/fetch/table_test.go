@@ -1,6 +1,7 @@
 package fetch
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -26,7 +27,7 @@ func TestThePolicyASourceShapeIsReadWith(t *testing.T) {
 		// No plain-file demuxer accepts a segment retry flag.
 		{media.Fetch{}, "whole-file", configuredDeadline, paceVOD, 0},
 	} {
-		t.Run(tt.shape.String(), func(t *testing.T) {
+		t.Run(fmt.Sprintf("%+v", tt.shape), func(t *testing.T) {
 			p := For(tt.shape, configuredDeadline)
 			if p.Name != tt.name || p.Deadline != tt.deadline || p.Pace != tt.pace || p.SegmentRetries != tt.retries {
 				t.Errorf("For = %q deadline %s pace %+v retries %d, want %q deadline %s pace %+v retries %d",
@@ -38,7 +39,7 @@ func TestThePolicyASourceShapeIsReadWith(t *testing.T) {
 
 func TestACautiousReadGivesUpOnlyItsPace(t *testing.T) {
 	for _, shape := range []media.Fetch{{Segmented: true, Framing: media.FramingOutOfBand}, {Segmented: true, Framing: media.FramingInBand}, {}} {
-		t.Run(shape.String(), func(t *testing.T) {
+		t.Run(fmt.Sprintf("%+v", shape), func(t *testing.T) {
 			was := For(shape, configuredDeadline)
 			got, ok := cautious(was)
 			if !ok || got.Pace != pacePlayback {

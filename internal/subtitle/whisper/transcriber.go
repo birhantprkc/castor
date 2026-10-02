@@ -35,7 +35,7 @@ const (
 
 // transcriber: whisper wrapper (streams committed words, not reusable).
 type transcriber struct {
-	language     subtitle.Language
+	language     string
 	modelPath    string
 	vadModelPath string
 
@@ -204,7 +204,7 @@ func (t *transcriber) transcribeBuffer(ctx context.Context, model wcpp.Model, sa
 	}
 
 	// Pin language (auto-detect unreliable for music/silence).
-	if !t.language.AutoDetect() && wctx.IsMultilingual() {
+	if t.language != "auto" && wctx.IsMultilingual() {
 		if err := wctx.SetLanguage(string(t.language)); err != nil {
 			slog.WarnContext(ctx, "whisper SetLanguage failed", "language", t.language, "error", err)
 		}

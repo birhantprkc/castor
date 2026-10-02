@@ -8,6 +8,7 @@ import (
 	"github.com/stupside/castor/internal/cast/plan"
 	"github.com/stupside/castor/internal/cast/transcode"
 	"github.com/stupside/castor/internal/media"
+	"github.com/stupside/castor/internal/subtitle"
 )
 
 // buffered is a read into castor's own spool, and the transcription it feeds (nil where it feeds none).
@@ -46,6 +47,10 @@ func (s *session) read(ws workspace, program media.Program) (*buffered, error) {
 	}
 	logRefusals(ctx, floor)
 
+	var pcmRate int
+	if burn != nil {
+		pcmRate = subtitle.SampleRate
+	}
 	reader, err := startPull(ctx, pullSpec{
 		ffmpegPath: s.cfg.FFmpegPath,
 		program:    program,
@@ -54,7 +59,7 @@ func (s *session) read(ws workspace, program media.Program) (*buffered, error) {
 		probe:      facts.probe,
 		spoolPath:  filepath.Join(ws.dir, "spool"+transcode.SpoolFormat.Extension),
 		floor:      floor,
-		pcmRate:    pcmRate(burn),
+		pcmRate:    pcmRate,
 	})
 	if err != nil {
 		stop()
@@ -87,12 +92,4 @@ func (s *session) transcription(ctx context.Context, ws workspace, facts facts, 
 		return nil
 	}
 	return s.cfg.Subtitles(ctx, ws.dir)
-}
-
-// pcmRate is the rate the transcription listens at, zero where this cast runs none.
-func pcmRate(burn Burn) int {
-	if burn == nil {
-		return 0
-	}
-	return burn.SampleRate()
 }

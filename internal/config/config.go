@@ -142,7 +142,7 @@ func (c *Config) Backend(burn func(subtitle.Whisper) execute.Subtitles) server.B
 		Caster: func(asked *castorv1.Preferences) server.Caster {
 			// The model is this server's; whether to transcribe, and in what language, is the cast's.
 			whisper := c.Whisper
-			whisper.Enable, whisper.Language = asked.GetSubtitles() != "", subtitle.Language(asked.GetSubtitles())
+			whisper.Language = asked.GetSubtitles()
 			ranking := rank.Config{ProbeMaxConcurrency: c.Resolver.ProbeMaxConcurrency, MaxHeight: media.HeightCap(asked.GetMaxHeight())}
 			return caster{
 				Ranker: rank.New(ranking, probe.Stream(c.Resolver.FFprobePath, c.Resolver.ProbeTimeout)),
@@ -181,7 +181,7 @@ func (c *Config) Preferences() *castorv1.Preferences {
 		asked.Delivery = castorv1.Delivery_DELIVERY_SERVE
 	}
 	if c.Whisper.Enable {
-		asked.Subtitles = string(c.Whisper.Language)
+		asked.Subtitles = c.Whisper.Language
 	}
 	return asked
 }

@@ -14,7 +14,7 @@ import (
 )
 
 const probeEntries = "format=format_name,bit_rate,duration,start_time:" +
-	"stream=index,codec_type,codec_name,profile,level,width,height,pix_fmt,color_transfer,field_order,r_frame_rate,channels,sample_rate:" +
+	"stream=index,codec_type,codec_name,profile,level,width,height,pix_fmt,color_transfer,field_order,channels,sample_rate:" +
 	"stream_disposition=attached_pic:stream_side_data=rotation:" +
 	"program=program_id:program_stream_disposition=attached_pic:" +
 	"frame=stream_index,interlaced_frame"
@@ -32,7 +32,6 @@ func decodeProbeTracks(out []byte, videoIndex, audioIndex int) (media.ProbeInfo,
 			ColorTransfer string `json:"color_transfer"`
 			Level         int    `json:"level"`
 			FieldOrder    string `json:"field_order"`
-			FrameRate     string `json:"r_frame_rate"`
 			Channels      int    `json:"channels"`
 			SampleRate    string `json:"sample_rate"`
 			Disposition   struct {
@@ -94,7 +93,6 @@ func decodeProbeTracks(out []byte, videoIndex, audioIndex int) (media.ProbeInfo,
 					info.VideoBitDepth = pixFmtBitDepth(s.PixFmt)
 					info.VideoHDR = isHDRTransfer(s.ColorTransfer)
 					info.VideoLevel = s.Level
-					info.VideoFrameRate = frameRate(s.FrameRate)
 					info.VideoInterlaced = interlaced[s.FieldOrder] || slices.ContainsFunc(result.Frames, func(f probedFrame) bool {
 						return f.StreamIndex == s.Index && f.InterlacedFrame == 1
 					})
@@ -150,23 +148,6 @@ type probedFrame struct {
 
 // interlaced is every field order ffprobe reports for a picture coded as fields.
 var interlaced = map[string]bool{"tt": true, "bb": true, "tb": true, "bt": true}
-
-// frameRate reads ffprobe's rational frame rate, 0 when it states none.
-func frameRate(rational string) float64 {
-	num, den, ok := strings.Cut(rational, "/")
-	n, err := strconv.ParseFloat(num, 64)
-	if err != nil {
-		return 0
-	}
-	if !ok {
-		return n
-	}
-	d, err := strconv.ParseFloat(den, 64)
-	if err != nil || d == 0 {
-		return 0
-	}
-	return n / d
-}
 
 func isHDRTransfer(transfer string) bool {
 	switch transfer {

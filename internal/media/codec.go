@@ -1,6 +1,6 @@
 package media
 
-// Codec: ffprobe codec name (abstract, not encoder-specific).
+// Codec is an ffprobe codec name, abstract rather than encoder-specific.
 type Codec string
 
 // Video codecs.

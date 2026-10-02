@@ -18,8 +18,7 @@ type ProbeInfo struct {
 	VideoBitDepth int  // derived from pix_fmt (8, 10, 12)
 	VideoHDR      bool // PQ (smpte2084) or HLG (arib-std-b67) transfer
 	// VideoLevel is the codec level in ffprobe's units (H.264 x10, so 42 is 4.2), 0 if unknown.
-	VideoLevel     int
-	VideoFrameRate float64
+	VideoLevel int
 	// VideoInterlaced is a picture coded as fields, which a renderer that does not deinterlace shows combed.
 	VideoInterlaced bool
 	// VideoRotation is the display matrix's turn in degrees; no container castor serves carries it.
@@ -42,7 +41,7 @@ type ProbeInfo struct {
 // TakeVideo is p with every picture fact taken from m; a new video field is carried here or nowhere.
 func (p ProbeInfo) TakeVideo(m ProbeInfo) ProbeInfo {
 	p.VideoCodec, p.VideoProfile, p.VideoHeight, p.VideoBitDepth = m.VideoCodec, m.VideoProfile, m.VideoHeight, m.VideoBitDepth
-	p.VideoHDR, p.VideoLevel, p.VideoFrameRate = m.VideoHDR, m.VideoLevel, m.VideoFrameRate
+	p.VideoHDR, p.VideoLevel = m.VideoHDR, m.VideoLevel
 	p.VideoInterlaced, p.VideoRotation = m.VideoInterlaced, m.VideoRotation
 	p.VideoHeights, p.ProgramHeights = slices.Clone(m.VideoHeights), maps.Clone(m.ProgramHeights)
 	return p

@@ -109,7 +109,7 @@ func TestTheProbeReadsWhatDecidesWhetherAPictureCanBeCopied(t *testing.T) {
 		"streams": [
 			{"index": 1, "codec_type": "audio", "codec_name": "aac", "channels": 2, "sample_rate": "96000"},
 			{"index": 0, "codec_type": "video", "codec_name": "h264", "profile": "High", "level": 51, "width": 1920, "height": 1080,
-			 "pix_fmt": "yuv420p", "field_order": "unknown", "r_frame_rate": "120000/1001", "side_data_list": [{"rotation": -90}]}
+			 "pix_fmt": "yuv420p", "field_order": "unknown", "side_data_list": [{"rotation": -90}]}
 		],
 		"frames": [{"stream_index": 1, "interlaced_frame": 0}, {"stream_index": 0, "interlaced_frame": 1}],
 		"format": {"format_name": "hls", "duration": "12.0"}
@@ -123,8 +123,5 @@ func TestTheProbeReadsWhatDecidesWhetherAPictureCanBeCopied(t *testing.T) {
 	}
 	if info.VideoLevel != 51 || info.VideoRotation != -90 || info.AudioSampleRate != 96000 {
 		t.Errorf("level %d, rotation %d, sample rate %d; want 51, -90, 96000", info.VideoLevel, info.VideoRotation, info.AudioSampleRate)
-	}
-	if fps := info.VideoFrameRate; fps < 119.8 || fps > 119.9 {
-		t.Errorf("frame rate %v, want 119.88", fps)
 	}
 }

@@ -28,9 +28,6 @@ type Burn interface {
 	// Run transcribes the PCM feed until it ends, and closes it.
 	Run(ctx context.Context, pcm io.ReadCloser)
 
-	// SampleRate is the rate of the mono PCM feed Run reads.
-	SampleRate() int
-
 	Inputs() (burnIn string, err error)
 
 	Follow(ctx context.Context) func(media.Progress)

@@ -198,8 +198,9 @@ func backend(cfg *config.Config) server.Backend {
 	return cfg.Backend(burnIn)
 }
 
+// burnIn transcribes a cast that asked for subtitles, in the language it asked.
 func burnIn(settings subtitle.Whisper) execute.Subtitles {
-	if !settings.Enable {
+	if settings.Language == "" {
 		return nil
 	}
 	return func(ctx context.Context, workDir string) execute.Burn {

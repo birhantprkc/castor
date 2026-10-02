@@ -48,10 +48,6 @@ type Fetch struct {
 // seamed is a source whose timeline may break: stitched from pieces encoded apart, or live, where any reload can splice one in.
 func (f Fetch) seamed() bool { return f.Spliced || f.Live }
 
-func (f Fetch) String() string {
-	return fmt.Sprintf("segmented=%t framing=%s live=%t spliced=%t", f.Segmented, f.Framing, f.Live, f.Spliced)
-}
-
 // Fetching returns how this input must be fetched (content type proves segmented manifests).
 func (i Input) Fetching() Fetch {
 	fetch := i.Fetch
@@ -106,7 +102,7 @@ func NewProgram(program Program) (Program, error) {
 
 // Measurement reports the probe result, copied so callers cannot mutate.
 func (p *Program) Measurement() (ProbeInfo, bool) {
-	if p == nil || p.measurement == nil {
+	if p.measurement == nil {
 		return ProbeInfo{}, false
 	}
 	return p.measurement.Clone(), true
