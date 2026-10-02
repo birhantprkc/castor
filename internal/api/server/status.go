@@ -20,7 +20,7 @@ type status struct {
 }
 
 func newStatus() *status {
-	return &status{changed: newSignal(), now: &castorv1.CastStatus{Phase: castorv1.CastStatus_PHASE_AWAITING_DEVICE}}
+	return &status{changed: newSignal(), now: &castorv1.CastStatus{}}
 }
 
 // update applies change unless the cast is over.

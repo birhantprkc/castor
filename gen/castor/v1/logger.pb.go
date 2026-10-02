@@ -78,58 +78,6 @@ func (LogLevel) EnumDescriptor() ([]byte, []int) {
 	return file_castor_v1_logger_proto_rawDescGZIP(), []int{0}
 }
 
-type CastStatus_Phase int32
-
-const (
-	CastStatus_PHASE_UNSPECIFIED     CastStatus_Phase = 0
-	CastStatus_PHASE_AWAITING_DEVICE CastStatus_Phase = 1
-	CastStatus_PHASE_MEASURING       CastStatus_Phase = 2
-	CastStatus_PHASE_CASTING         CastStatus_Phase = 3
-)
-
-// Enum value maps for CastStatus_Phase.
-var (
-	CastStatus_Phase_name = map[int32]string{
-		0: "PHASE_UNSPECIFIED",
-		1: "PHASE_AWAITING_DEVICE",
-		2: "PHASE_MEASURING",
-		3: "PHASE_CASTING",
-	}
-	CastStatus_Phase_value = map[string]int32{
-		"PHASE_UNSPECIFIED":     0,
-		"PHASE_AWAITING_DEVICE": 1,
-		"PHASE_MEASURING":       2,
-		"PHASE_CASTING":         3,
-	}
-)
-
-func (x CastStatus_Phase) Enum() *CastStatus_Phase {
-	p := new(CastStatus_Phase)
-	*p = x
-	return p
-}
-
-func (x CastStatus_Phase) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (CastStatus_Phase) Descriptor() protoreflect.EnumDescriptor {
-	return file_castor_v1_logger_proto_enumTypes[1].Descriptor()
-}
-
-func (CastStatus_Phase) Type() protoreflect.EnumType {
-	return &file_castor_v1_logger_proto_enumTypes[1]
-}
-
-func (x CastStatus_Phase) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use CastStatus_Phase.Descriptor instead.
-func (CastStatus_Phase) EnumDescriptor() ([]byte, []int) {
-	return file_castor_v1_logger_proto_rawDescGZIP(), []int{2, 0}
-}
-
 type WatchRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	CastId string                 `protobuf:"bytes,1,opt,name=cast_id,json=castId,proto3" json:"cast_id,omitempty"`
@@ -269,15 +217,14 @@ func (*WatchResponse_Line) isWatchResponse_Update() {}
 // CastStatus is where a cast stands; nothing decides on it, it is for people to read.
 type CastStatus struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	Phase CastStatus_Phase       `protobuf:"varint,1,opt,name=phase,proto3,enum=castor.v1.CastStatus_Phase" json:"phase,omitempty"`
-	// streams is how many streams the cast was handed.
-	Streams int32 `protobuf:"varint,2,opt,name=streams,proto3" json:"streams,omitempty"`
+	// streams is how many streams the cast was handed, once it measures them.
+	Streams uint32 `protobuf:"varint,1,opt,name=streams,proto3" json:"streams,omitempty"`
 	// castable is how many measuring kept, once it has.
-	Castable int32 `protobuf:"varint,3,opt,name=castable,proto3" json:"castable,omitempty"`
+	Castable uint32 `protobuf:"varint,2,opt,name=castable,proto3" json:"castable,omitempty"`
 	// attempt counts tries from 1, once casting.
-	Attempt int32 `protobuf:"varint,4,opt,name=attempt,proto3" json:"attempt,omitempty"`
+	Attempt uint32 `protobuf:"varint,3,opt,name=attempt,proto3" json:"attempt,omitempty"`
 	// revision is the latest change of plan, unset before any.
-	Revision      *CastStatus_Revision `protobuf:"bytes,5,opt,name=revision,proto3" json:"revision,omitempty"`
+	Revision      *CastStatus_Revision `protobuf:"bytes,4,opt,name=revision,proto3" json:"revision,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -312,28 +259,21 @@ func (*CastStatus) Descriptor() ([]byte, []int) {
 	return file_castor_v1_logger_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *CastStatus) GetPhase() CastStatus_Phase {
-	if x != nil {
-		return x.Phase
-	}
-	return CastStatus_PHASE_UNSPECIFIED
-}
-
-func (x *CastStatus) GetStreams() int32 {
+func (x *CastStatus) GetStreams() uint32 {
 	if x != nil {
 		return x.Streams
 	}
 	return 0
 }
 
-func (x *CastStatus) GetCastable() int32 {
+func (x *CastStatus) GetCastable() uint32 {
 	if x != nil {
 		return x.Castable
 	}
 	return 0
 }
 
-func (x *CastStatus) GetAttempt() int32 {
+func (x *CastStatus) GetAttempt() uint32 {
 	if x != nil {
 		return x.Attempt
 	}
@@ -524,24 +464,16 @@ const file_castor_v1_logger_proto_rawDesc = "" +
 	"\rWatchResponse\x12/\n" +
 	"\x06status\x18\x01 \x01(\v2\x15.castor.v1.CastStatusH\x00R\x06status\x12(\n" +
 	"\x04line\x18\x02 \x01(\v2\x12.castor.v1.LogLineH\x00R\x04lineB\x0f\n" +
-	"\x06update\x12\x05\xbaH\x02\b\x01\"\x85\x04\n" +
+	"\x06update\x12\x05\xbaH\x02\b\x01\"\xd2\x01\n" +
 	"\n" +
-	"CastStatus\x12=\n" +
-	"\x05phase\x18\x01 \x01(\x0e2\x1b.castor.v1.CastStatus.PhaseB\n" +
-	"\xbaH\a\x82\x01\x04\x10\x01 \x00R\x05phase\x12!\n" +
-	"\astreams\x18\x02 \x01(\x05B\a\xbaH\x04\x1a\x02(\x00R\astreams\x12#\n" +
-	"\bcastable\x18\x03 \x01(\x05B\a\xbaH\x04\x1a\x02(\x00R\bcastable\x12!\n" +
-	"\aattempt\x18\x04 \x01(\x05B\a\xbaH\x04\x1a\x02(\x00R\aattempt\x12:\n" +
-	"\brevision\x18\x05 \x01(\v2\x1e.castor.v1.CastStatus.RevisionR\brevision\x1a8\n" +
+	"CastStatus\x12\x18\n" +
+	"\astreams\x18\x01 \x01(\rR\astreams\x12\x1a\n" +
+	"\bcastable\x18\x02 \x01(\rR\bcastable\x12\x18\n" +
+	"\aattempt\x18\x03 \x01(\rR\aattempt\x12:\n" +
+	"\brevision\x18\x04 \x01(\v2\x1e.castor.v1.CastStatus.RevisionR\brevision\x1a8\n" +
 	"\bRevision\x12\x1a\n" +
 	"\bstrategy\x18\x01 \x01(\tR\bstrategy\x12\x10\n" +
-	"\x03why\x18\x02 \x01(\tR\x03why\"a\n" +
-	"\x05Phase\x12\x15\n" +
-	"\x11PHASE_UNSPECIFIED\x10\x00\x12\x19\n" +
-	"\x15PHASE_AWAITING_DEVICE\x10\x01\x12\x13\n" +
-	"\x0fPHASE_MEASURING\x10\x02\x12\x11\n" +
-	"\rPHASE_CASTING\x10\x03:t\xbaHq\x1ao\n" +
-	"\x14cast_status.castable\x128measuring keeps no more streams than the cast was handed\x1a\x1dthis.castable <= this.streams\"\xb9\x01\n" +
+	"\x03why\x18\x02 \x01(\tR\x03why\"\xb9\x01\n" +
 	"\aLogLine\x125\n" +
 	"\x05level\x18\x01 \x01(\x0e2\x13.castor.v1.LogLevelB\n" +
 	"\xbaH\a\x82\x01\x04\x10\x01 \x00R\x05level\x12\x18\n" +
@@ -573,33 +505,31 @@ func file_castor_v1_logger_proto_rawDescGZIP() []byte {
 	return file_castor_v1_logger_proto_rawDescData
 }
 
-var file_castor_v1_logger_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_castor_v1_logger_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_castor_v1_logger_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_castor_v1_logger_proto_goTypes = []any{
 	(LogLevel)(0),               // 0: castor.v1.LogLevel
-	(CastStatus_Phase)(0),       // 1: castor.v1.CastStatus.Phase
-	(*WatchRequest)(nil),        // 2: castor.v1.WatchRequest
-	(*WatchResponse)(nil),       // 3: castor.v1.WatchResponse
-	(*CastStatus)(nil),          // 4: castor.v1.CastStatus
-	(*LogLine)(nil),             // 5: castor.v1.LogLine
-	(*CastStatus_Revision)(nil), // 6: castor.v1.CastStatus.Revision
-	(*LogLine_Attr)(nil),        // 7: castor.v1.LogLine.Attr
+	(*WatchRequest)(nil),        // 1: castor.v1.WatchRequest
+	(*WatchResponse)(nil),       // 2: castor.v1.WatchResponse
+	(*CastStatus)(nil),          // 3: castor.v1.CastStatus
+	(*LogLine)(nil),             // 4: castor.v1.LogLine
+	(*CastStatus_Revision)(nil), // 5: castor.v1.CastStatus.Revision
+	(*LogLine_Attr)(nil),        // 6: castor.v1.LogLine.Attr
 }
 var file_castor_v1_logger_proto_depIdxs = []int32{
 	0, // 0: castor.v1.WatchRequest.logs:type_name -> castor.v1.LogLevel
-	4, // 1: castor.v1.WatchResponse.status:type_name -> castor.v1.CastStatus
-	5, // 2: castor.v1.WatchResponse.line:type_name -> castor.v1.LogLine
-	1, // 3: castor.v1.CastStatus.phase:type_name -> castor.v1.CastStatus.Phase
-	6, // 4: castor.v1.CastStatus.revision:type_name -> castor.v1.CastStatus.Revision
-	0, // 5: castor.v1.LogLine.level:type_name -> castor.v1.LogLevel
-	7, // 6: castor.v1.LogLine.attrs:type_name -> castor.v1.LogLine.Attr
-	2, // 7: castor.v1.LoggerService.Watch:input_type -> castor.v1.WatchRequest
-	3, // 8: castor.v1.LoggerService.Watch:output_type -> castor.v1.WatchResponse
-	8, // [8:9] is the sub-list for method output_type
-	7, // [7:8] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	3, // 1: castor.v1.WatchResponse.status:type_name -> castor.v1.CastStatus
+	4, // 2: castor.v1.WatchResponse.line:type_name -> castor.v1.LogLine
+	5, // 3: castor.v1.CastStatus.revision:type_name -> castor.v1.CastStatus.Revision
+	0, // 4: castor.v1.LogLine.level:type_name -> castor.v1.LogLevel
+	6, // 5: castor.v1.LogLine.attrs:type_name -> castor.v1.LogLine.Attr
+	1, // 6: castor.v1.LoggerService.Watch:input_type -> castor.v1.WatchRequest
+	2, // 7: castor.v1.LoggerService.Watch:output_type -> castor.v1.WatchResponse
+	7, // [7:8] is the sub-list for method output_type
+	6, // [6:7] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_castor_v1_logger_proto_init() }
@@ -616,7 +546,7 @@ func file_castor_v1_logger_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_castor_v1_logger_proto_rawDesc), len(file_castor_v1_logger_proto_rawDesc)),
-			NumEnums:      2,
+			NumEnums:      1,
 			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,

@@ -47,11 +47,11 @@ func (c *casts) StartCast(_ context.Context, req *castorv1.StartCastRequest) (*c
 // run measures streams and casts them on the lent device, returning the outcome: nil ended, errStopped stopped, else why it failed.
 func (c *casts) run(ctx context.Context, s *session, caster Caster, req *castorv1.StartCastRequest) error {
 	s.status.update(func(now *castorv1.CastStatus) {
-		now.Phase, now.Streams = castorv1.CastStatus_PHASE_MEASURING, int32(handed(req))
+		now.Streams = uint32(handed(req))
 	})
 	ready, err := ready(ctx, caster, req)
 	if err == nil {
-		s.status.update(func(now *castorv1.CastStatus) { now.Castable = int32(len(ready)) })
+		s.status.update(func(now *castorv1.CastStatus) { now.Castable = uint32(len(ready)) })
 		err = caster.Play(ctx, remoteRenderer{s: s}, s.deliveries, ready, s)
 	}
 	return outcome(ctx, err)

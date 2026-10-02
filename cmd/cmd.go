@@ -181,8 +181,7 @@ type logged struct {
 
 // Status reports every change it sees: a watcher may get two at once, merged into one status.
 func (l *logged) Status(s *castorv1.CastStatus) {
-	measuring := castorv1.CastStatus_PHASE_MEASURING
-	if s.GetPhase() == measuring && l.last.GetPhase() != measuring {
+	if s.GetStreams() != l.last.GetStreams() {
 		slog.InfoContext(l.ctx, "cast measuring", "streams", s.GetStreams())
 	}
 	if s.GetCastable() != l.last.GetCastable() {

@@ -27,31 +27,14 @@ message WatchResponse {
 
 // CastStatus is where a cast stands; nothing decides on it, it is for people to read.
 message CastStatus {
-  option (buf.validate.message).cel = {
-    id: "cast_status.castable"
-    message: "measuring keeps no more streams than the cast was handed"
-    expression: "this.castable <= this.streams"
-  };
-
-  Phase phase = 1 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
-  // streams is how many streams the cast was handed.
-  int32 streams = 2 [(buf.validate.field).int32.gte = 0];
+  // streams is how many streams the cast was handed, once it measures them.
+  uint32 streams = 1;
   // castable is how many measuring kept, once it has.
-  int32 castable = 3 [(buf.validate.field).int32.gte = 0];
+  uint32 castable = 2;
   // attempt counts tries from 1, once casting.
-  int32 attempt = 4 [(buf.validate.field).int32.gte = 0];
+  uint32 attempt = 3;
   // revision is the latest change of plan, unset before any.
-  Revision revision = 5;
-
-  enum Phase {
-    PHASE_UNSPECIFIED = 0;
-    PHASE_AWAITING_DEVICE = 1;
-    PHASE_MEASURING = 2;
-    PHASE_CASTING = 3;
-  }
+  Revision revision = 4;
 
   message Revision {
     string strategy = 1;

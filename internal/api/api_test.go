@@ -244,10 +244,10 @@ func TestFoundStreamsAreRankedThenHandedToTheClientsRendererAsTheyAre(t *testing
 	if err := follow(t, c, id, shown, nil); err != nil {
 		t.Fatalf("a cast that ended cleanly reported %v", err)
 	}
-	if first := shown.shown[0]; first.GetPhase() != castorv1.CastStatus_PHASE_AWAITING_DEVICE {
+	if first := shown.shown[0]; !proto.Equal(first, &castorv1.CastStatus{}) {
 		t.Errorf("the watcher was first shown %+v, want the cast awaiting its device", first)
 	}
-	if last, want := shown.shown[len(shown.shown)-1], (&castorv1.CastStatus{Phase: castorv1.CastStatus_PHASE_CASTING, Streams: 2, Castable: 2, Attempt: 1}); !proto.Equal(last, want) {
+	if last, want := shown.shown[len(shown.shown)-1], (&castorv1.CastStatus{Streams: 2, Castable: 2, Attempt: 1}); !proto.Equal(last, want) {
 		t.Errorf("the watcher was last shown %+v, want %+v", last, want)
 	}
 	if got := <-screen.connected; got != bedroom {
@@ -658,7 +658,7 @@ func TestWatchingNeverDrivesAndTheCastStartsWithItsDriver(t *testing.T) {
 		t.Fatal("watching the cast drove its renderer")
 	case <-time.After(200 * time.Millisecond):
 	}
-	if got := shown.shown; len(got) != 1 || got[0].GetPhase() != castorv1.CastStatus_PHASE_AWAITING_DEVICE {
+	if got := shown.shown; len(got) != 1 || !proto.Equal(got[0], &castorv1.CastStatus{}) {
 		t.Errorf("before any driver the watcher was shown %+v, want only the wait", got)
 	}
 

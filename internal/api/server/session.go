@@ -90,7 +90,7 @@ func (s *session) watch(ctx context.Context, level slog.Level, logged bool, send
 
 func (s *session) Attempting(try int) {
 	s.status.update(func(now *castorv1.CastStatus) {
-		now.Phase, now.Attempt = castorv1.CastStatus_PHASE_CASTING, int32(try)
+		now.Attempt = uint32(try)
 	})
 }
 
