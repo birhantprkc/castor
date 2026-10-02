@@ -41,8 +41,8 @@ func (a *app) castURLCommand() *cli.Command {
 				return err
 			}
 			// Named, not found: the server measures it to extract the envelope for pass-through, without ranking.
-			return a.cast(ctx, cfg, c, &castorv1.StartCastRequest{
-				Streams:     &castorv1.StartCastRequest_Named{Named: &castorv1.Stream{Url: urlArg}},
+			return a.cast(ctx, cfg, c, &castorv1.StartRequest{
+				Streams:     &castorv1.StartRequest_Named{Named: &castorv1.Stream{Url: urlArg}},
 				Preferences: cfg.Preferences(),
 			}, target)
 		},

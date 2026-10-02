@@ -29,11 +29,11 @@ func refused(err error) error {
 const controlTimeout = 5 * time.Second
 
 // Start has the server begin the cast req asks for; it plays once a device is lent to it with Drive.
-func (c *Client) Start(ctx context.Context, req *castorv1.StartCastRequest) (string, error) {
+func (c *Client) Start(ctx context.Context, req *castorv1.StartRequest) (string, error) {
 	// Cancelling mid-start would leave a cast running whose id never arrived to stop it by.
 	start, cancel := context.WithTimeout(context.WithoutCancel(ctx), controlTimeout)
 	defer cancel()
-	started, err := c.casts.StartCast(start, req)
+	started, err := c.casts.Start(start, req)
 	if err != nil {
 		return "", fmt.Errorf("starting cast: %w", refused(err))
 	}
@@ -44,7 +44,7 @@ func (c *Client) Start(ctx context.Context, req *castorv1.StartCastRequest) (str
 func (c *Client) Stop(ctx context.Context, id string) error {
 	stop, cancel := context.WithTimeout(context.WithoutCancel(ctx), controlTimeout)
 	defer cancel()
-	if _, err := c.casts.StopCast(stop, &castorv1.StopCastRequest{CastId: id}); err != nil {
+	if _, err := c.casts.Stop(stop, &castorv1.StopRequest{CastId: id}); err != nil {
 		return fmt.Errorf("stopping cast: %w", err)
 	}
 	return nil

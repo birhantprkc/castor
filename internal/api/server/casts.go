@@ -18,7 +18,7 @@ type casts struct {
 	registry *registry
 }
 
-func (c *casts) StartCast(_ context.Context, req *castorv1.StartCastRequest) (*castorv1.StartCastResponse, error) {
+func (c *casts) Start(_ context.Context, req *castorv1.StartRequest) (*castorv1.StartResponse, error) {
 	caster := c.caster(req.GetPreferences())
 	ctx, cancel := context.WithCancelCause(c.ctx)
 	s := newSession(ctx, rand.Text(), cancel, c.server)
@@ -40,11 +40,11 @@ func (c *casts) StartCast(_ context.Context, req *castorv1.StartCastRequest) (*c
 		}
 		c.registry.retire(s)
 	}()
-	return &castorv1.StartCastResponse{CastId: s.id}, nil
+	return &castorv1.StartResponse{CastId: s.id}, nil
 }
 
 // run measures streams and casts them on the lent device, returning the outcome: nil ended, errStopped stopped, else why it failed.
-func run(ctx context.Context, s *session, caster Caster, req *castorv1.StartCastRequest) error {
+func run(ctx context.Context, s *session, caster Caster, req *castorv1.StartRequest) error {
 	s.status.update(func(now *castorv1.CastStatus) {
 		now.Streams = uint32(handed(req))
 	})
@@ -68,11 +68,11 @@ func outcome(ctx context.Context, err error) error {
 	}
 }
 
-func (c *casts) StopCast(_ context.Context, req *castorv1.StopCastRequest) (*castorv1.StopCastResponse, error) {
+func (c *casts) Stop(_ context.Context, req *castorv1.StopRequest) (*castorv1.StopResponse, error) {
 	s, err := c.registry.find(req.GetCastId())
 	if err != nil {
 		return nil, err
 	}
 	s.cancel(errStopped)
-	return &castorv1.StopCastResponse{}, nil
+	return &castorv1.StopResponse{}, nil
 }

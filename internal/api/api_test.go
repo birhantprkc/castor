@@ -145,16 +145,16 @@ func stream(raw string) *castorv1.Stream {
 	return &castorv1.Stream{Url: raw, Headers: map[string]string{"Referer": "https://page.example/"}}
 }
 
-func named(raw string) *castorv1.StartCastRequest {
-	return &castorv1.StartCastRequest{Streams: &castorv1.StartCastRequest_Named{Named: stream(raw)}, Preferences: asked}
+func named(raw string) *castorv1.StartRequest {
+	return &castorv1.StartRequest{Streams: &castorv1.StartRequest_Named{Named: stream(raw)}, Preferences: asked}
 }
 
-func found(raws ...string) *castorv1.StartCastRequest {
+func found(raws ...string) *castorv1.StartRequest {
 	streams := make([]*castorv1.Stream, len(raws))
 	for i, raw := range raws {
 		streams[i] = stream(raw)
 	}
-	return &castorv1.StartCastRequest{Streams: &castorv1.StartCastRequest_Found_{Found: &castorv1.StartCastRequest_Found{Streams: streams}}, Preferences: asked}
+	return &castorv1.StartRequest{Streams: &castorv1.StartRequest_Found{Found: &castorv1.StartRequest_Streams{Streams: streams}}, Preferences: asked}
 }
 
 // bases are where a served test's API answers, and where its renderers fetch.
@@ -181,7 +181,7 @@ func (p *progress) Status(s *castorv1.CastStatus) { p.shown = append(p.shown, s)
 var bedroom = device.Info{Name: "Bedroom", Type: "dlna", Address: "10.0.0.9"}
 
 // cast starts a cast and follows it to its end, as a frontend does.
-func cast(t *testing.T, c *client.Client, req *castorv1.StartCastRequest) error {
+func cast(t *testing.T, c *client.Client, req *castorv1.StartRequest) error {
 	t.Helper()
 	id, err := c.Start(t.Context(), req)
 	if err != nil {
@@ -313,7 +313,7 @@ func TestTheServerRefusesACastTheContractForbidsAndTheClientSaysWhy(t *testing.T
 	misheaded := named("https://cdn.example/direct")
 	misheaded.GetNamed().Headers = map[string]string{"Bad Header": "x"}
 	for name, tc := range map[string]struct {
-		req   *castorv1.StartCastRequest
+		req   *castorv1.StartRequest
 		broke string
 	}{
 		"no preferences":       {unasked, "preferences"},
@@ -511,7 +511,7 @@ func TestRenderersReachOnlyThePortsACastServesNeverTheAPI(t *testing.T) {
 
 	for what, path := range map[string]string{
 		"a port the cast never served": "/media/" + id + "/22/etc/passwd",
-		"the API":                      "/" + castorv1connect.CastServiceName + "/StopCast",
+		"the API":                      "/" + castorv1connect.CastServiceName + "/Stop",
 	} {
 		resp, err := http.Post(base.media+path, "application/json", strings.NewReader(`{"castId":"`+id+`"}`))
 		if err != nil {

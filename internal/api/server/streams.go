@@ -11,7 +11,7 @@ import (
 )
 
 // ready is req's streams in the order its cast walks them: found ones ranked, a named one measured as is.
-func ready(ctx context.Context, caster Caster, req *castorv1.StartCastRequest) ([]*source.Stream, error) {
+func ready(ctx context.Context, caster Caster, req *castorv1.StartRequest) ([]*source.Stream, error) {
 	if named := req.GetNamed(); named != nil {
 		stream, err := sourceStream(named)
 		if err != nil {
@@ -31,7 +31,7 @@ func ready(ctx context.Context, caster Caster, req *castorv1.StartCastRequest) (
 }
 
 // handed is how many streams req hands its cast.
-func handed(req *castorv1.StartCastRequest) int {
+func handed(req *castorv1.StartRequest) int {
 	if req.GetNamed() != nil {
 		return 1
 	}

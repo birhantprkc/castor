@@ -126,7 +126,7 @@ func fromServer(h slog.Handler) slog.Handler {
 }
 
 // cast starts the cast req asks for, watches it, and lends it target; cancelling ctx stops it.
-func (a *app) cast(ctx context.Context, cfg *config.Config, c *client.Client, req *castorv1.StartCastRequest, target device.Info) error {
+func (a *app) cast(ctx context.Context, cfg *config.Config, c *client.Client, req *castorv1.StartRequest, target device.Info) error {
 	id, err := c.Start(ctx, req)
 	if err != nil {
 		return err

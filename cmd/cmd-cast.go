@@ -107,8 +107,8 @@ func (a *app) extractAndCast(ctx context.Context, cfg *config.Config, target dev
 		return nil
 	}
 	// Pass all streams; the server ranks them and falls back to the next if the best fails.
-	return a.cast(ctx, cfg, c, &castorv1.StartCastRequest{
-		Streams:     &castorv1.StartCastRequest_Found_{Found: &castorv1.StartCastRequest_Found{Streams: streams}},
+	return a.cast(ctx, cfg, c, &castorv1.StartRequest{
+		Streams:     &castorv1.StartRequest_Found{Found: &castorv1.StartRequest_Streams{Streams: streams}},
 		Preferences: cfg.Preferences(),
 	}, target)
 }
