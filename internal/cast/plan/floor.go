@@ -4,6 +4,8 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+
+	"github.com/stupside/castor/internal/media"
 )
 
 // Floor plans read-once encoding: which halves produce vs. pass through.
@@ -58,7 +60,7 @@ func floorAudioTrack(in Inputs) (AudioTrack, []Refusal) {
 	return EncodeAudio(AudioEncode{
 		Codec:      target.codec,
 		Bitrate:    target.bitrate,
-		SampleRate: encodeSampleRate,
+		SampleRate: media.PlaybackSampleRate,
 		Channels:   max(min(cmp.Or(in.Probe.AudioChannels, 2), target.maxChannels), 2),
 		Resync:     in.Spliced,
 	}), refused

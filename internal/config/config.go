@@ -9,7 +9,6 @@ import (
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
 	"github.com/stupside/castor/internal/api/client"
 	"github.com/stupside/castor/internal/api/server"
-	"github.com/stupside/castor/internal/cast"
 	"github.com/stupside/castor/internal/cast/attempt"
 	"github.com/stupside/castor/internal/cast/compose"
 	"github.com/stupside/castor/internal/cast/deliver"
@@ -108,25 +107,19 @@ func (c *Config) Target() (device.Info, error) {
 	return device.Info{Name: c.Device.Name, Type: c.Device.Type, Address: c.Device.Host}, nil
 }
 
-// playback binds a cast asked as asked to renderer, serving on listeners; subs is the burn-in cmd binds, since the transcriber is cgo.
-func (c *Config) playback(asked *castorv1.Preferences, renderer execute.Renderer, listeners deliver.Listeners, subs execute.Subtitles) cast.Config {
-	height := media.HeightCap(asked.GetMaxHeight())
-	return cast.Config{
-		Source:       c.resolver(asked),
-		Delivery:     delivery(asked.GetDelivery()),
-		ReadDeadline: c.Transcode.RWTimeout,
-		Execute: execute.Config{
-			FFmpegPath: c.Transcode.FFmpegPath,
-			Binary:     ffmpeg.Inspect(c.Transcode.FFmpegPath),
-			Encoders:   transcode.Encoders(c.Transcode.FFmpegPath),
-			Probes:     probe.FFprobe(c.Resolver.FFprobePath),
-			Renderer:   renderer,
-			Listeners:  listeners,
-			Subtitles:  subs,
-			MaxHeight:  height,
-			// Half the read deadline: a reload castor answers late would end ffmpeg's read like no answer.
-			Timelines: follow.New(c.client(), formats, c.Transcode.RWTimeout/2, ffmpeg.Repackager(c.Transcode.FFmpegPath)),
-		},
+// execution is the machinery a cast asked as asked runs on renderer, serving on listeners; subs is the burn-in cmd binds, since the transcriber is cgo.
+func (c *Config) execution(asked *castorv1.Preferences, renderer execute.Renderer, listeners deliver.Listeners, subs execute.Subtitles) execute.Config {
+	return execute.Config{
+		FFmpegPath: c.Transcode.FFmpegPath,
+		Binary:     ffmpeg.Inspect(c.Transcode.FFmpegPath),
+		Encoders:   transcode.Encoders(c.Transcode.FFmpegPath),
+		Probes:     probe.FFprobe(c.Resolver.FFprobePath),
+		Renderer:   renderer,
+		Listeners:  listeners,
+		Subtitles:  subs,
+		MaxHeight:  media.HeightCap(asked.GetMaxHeight()),
+		// Half the read deadline: a reload castor answers late would end ffmpeg's read like no answer.
+		Timelines: follow.New(c.client(), formats, c.Transcode.RWTimeout/2, ffmpeg.Repackager(c.Transcode.FFmpegPath)),
 	}
 }
 
@@ -171,7 +164,13 @@ func (k caster) Measure(ctx context.Context, s *source.Stream) (*source.Stream, 
 }
 
 func (k caster) Play(ctx context.Context, renderer execute.Renderer, listeners deliver.Listeners, streams []*source.Stream, turns attempt.Turns) error {
-	return cast.Play(ctx, k.config.playback(k.asked, renderer, listeners, k.subs), streams, turns)
+	// The ranked streams, head first; the rest are what recovery switches to.
+	return attempt.Cast(ctx, attempt.Intent{
+		Candidates: streams,
+		Deadline:   k.config.Transcode.RWTimeout,
+		Delivery:   delivery(k.asked.GetDelivery()),
+		Turns:      turns,
+	}, execute.NewExecutor(k.config.execution(k.asked, renderer, listeners, k.subs)), k.config.resolver(k.asked))
 }
 
 // Preferences is what this machine's operator asks of every cast it starts.

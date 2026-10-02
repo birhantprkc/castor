@@ -123,12 +123,12 @@ func TestACopyIsExactlyTheAbsenceOfARefusal(t *testing.T) {
 		if err != nil {
 			t.Fatalf("the floor refused %+v: %v", in, err)
 		}
-		if !floor.Video.Decided() || !floor.Audio.Decided() || floor.Encoded().Any() == (len(floor.reasons()) == 0) {
-			t.Fatalf("the floor encodes %s with reasons %v for %+v", floor.Encoded(), floor.reasons(), in)
+		if !floor.Video.Decided() || !floor.Audio.Decided() || floor.Encoded().Any() == (len(floor.Refusals) == 0) {
+			t.Fatalf("the floor encodes %s with refusals %v for %+v", floor.Encoded(), floor.Refusals, in)
 		}
-		for _, reason := range floor.reasons() {
-			if !slices.ContainsFunc(carriage, func(r refusalRule) bool { return r.reason == reason }) {
-				t.Fatalf("the floor refused %+v for the renderer reason %q", in, reason)
+		for _, refusal := range floor.Refusals {
+			if !slices.ContainsFunc(carriage, func(r refusalRule) bool { return r.reason == refusal.Reason }) {
+				t.Fatalf("the floor refused %+v for the renderer reason %q", in, refusal.Reason)
 			}
 		}
 	}

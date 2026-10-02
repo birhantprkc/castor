@@ -9,9 +9,6 @@ import (
 
 // playbook maps fault kinds to retry strategies in cheapest-first order; switchCandidate is last.
 var playbook = map[kind][]strategy{
-	// Loop never reaches here (cancelled cast ends immediately).
-	cancelled: nil,
-
 	// No document/copy to blame when nothing established; re-extract for fresh signed URL is above.
 	unreachable: {switchCandidate},
 

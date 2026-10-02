@@ -81,15 +81,6 @@ type MediaPlan struct {
 	Refusals []Refusal
 }
 
-// reasons is the refusal vocabulary alone.
-func (p MediaPlan) reasons() []PlanReason {
-	reasons := make([]PlanReason, len(p.Refusals))
-	for i, r := range p.Refusals {
-		reasons[i] = r.Reason
-	}
-	return reasons
-}
-
 // Encoded returns which halves of the program this plan produces rather than passes through.
 func (p MediaPlan) Encoded() media.Axes {
 	_, video := p.Video.Encode()

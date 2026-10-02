@@ -76,7 +76,7 @@ func decideAudio(in Inputs) (AudioTrack, []Refusal, error) {
 		return EncodeAudio(AudioEncode{
 			Codec:      t.codec,
 			Bitrate:    t.bitrate,
-			SampleRate: encodeSampleRate,
+			SampleRate: media.PlaybackSampleRate,
 			// Never below stereo: the floor is stereo, and a surround codec is not asked to carry mono.
 			Channels: max(min(channels, t.maxChannels), 2),
 			Resync:   in.Spliced,
@@ -84,5 +84,3 @@ func decideAudio(in Inputs) (AudioTrack, []Refusal, error) {
 	}
 	return AudioTrack{}, refused, fmt.Errorf("no supported audio codec for re-encoding %q", in.Probe.AudioCodec)
 }
-
-const encodeSampleRate = media.PlaybackSampleRate

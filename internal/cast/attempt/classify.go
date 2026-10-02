@@ -216,13 +216,11 @@ func (f *fault) arithmetic() []string {
 			terms = append(terms, fmt.Sprintf("the source published %d renditions", len(o.Renditions)))
 		}
 	}
-	if f.candidates > 0 {
-		spent := fmt.Sprintf("candidate %d of %d", f.attempt.candidate+1, f.candidates)
-		if f.attempt.candidate+1 >= f.candidates {
-			spent += fmt.Sprintf(", every one of the %d links the ranker offered", f.candidates)
-		}
-		terms = append(terms, spent)
+	spent := fmt.Sprintf("candidate %d of %d", f.attempt.candidate+1, f.candidates)
+	if f.attempt.candidate+1 >= f.candidates {
+		spent += fmt.Sprintf(", every one of the %d links the ranker offered", f.candidates)
 	}
+	terms = append(terms, spent)
 	return terms
 }
 

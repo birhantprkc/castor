@@ -24,7 +24,7 @@ type Intent struct {
 	// Delivery: operator's answer; seeds first attempt, may be changed by recovery.
 	Delivery compose.DeliveryPreference
 
-	// Turns hears each attempt and revision; nil hears nothing.
+	// Turns hears each attempt and revision.
 	Turns Turns
 }
 
@@ -33,12 +33,6 @@ type Turns interface {
 	Attempting(try int)
 	Revising(strategy, why string)
 }
-
-// unheard is the Turns of a cast nobody follows.
-type unheard struct{}
-
-func (unheard) Attempting(int)          {}
-func (unheard) Revising(string, string) {}
 
 // Attempt is one fully decided try: link, rung, fetch terms, delivery preference.
 type Attempt struct {

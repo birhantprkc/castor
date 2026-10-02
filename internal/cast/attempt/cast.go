@@ -38,14 +38,10 @@ func Cast(ctx context.Context, in Intent, run Runner, resolver SourceResolver) e
 
 	// Track tried strategies to show failure pattern and recovery path.
 	var tried []string
-	turns := in.Turns
-	if turns == nil {
-		turns = unheard{}
-	}
 
 	for {
 		slog.InfoContext(ctx, "attempt", "try", a.Try, "candidates", len(in.Candidates), "shape", a.String())
-		turns.Attempting(a.Try)
+		in.Turns.Attempting(a.Try)
 
 		out := run.Run(ctx, a)
 		// Attribute error to runner before cancellation check.
@@ -67,7 +63,7 @@ func Cast(ctx context.Context, in Intent, run Runner, resolver SourceResolver) e
 		}
 
 		revising(ctx, f, rev)
-		turns.Revising(rev.strategy.name, f.why)
+		in.Turns.Revising(rev.strategy.name, f.why)
 		tried = append(tried, rev.strategy.name)
 		a = rev.attempt
 	}
@@ -82,10 +78,6 @@ func validate(in Intent, resolver SourceResolver) error {
 		if candidate == nil || candidate.URL == nil {
 			return fmt.Errorf("cast candidate %d has no URL", i)
 		}
-	}
-	if resolver == nil {
-		// Resolver required: prevents silent failures with unresolved links.
-		return errors.New("a cast needs a way to re-read what a link publishes")
 	}
 	return nil
 }

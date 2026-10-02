@@ -19,13 +19,14 @@ import (
 // encode decides what the served encode does with what f reads, for dev and any burn-in.
 func (s *session) encode(dev device.Device, f feed, burn Burn) (transcode.EncodeOptions, error) {
 	caps := dev.Capabilities()
-	into, err := plan.ServedFormat(caps)
-	if err != nil {
-		return transcode.EncodeOptions{}, err
+	into, ok := container.FormatForContentType(caps.ServedContainer)
+	if !ok {
+		return transcode.EncodeOptions{}, fmt.Errorf("the renderer asks to be served %q, which castor cannot produce", caps.ServedContainer)
 	}
 
 	var burnIn string
 	if burn != nil {
+		var err error
 		if burnIn, err = burn.Inputs(); err != nil {
 			return transcode.EncodeOptions{}, err
 		}

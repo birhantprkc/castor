@@ -159,7 +159,7 @@ func TestOnlyARendererHandedTheSourceIsServedInstead(t *testing.T) {
 		{"already served", false, switchCandidate.name},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			in := Intent{Candidates: candidates(t, "https://cdn.example/one.m3u8", "https://other.example/two.m3u8"), Deadline: 30 * time.Second}
+			in := Intent{Turns: unheard{}, Candidates: candidates(t, "https://cdn.example/one.m3u8", "https://other.example/two.m3u8"), Deadline: 30 * time.Second}
 			refused := Outcome{Err: refusal, Evidence: Evidence{Reached: PhaseOpening, PlayErr: refusal, Handoff: tc.handoff}}
 			run := &scriptedRunner{outcomes: []Outcome{refused, delivered}}
 			if err := Cast(t.Context(), in, run, &fakeProgram{}); err != nil || len(run.seen) != 2 {
@@ -177,7 +177,7 @@ func TestOnlyARendererHandedTheSourceIsServedInstead(t *testing.T) {
 }
 
 func TestUnreadableLinksAreMovedPastInRankOrder(t *testing.T) {
-	in := Intent{Candidates: candidates(t,
+	in := Intent{Turns: unheard{}, Candidates: candidates(t,
 		"https://cdn.example/expired.m3u8",
 		"https://other.example/two.m3u8",
 		"https://third.example/403.m3u8",
@@ -198,7 +198,7 @@ func TestUnreadableLinksAreMovedPastInRankOrder(t *testing.T) {
 }
 
 func TestATimelineCastorCouldNotReadMovesToTheNextLink(t *testing.T) {
-	in := Intent{Candidates: candidates(t, "https://cdn.example/one.mpd", "https://other.example/two.m3u8"), Deadline: 30 * time.Second}
+	in := Intent{Turns: unheard{}, Candidates: candidates(t, "https://cdn.example/one.mpd", "https://other.example/two.m3u8"), Deadline: 30 * time.Second}
 	unread := errors.New("HTTP 503")
 	failed := Outcome{Err: unread, Evidence: Evidence{Reached: PhaseReading, TimelineErr: unread}}
 	run := &scriptedRunner{outcomes: []Outcome{failed, delivered}}
@@ -212,7 +212,7 @@ func TestATimelineCastorCouldNotReadMovesToTheNextLink(t *testing.T) {
 }
 
 func TestACastWithNoReadableLinkRunsNothing(t *testing.T) {
-	in := Intent{Candidates: candidates(t, "https://cdn.example/one.m3u8"), Deadline: 30 * time.Second}
+	in := Intent{Turns: unheard{}, Candidates: candidates(t, "https://cdn.example/one.m3u8"), Deadline: 30 * time.Second}
 	prog := &fakeProgram{answers: map[string]published{"https://cdn.example/one.m3u8": {err: errors.New("HTTP 410")}}}
 	run := &scriptedRunner{}
 
@@ -225,7 +225,7 @@ func TestCastSwitchesToTheNextLinkOnItsOwnLadder(t *testing.T) {
 	sole := source.Origin{Renditions: []source.Rendition{rung(t, "https://cdn.example/2160.m3u8", 6941000, 2160)}, Segmented: true}
 	other := ladder(rung(t, "https://other.example/1080.m3u8", 3000000, 1080), rung(t, "https://other.example/720.m3u8", 1200000, 720))
 	other.Framing = media.FramingInBand
-	in := Intent{Candidates: candidates(t, "https://cdn.example/2160.m3u8", "https://other.example/master.m3u8"), Deadline: 30 * time.Second}
+	in := Intent{Turns: unheard{}, Candidates: candidates(t, "https://cdn.example/2160.m3u8", "https://other.example/master.m3u8"), Deadline: 30 * time.Second}
 	prog := &fakeProgram{answers: map[string]published{
 		"https://cdn.example/2160.m3u8":     {origin: sole, rung: sole.Renditions[0]},
 		"https://other.example/master.m3u8": {url: "https://other.example/720.m3u8", origin: other, rung: other.Renditions[1]},
@@ -257,7 +257,7 @@ func TestCastDegradesToTheHeaviestRungTheLinkCarried(t *testing.T) {
 	low.AudioURL = link(t, "https://cdn.example/audio/low.m3u8").URL
 	head := link(t, "https://cdn.example/2160.m3u8")
 	head.Probe = &media.ProbeInfo{VideoHeight: 2160}
-	in := Intent{Candidates: []*source.Stream{head}, Deadline: 30 * time.Second}
+	in := Intent{Turns: unheard{}, Candidates: []*source.Stream{head}, Deadline: 30 * time.Second}
 	run := &scriptedRunner{outcomes: []Outcome{judged(health.Undeliverable, PhaseReading, starving), delivered}}
 	resolver := publishing(head, ladder(top, mid, low), top)
 
@@ -296,7 +296,7 @@ func TestDegradeOnlyMovesDownTheLadder(t *testing.T) {
 }
 
 func TestCastRelaxesAStalledReadBeforeAbandoningTheLink(t *testing.T) {
-	in := Intent{Candidates: candidates(t, "https://cdn.example/one.m3u8", "https://other.example/two.m3u8"), Deadline: 30 * time.Second}
+	in := Intent{Turns: unheard{}, Candidates: candidates(t, "https://cdn.example/one.m3u8", "https://other.example/two.m3u8"), Deadline: 30 * time.Second}
 	stalled := judged(health.Stalled, PhaseReading, health.Health{Landed: 33088})
 	run := &scriptedRunner{outcomes: []Outcome{stalled, stalled, delivered}}
 
@@ -319,7 +319,7 @@ func TestCastRelaxesAStalledReadBeforeAbandoningTheLink(t *testing.T) {
 }
 
 func TestCastDecodesTheAxisWhoseCopyBrokeUpstream(t *testing.T) {
-	in := Intent{Candidates: candidates(t, "https://cdn.example/one.m3u8"), Deadline: 30 * time.Second}
+	in := Intent{Turns: unheard{}, Candidates: candidates(t, "https://cdn.example/one.m3u8"), Deadline: 30 * time.Second}
 	run := &scriptedRunner{outcomes: []Outcome{broke(media.Axes{Video: true, Audio: true}), delivered}}
 
 	if err := Cast(t.Context(), in, run, publishing(in.Candidates[0], source.Origin{Segmented: true}, source.Rendition{})); err != nil {
@@ -337,7 +337,7 @@ func TestCastDecodesTheAxisWhoseCopyBrokeUpstream(t *testing.T) {
 }
 
 func TestAPlayingCastIsNotRevisedEvenByAFaultThatClaimsItCanBe(t *testing.T) {
-	in := Intent{Candidates: candidates(t, "https://cdn.example/one.m3u8", "https://other.example/two.m3u8"), Deadline: 30 * time.Second}
+	in := Intent{Turns: unheard{}, Candidates: candidates(t, "https://cdn.example/one.m3u8", "https://other.example/two.m3u8"), Deadline: 30 * time.Second}
 	claimed := Outcome{
 		Err:      &health.Fault{Kind: health.Stalled, Revise: true, Health: starving},
 		Evidence: Evidence{Reached: PhasePlaying, Verdict: health.Stalled, Health: starving},
@@ -350,7 +350,7 @@ func TestAPlayingCastIsNotRevisedEvenByAFaultThatClaimsItCanBe(t *testing.T) {
 }
 
 func TestAFailureNobodyJudgedIsAbandonedRatherThanRetried(t *testing.T) {
-	in := Intent{Candidates: candidates(t, "https://cdn.example/one.m3u8", "https://other.example/two.m3u8"), Deadline: 30 * time.Second}
+	in := Intent{Turns: unheard{}, Candidates: candidates(t, "https://cdn.example/one.m3u8", "https://other.example/two.m3u8"), Deadline: 30 * time.Second}
 	readErr := errors.New("upstream pull: exit status 1")
 	// Classifies as copy-broke-upstream, whose recovery would apply, so only the gate refuses it.
 	unjudged := Outcome{Err: readErr, Evidence: Evidence{Reached: PhaseReading, ReadErr: readErr, ReadExit: 1, Copied: media.Axes{Video: true}}}
@@ -364,7 +364,7 @@ func TestAFailureNobodyJudgedIsAbandonedRatherThanRetried(t *testing.T) {
 
 func TestARendererThatIsGoneIsNotRetried(t *testing.T) {
 	head := link(t, "https://cdn.example/2160.m3u8")
-	in := Intent{Candidates: []*source.Stream{head, link(t, "https://cdn.example/two.m3u8")}, Deadline: 30 * time.Second}
+	in := Intent{Turns: unheard{}, Candidates: []*source.Stream{head, link(t, "https://cdn.example/two.m3u8")}, Deadline: 30 * time.Second}
 	origin := ladder(rung(t, "https://cdn.example/2160.m3u8", 6941000, 2160), rung(t, "https://cdn.example/720.m3u8", 1000000, 720))
 	gone := &media.Gone{Renderer: "Living Room TV", Err: errors.New("connect: no route to host")}
 	// Unstarted with a play error is revisable, so only the empty playbook entry refuses it.
@@ -387,7 +387,7 @@ func TestTheLedgerStopsAStrategyRepeatingAnAttempt(t *testing.T) {
 	playbook = map[kind][]strategy{sourceStalled: {sameAgain}}
 	t.Cleanup(func() { playbook = shipped })
 
-	in := Intent{Candidates: candidates(t, "https://cdn.example/one.m3u8"), Deadline: 30 * time.Second}
+	in := Intent{Turns: unheard{}, Candidates: candidates(t, "https://cdn.example/one.m3u8"), Deadline: 30 * time.Second}
 	stalled := judged(health.Stalled, PhaseReading, health.Health{})
 	run := &scriptedRunner{outcomes: []Outcome{stalled, stalled, stalled}}
 
@@ -399,7 +399,7 @@ func TestTheLedgerStopsAStrategyRepeatingAnAttempt(t *testing.T) {
 func TestCastEndsWithTheCancellationRatherThanAFault(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	in := Intent{Candidates: candidates(t, "https://cdn.example/one.m3u8", "https://other.example/two.m3u8"), Deadline: 30 * time.Second}
+	in := Intent{Turns: unheard{}, Candidates: candidates(t, "https://cdn.example/one.m3u8", "https://other.example/two.m3u8"), Deadline: 30 * time.Second}
 	run := &scriptedRunner{outcomes: []Outcome{{
 		Err:      context.Canceled,
 		Evidence: Evidence{Reached: PhaseReading, Cancelled: true, Verdict: health.Stalled},
@@ -417,7 +417,7 @@ func TestTheRefusalNamesWhatWasTriedAndItsMeasurements(t *testing.T) {
 		Segmented:  true,
 		Duration:   2*time.Hour + time.Minute + 55*time.Second,
 	}
-	in := Intent{Candidates: candidates(t, "https://cdn.example/2160.m3u8", "https://other.example/two.m3u8"), Deadline: 30 * time.Second}
+	in := Intent{Turns: unheard{}, Candidates: candidates(t, "https://cdn.example/2160.m3u8", "https://other.example/two.m3u8"), Deadline: 30 * time.Second}
 	slow := health.Health{Landed: 33088, Position: time.Second, Speed: 0.0627, Headroom: 2, Samples: 4}
 	run := &scriptedRunner{outcomes: []Outcome{judged(health.Undeliverable, PhaseReading, slow), judged(health.Undeliverable, PhaseReading, slow)}}
 	prog := &fakeProgram{answers: map[string]published{
@@ -446,3 +446,9 @@ func broke(copied media.Axes) Outcome {
 		Evidence: Evidence{Reached: PhaseReading, Verdict: health.Dead, Health: measured, ReadErr: dead, ReadExit: 183, Copied: copied},
 	}
 }
+
+// unheard is the Turns of a cast nobody follows.
+type unheard struct{}
+
+func (unheard) Attempting(int)          {}
+func (unheard) Revising(string, string) {}
