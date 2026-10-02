@@ -22,6 +22,10 @@ func (r remoteRenderer) Profile() media.Capabilities {
 func (r remoteRenderer) Connect(ctx context.Context) (device.Device, error) {
 	cmd := &castorv1.DeviceCommand{Command: &castorv1.DeviceCommand_Connect_{Connect: &castorv1.DeviceCommand_Connect{}}}
 	a, err := r.s.line.call(ctx, cmd)
+	if errors.Is(err, errDriverLeft) {
+		// No attempt reaches a device whose client has left, so recovery tries none.
+		r.s.cancel(errDriverLeft)
+	}
 	if err != nil {
 		return nil, err
 	}

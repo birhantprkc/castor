@@ -636,6 +636,43 @@ func TestACastHasOneDeviceAndPlaysOnWhenTheClientLendingItLeaves(t *testing.T) {
 	}
 }
 
+func TestACastThatNeedsItsDeviceAgainOnceItsClientLeftEndsThere(t *testing.T) {
+	connected, again := make(chan struct{}), make(chan struct{})
+	c, _ := serve(t, backend(func(ctx context.Context, r execute.Renderer, _ deliver.Listeners, _ []*source.Stream, _ attempt.Turns) error {
+		dev, err := r.Connect(ctx)
+		if err != nil {
+			return err
+		}
+		_ = dev.Close()
+		close(connected)
+		<-again
+		// Recovery revising the attempt, each revision reconnecting, until the cast is ended.
+		for range 50 {
+			if _, err := r.Connect(ctx); ctx.Err() != nil {
+				return err
+			}
+		}
+		return errors.New("recovery revised a cast whose device can no longer be told anything")
+	}), newTV())
+
+	id, err := c.Start(t.Context(), named("https://cdn.example/direct"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := c.Watch(t.Context(), id, &progress{}, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lending, leave := context.WithCancel(t.Context())
+	go func() { _ = c.Drive(lending, id, bedroom) }()
+	<-connected
+	leave()
+	close(again)
+	if err := w.Outcome(); err == nil || errors.Is(err, client.ErrStopped) || !strings.Contains(err.Error(), "left") {
+		t.Errorf("the watch ended with %v, want the cast failed for its device's client leaving", err)
+	}
+}
+
 func TestWatchingNeverDrivesAndTheCastStartsWithItsDriver(t *testing.T) {
 	screen := newTV()
 	c, _ := serve(t, backend(handoff), screen)
