@@ -32,7 +32,11 @@ func (r remoteRenderer) Connect(ctx context.Context) (device.Device, error) {
 	if err := answerErr(a); err != nil {
 		return nil, err
 	}
-	return &remoteDevice{s: r.s, handle: cmd.GetId(), caps: wire.FromCapabilities(a.GetCapabilities())}, nil
+	caps := a.GetCapabilities()
+	if caps == nil {
+		return nil, errors.New("the device answered connect without its capabilities")
+	}
+	return &remoteDevice{s: r.s, handle: cmd.GetId(), caps: wire.FromCapabilities(caps)}, nil
 }
 
 type remoteDevice struct {

@@ -676,6 +676,39 @@ func TestACastThatNeedsItsDeviceAgainOnceItsClientLeftEndsThere(t *testing.T) {
 	}
 }
 
+func TestADeviceThatConnectsWithoutItsCapabilitiesIsNoDevice(t *testing.T) {
+	connected := make(chan error, 1)
+	_, base := serve(t, backend(func(ctx context.Context, r execute.Renderer, _ deliver.Listeners, _ []*source.Stream, _ attempt.Turns) error {
+		_, err := r.Connect(ctx)
+		connected <- err
+		return err
+	}), newTV())
+	casts := castorv1connect.NewCastServiceClient(http.DefaultClient, base.api)
+	devices := castorv1connect.NewDeviceServiceClient(http.DefaultClient, base.api)
+
+	started, err := casts.Start(t.Context(), named("https://cdn.example/direct"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := started.GetCastId()
+	drive, err := devices.Drive(t.Context(), &castorv1.DriveRequest{CastId: id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer drive.Close()
+	if !drive.Receive() {
+		t.Fatalf("no connect arrived: %v", drive.Err())
+	}
+	// A client answering connect as if it were a play.
+	done := &castorv1.AnswerRequest{CastId: id, CommandId: drive.Msg().GetCommand().GetId(), Answer: &castorv1.AnswerRequest_Done_{Done: &castorv1.AnswerRequest_Done{}}}
+	if _, err := devices.Answer(t.Context(), done); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-connected; err == nil {
+		t.Error("a device that answered connect with no capabilities was taken as one that decodes nothing")
+	}
+}
+
 func TestWatchingNeverDrivesAndTheCastStartsWithItsDriver(t *testing.T) {
 	screen := newTV()
 	c, _ := serve(t, backend(handoff), screen)
