@@ -114,9 +114,10 @@ var File_castor_v1_extract_proto protoreflect.FileDescriptor
 
 const file_castor_v1_extract_proto_rawDesc = "" +
 	"\n" +
-	"\x17castor/v1/extract.proto\x12\tcastor.v1\x1a\x1bbuf/validate/validate.proto\x1a\x16castor/v1/stream.proto\"7\n" +
-	"\x0eExtractRequest\x12%\n" +
-	"\x05pages\x18\x01 \x03(\tB\x0f\xbaH\f\x92\x01\t\b\x01\"\x05r\x03\x88\x01\x01R\x05pages\">\n" +
+	"\x17castor/v1/extract.proto\x12\tcastor.v1\x1a\x1bbuf/validate/validate.proto\x1a\x16castor/v1/stream.proto\"\x99\x01\n" +
+	"\x0eExtractRequest\x12\x86\x01\n" +
+	"\x05pages\x18\x01 \x03(\tBp\xbaHm\x92\x01j\b\x01\"f\xba\x01c\n" +
+	"\burl.http\x12\x1cmust be an http or https URL\x1a9this.startsWith('http://') || this.startsWith('https://')R\x05pages\">\n" +
 	"\x0fExtractResponse\x12+\n" +
 	"\astreams\x18\x01 \x03(\v2\x11.castor.v1.StreamR\astreams2R\n" +
 	"\x0eExtractService\x12@\n" +

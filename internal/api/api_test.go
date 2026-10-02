@@ -321,6 +321,7 @@ func TestTheServerRefusesACastTheContractForbidsAndTheClientSaysWhy(t *testing.T
 		"no subtitle language": {unspoken, "preferences.subtitles"},
 		"no header name":       {misheaded, "named.headers"},
 		"a relative link":      {named("/movie.m3u8"), "named.url"},
+		"a file on the server": {named("file:///etc/passwd"), "named.url"},
 		"no streams found":     {found(), "found.streams"},
 	} {
 		_, err := c.Start(t.Context(), tc.req)
@@ -749,7 +750,7 @@ func TestPagesAreOpenedOnTheServerAndTheirStreamsReturnWithWhatFetchingThemNeeds
 	if _, err := c.Extract(t.Context(), &castorv1.ExtractRequest{Pages: []string{"https://site.example/empty"}}); connect.CodeOf(err) != connect.CodeNotFound {
 		t.Errorf("a page that plays nothing answered %v, want not found", err)
 	}
-	if _, err := c.Extract(t.Context(), &castorv1.ExtractRequest{Pages: []string{"not a page"}}); !errors.Is(err, client.ErrRefused) {
+	if _, err := c.Extract(t.Context(), &castorv1.ExtractRequest{Pages: []string{"chrome://settings"}}); !errors.Is(err, client.ErrRefused) {
 		t.Errorf("a malformed page answered %v, want the contract's refusal", err)
 	}
 }

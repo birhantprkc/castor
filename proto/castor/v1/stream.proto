@@ -11,7 +11,11 @@ service StreamService {
 
 // Stream is one link to the media, with what fetching it needs.
 message Stream {
-  string url = 1 [(buf.validate.field).string.uri = true];
+  string url = 1 [(buf.validate.field).cel = {
+    id: "url.http"
+    message: "must be an http or https URL"
+    expression: "this.startsWith('http://') || this.startsWith('https://')"
+  }];
   // headers are replayed on every fetch, as captured where the link was found.
   map<string, string> headers = 2 [(buf.validate.field).map = {
     keys: {

@@ -361,9 +361,10 @@ var File_castor_v1_stream_proto protoreflect.FileDescriptor
 
 const file_castor_v1_stream_proto_rawDesc = "" +
 	"\n" +
-	"\x16castor/v1/stream.proto\x12\tcastor.v1\x1a\x1bbuf/validate/validate.proto\"\xd6\x01\n" +
-	"\x06Stream\x12\x1a\n" +
-	"\x03url\x18\x01 \x01(\tB\b\xbaH\x05r\x03\x88\x01\x01R\x03url\x12Q\n" +
+	"\x16castor/v1/stream.proto\x12\tcastor.v1\x1a\x1bbuf/validate/validate.proto\"\xb7\x02\n" +
+	"\x06Stream\x12{\n" +
+	"\x03url\x18\x01 \x01(\tBi\xbaHf\xba\x01c\n" +
+	"\burl.http\x12\x1cmust be an http or https URL\x1a9this.startsWith('http://') || this.startsWith('https://')R\x03url\x12Q\n" +
 	"\aheaders\x18\x02 \x03(\v2\x1e.castor.v1.Stream.HeadersEntryB\x17\xbaH\x14\x9a\x01\x11\"\x05r\x03\xc0\x01\x01*\br\x06\xc8\x01\x00\xc0\x01\x02R\aheaders\x12!\n" +
 	"\fcontent_type\x18\x03 \x01(\tR\vcontentType\x1a:\n" +
 	"\fHeadersEntry\x12\x10\n" +

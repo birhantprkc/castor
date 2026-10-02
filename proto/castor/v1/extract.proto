@@ -14,7 +14,11 @@ service ExtractService {
 message ExtractRequest {
   repeated string pages = 1 [
     (buf.validate.field).repeated.min_items = 1,
-    (buf.validate.field).repeated.items.string.uri = true
+    (buf.validate.field).repeated.items.cel = {
+      id: "url.http"
+      message: "must be an http or https URL"
+      expression: "this.startsWith('http://') || this.startsWith('https://')"
+    }
   ];
 }
 
