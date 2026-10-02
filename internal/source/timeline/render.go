@@ -31,10 +31,7 @@ func (l *Ledger) Render(view func(s Segment, sequence int64) Segment) []byte {
 	var key Key
 	var init *Map
 	for i, e := range l.entries {
-		seen := e.Segment
-		if view != nil {
-			seen = view(e.Segment, e.sequence)
-		}
+		seen := view(e.Segment, e.sequence)
 		if seen.Seam && i > 0 {
 			b.WriteString(TagDiscontinuity + "\n")
 		}

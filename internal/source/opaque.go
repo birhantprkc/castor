@@ -8,12 +8,8 @@ import (
 	"github.com/stupside/castor/internal/source/timeline"
 )
 
-// opaque reads a source whole: the fallback for what no format claims, never listed in Formats.
+// opaque reads a source whole: the reader of what no format claims.
 type opaque struct{}
-
-func (opaque) Name() string { return "opaque" }
-
-func (opaque) Identity() Identity { return Identity{} }
 
 // Resolve reads the whole source behind one URL.
 func (opaque) Resolve(_ context.Context, _ Env, s Subject) (Resolution, error) {
@@ -29,9 +25,7 @@ func (opaque) Resolve(_ context.Context, _ Env, s Subject) (Resolution, error) {
 	return Resolution{Program: program, Origin: s.Origin}, nil
 }
 
-func (opaque) Recognize(string) Reading { return Reading{} }
-
-func (opaque) Timeline(Env, media.Input, media.TrackKind) timeline.Source { return nil }
+func (opaque) Timeline(Client, media.Input, media.TrackKind) timeline.Source { return nil }
 
 // containers are the files opaque reads whole, by the names a link announces them under.
 var containers = []Identity{

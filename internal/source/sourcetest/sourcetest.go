@@ -18,52 +18,6 @@ import (
 	"github.com/stupside/castor/internal/source/timeline"
 )
 
-// Measurer answers from a script keyed by URL and records what it was asked.
-type Measurer struct {
-	Answers map[string]Answer
-
-	mu       sync.Mutex
-	measured []string
-}
-
-// Answer is one scripted measurement (absent Info with Err = production shape for unopened link).
-type Answer struct {
-	Info  *media.ProbeInfo
-	Reach media.Reach
-	err   error
-}
-
-// Probe binds the script to one link (test binds it to candidate's URL to build rank.Probes).
-func (m *Measurer) Probe(u *url.URL) media.Prober { return scripted{answers: m, url: u} }
-
-// Asked is every URL measured so far, in order.
-func (m *Measurer) Asked() []string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return slices.Clone(m.measured)
-}
-
-type scripted struct {
-	answers *Measurer
-	url     *url.URL
-}
-
-func (p scripted) Probe(context.Context) (media.ProbeInfo, media.Reach, error) {
-	m := p.answers
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.measured = append(m.measured, p.url.String())
-	a, ok := m.Answers[p.url.String()]
-	if !ok {
-		return media.ProbeInfo{}, media.ReachUnproven, fmt.Errorf("no scripted measurement for %s", p.url)
-	}
-	// Scripted failure carries no info (production shape for unopened link).
-	if a.Info == nil {
-		return media.ProbeInfo{}, a.Reach, a.err
-	}
-	return *a.Info, a.Reach, a.err
-}
-
 // Playlist serves one fixture document to every fetch; like web.Client, anything but a 2xx fails.
 type Playlist struct {
 	Body   string

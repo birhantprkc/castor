@@ -18,7 +18,6 @@ type format struct {
 	refs  []string
 }
 
-func (format) Name() string       { return "fake" }
 func (format) Identity() Identity { return Identity{} }
 func (f format) Recognize(body string) Reading {
 	if !strings.Contains(body, f.token) {
@@ -30,7 +29,7 @@ func (f format) Recognize(body string) Reading {
 	return Reading{Ladder: LadderSole, Refs: f.refs}
 }
 
-func (format) Timeline(Env, media.Input, media.TrackKind) timeline.Source { return nil }
+func (format) Timeline(Client, media.Input, media.TrackKind) timeline.Source { return nil }
 
 func (format) Resolve(context.Context, Env, Subject) (Resolution, error) {
 	return Resolution{}, nil

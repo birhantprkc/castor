@@ -19,20 +19,23 @@ type Client interface {
 	Read(ctx context.Context, u *url.URL, h http.Header, r timeline.Range) (io.ReadCloser, error)
 }
 
+// Reader reads the links of one shape.
+type Reader interface {
+	Resolve(ctx context.Context, env Env, s Subject) (Resolution, error)
+
+	// Timeline follows an input whose timeline castor keeps, read for the kind of track given; nil for one ffmpeg reads directly.
+	Timeline(c Client, in media.Input, reads media.TrackKind) timeline.Source
+}
+
+// Format is a Reader for a document grammar, which links announce and bodies show.
 type Format interface {
-	// Name is the shape resolution reports having read.
-	Name() string
+	Reader
 
 	// Identity is the content type this format reads and the names a link announces it under.
 	Identity() Identity
 
-	Resolve(ctx context.Context, env Env, s Subject) (Resolution, error)
-
 	// Recognize reads a body in this format's grammar; LadderUnknown means it is not this format.
 	Recognize(body string) Reading
-
-	// Timeline follows an input whose timeline castor keeps, read for the kind of track given; nil for one ffmpeg reads directly.
-	Timeline(env Env, in media.Input, reads media.TrackKind) timeline.Source
 }
 
 // Identity is how a link says it carries one content type: a file extension, or a server-confirmed MIME type.

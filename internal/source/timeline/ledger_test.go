@@ -23,7 +23,7 @@ func listed(prefix string, first, last int64) Window {
 
 // playlist is what the ledger renders, one line per URI or tag.
 func playlist(l *Ledger) []string {
-	return strings.Split(strings.TrimSpace(string(l.Render(nil))), "\n")
+	return strings.Split(strings.TrimSpace(string(l.Render(asListed))), "\n")
 }
 
 func count(lines []string, prefix string) int {
@@ -45,13 +45,13 @@ func TestAnEncoderThatNumbersFromZeroAgainKeepsTheTimelineMovingForward(t *testi
 	}
 	lines := playlist(&l)
 	if got := count(lines, "#EXT-X-MEDIA-SEQUENCE:3"); got != 1 {
-		t.Errorf("the sequence did not move forward past the restart:\n%s", l.Render(nil))
+		t.Errorf("the sequence did not move forward past the restart:\n%s", l.Render(asListed))
 	}
 	if got := count(lines, "#EXT-X-DISCONTINUITY"); got != 1 {
-		t.Errorf("marked %d seams, want the one restart:\n%s", got, l.Render(nil))
+		t.Errorf("marked %d seams, want the one restart:\n%s", got, l.Render(asListed))
 	}
-	if !strings.Contains(string(l.Render(nil)), "#EXT-X-DISCONTINUITY\n#EXTINF:1.000000,\nhttps://origin.example/b000.ts") {
-		t.Errorf("the seam is not in front of the restarted encoder's first segment:\n%s", l.Render(nil))
+	if !strings.Contains(string(l.Render(asListed)), "#EXT-X-DISCONTINUITY\n#EXTINF:1.000000,\nhttps://origin.example/b000.ts") {
+		t.Errorf("the seam is not in front of the restarted encoder's first segment:\n%s", l.Render(asListed))
 	}
 }
 
@@ -72,9 +72,9 @@ func TestAStaleWindowOlderThanWhatIsRetainedAddsNothing(t *testing.T) {
 	for first := int64(0); first <= 7; first++ {
 		l.Merge(listed("a", first, first+2))
 	}
-	before := string(l.Render(nil))
-	if got := l.Merge(listed("a", 2, 4)); got != (Merged{}) || string(l.Render(nil)) != before {
-		t.Errorf("a window three reloads stale merged as %+v and rendered:\n%s\nwant nothing added to:\n%s", got, l.Render(nil), before)
+	before := string(l.Render(asListed))
+	if got := l.Merge(listed("a", 2, 4)); got != (Merged{}) || string(l.Render(asListed)) != before {
+		t.Errorf("a window three reloads stale merged as %+v and rendered:\n%s\nwant nothing added to:\n%s", got, l.Render(asListed), before)
 	}
 }
 
@@ -114,11 +114,11 @@ func TestTheLedgerKeepsAsMuchAsTheOriginsLongestWindow(t *testing.T) {
 	if got := count(lines, "#EXTINF"); got != 10 {
 		t.Errorf("kept %d segments, want the origin's longest window of 10", got)
 	}
-	if !strings.Contains(string(l.Render(nil)), "#EXT-X-DISCONTINUITY-SEQUENCE:1\n") {
-		t.Errorf("the trimmed seam is not counted in EXT-X-DISCONTINUITY-SEQUENCE:\n%s", l.Render(nil))
+	if !strings.Contains(string(l.Render(asListed)), "#EXT-X-DISCONTINUITY-SEQUENCE:1\n") {
+		t.Errorf("the trimmed seam is not counted in EXT-X-DISCONTINUITY-SEQUENCE:\n%s", l.Render(asListed))
 	}
-	if !strings.Contains(string(l.Render(nil)), "#EXT-X-MEDIA-SEQUENCE:13\n") {
-		t.Errorf("the sequence did not move forward with the trim:\n%s", l.Render(nil))
+	if !strings.Contains(string(l.Render(asListed)), "#EXT-X-MEDIA-SEQUENCE:13\n") {
+		t.Errorf("the sequence did not move forward with the trim:\n%s", l.Render(asListed))
 	}
 }
 
@@ -131,7 +131,7 @@ func TestASeamKeepsItsDiscontinuityNumberOnceItsTagScrollsOff(t *testing.T) {
 	// b000 now opens the playlist, so the tag in front of it is gone and the sequence must count it.
 	lines := playlist(&l)
 	if slices.Contains(lines, "#EXT-X-DISCONTINUITY") || count(lines, "#EXT-X-DISCONTINUITY-SEQUENCE:1") != 1 {
-		t.Errorf("the seam whose tag scrolled off is not counted, so its segments' discontinuity number went back:\n%s", l.Render(nil))
+		t.Errorf("the seam whose tag scrolled off is not counted, so its segments' discontinuity number went back:\n%s", l.Render(asListed))
 	}
 }
 
@@ -141,13 +141,13 @@ func TestAStartMeasuredFromTheOriginsFirstSegmentIsMovedOntoTheLedgers(t *testin
 	w := listed("a", 3, 8)
 	w.Start = &Start{Offset: 2 * time.Second, Precise: true}
 	l.Merge(w)
-	if !strings.Contains(string(l.Render(nil)), "#EXT-X-START:TIME-OFFSET=5.000000,PRECISE=YES\n") {
-		t.Errorf("the start was not rebased by the three segments the ledger holds before the origin's first:\n%s", l.Render(nil))
+	if !strings.Contains(string(l.Render(asListed)), "#EXT-X-START:TIME-OFFSET=5.000000,PRECISE=YES\n") {
+		t.Errorf("the start was not rebased by the three segments the ledger holds before the origin's first:\n%s", l.Render(asListed))
 	}
 	w.Start = &Start{Offset: 0}
 	l.Merge(w)
-	if !strings.Contains(string(l.Render(nil)), "#EXT-X-START:TIME-OFFSET=3.000000\n") {
-		t.Errorf("a start at the origin's first segment was lost:\n%s", l.Render(nil))
+	if !strings.Contains(string(l.Render(asListed)), "#EXT-X-START:TIME-OFFSET=3.000000\n") {
+		t.Errorf("a start at the origin's first segment was lost:\n%s", l.Render(asListed))
 	}
 }
 
@@ -156,13 +156,13 @@ func TestAClosedOriginEndsThePlaylistAndMergesNoMore(t *testing.T) {
 	w := listed("a", 0, 3)
 	w.Closed = true
 	l.Merge(w)
-	before := string(l.Render(nil))
+	before := string(l.Render(asListed))
 	l.Merge(listed("a", 4, 6))
-	if after := string(l.Render(nil)); after != before {
+	if after := string(l.Render(asListed)); after != before {
 		t.Errorf("merged segments after the origin closed:\n%s", after)
 	}
 	if lines := playlist(&l); lines[len(lines)-1] != "#EXT-X-ENDLIST" {
-		t.Errorf("a closed origin's playlist does not end:\n%s", l.Render(nil))
+		t.Errorf("a closed origin's playlist does not end:\n%s", l.Render(asListed))
 	}
 }
 
@@ -190,7 +190,7 @@ func TestKeysAndInitSectionsAreWrittenWhereTheyChange(t *testing.T) {
 		"#EXT-X-KEY:METHOD=NONE",
 	} {
 		if count(lines, want) != 1 {
-			t.Errorf("missing %q in:\n%s", want, l.Render(nil))
+			t.Errorf("missing %q in:\n%s", want, l.Render(asListed))
 		}
 	}
 }
@@ -209,10 +209,10 @@ func TestPeriodsAreSeamsAndOnesAlreadyPlayedAreNotReplayed(t *testing.T) {
 	l.Merge(Window{Segments: append(period("ad", 0, 1), period("film2", 0, 2)...)})
 	lines := playlist(&l)
 	if got := count(lines, "https://origin.example/ad000.ts"); got != 1 {
-		t.Errorf("the ad Period was published %d times, want once:\n%s", got, l.Render(nil))
+		t.Errorf("the ad Period was published %d times, want once:\n%s", got, l.Render(asListed))
 	}
 	if lines[len(lines)-1] != "https://origin.example/film2002.ts" {
-		t.Errorf("the playlist does not end at the next Period's edge:\n%s", l.Render(nil))
+		t.Errorf("the playlist does not end at the next Period's edge:\n%s", l.Render(asListed))
 	}
 	if got := count(lines, "#EXT-X-DISCONTINUITY"); got != 2 {
 		t.Errorf("marked %d seams, want one per Period boundary", got)
@@ -228,9 +228,9 @@ func TestAStaleWindowFromAPeriodAlreadyPlayedIsNotReplayed(t *testing.T) {
 	l.Merge(film)
 	l.Merge(ad)
 	// An edge still listing the film after castor trimmed it.
-	before := string(l.Render(nil))
+	before := string(l.Render(asListed))
 	l.Merge(Window{Segments: film.Segments[1:]})
-	if after := string(l.Render(nil)); after != before {
+	if after := string(l.Render(asListed)); after != before {
 		t.Errorf("replayed segments of a Period already played:\n%s", after)
 	}
 }
@@ -256,7 +256,10 @@ func TestTheTargetDurationNeverShrinks(t *testing.T) {
 	for n := int64(1); n <= 3; n++ {
 		l.Merge(listed("a", n, n))
 	}
-	if !strings.Contains(string(l.Render(nil)), "#EXT-X-TARGETDURATION:6\n") {
-		t.Errorf("the target shrank once the long segment was trimmed:\n%s", l.Render(nil))
+	if !strings.Contains(string(l.Render(asListed)), "#EXT-X-TARGETDURATION:6\n") {
+		t.Errorf("the target shrank once the long segment was trimmed:\n%s", l.Render(asListed))
 	}
 }
+
+// asListed renders every segment as the origin listed it.
+func asListed(s Segment, _ int64) Segment { return s }

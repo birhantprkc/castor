@@ -1,9 +1,11 @@
 package rank
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,13 +16,30 @@ import (
 
 var testConfig = Config{MaxHeight: 1080, ProbeMaxConcurrency: 2}
 
-func answered(info *media.ProbeInfo) sourcetest.Answer {
-	return sourcetest.Answer{Info: info, Reach: media.ReachOpened}
+// scripted measures every link its script names as opened, records what it was asked, and fails the rest.
+type scripted struct {
+	answers map[string]*media.ProbeInfo
+
+	mu    sync.Mutex
+	asked []string
 }
 
-func newTestRanker(m *sourcetest.Measurer) *Ranker {
-	return New(testConfig, func(c *source.Stream) media.Prober { return m.Probe(c.URL) })
+func (s *scripted) Probe(c *source.Stream) media.Prober {
+	return proberFunc(func(context.Context) (media.ProbeInfo, media.Reach, error) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.asked = append(s.asked, c.URL.String())
+		info, ok := s.answers[c.URL.String()]
+		if !ok {
+			return media.ProbeInfo{}, media.ReachUnproven, fmt.Errorf("no scripted measurement for %s", c.URL)
+		}
+		return *info, media.ReachOpened, nil
+	})
 }
+
+type proberFunc func(context.Context) (media.ProbeInfo, media.Reach, error)
+
+func (f proberFunc) Probe(ctx context.Context) (media.ProbeInfo, media.Reach, error) { return f(ctx) }
 
 // playable is a measurement of a real title: both tracks, a feature runtime.
 func playable(bitRate int64, height int, runtime time.Duration) *media.ProbeInfo {
@@ -79,27 +98,27 @@ func TestAdmissions(t *testing.T) {
 
 // The per-host cap spends its measurements on the document that promises a ladder, whatever its capture order.
 func TestRankMeasuresTheLadderBeforeTheCapDropsIt(t *testing.T) {
-	answers := map[string]sourcetest.Answer{}
+	answers := map[string]*media.ProbeInfo{}
 	var captured []*source.Stream
 	for i := range maxProbePerHost + 1 {
 		raw := fmt.Sprintf("http://a.example/v%d.m3u8", i)
-		answers[raw] = answered(playable(1_000_000, 720, 2*time.Hour))
+		answers[raw] = playable(1_000_000, 720, 2*time.Hour)
 		c := candidateAt(t, media.HLS, raw)
 		c.Ladder = source.LadderSole
 		captured = append(captured, c)
 	}
 	const master = "http://a.example/index.m3u8"
-	answers[master] = answered(playable(0, 1080, 2*time.Hour))
+	answers[master] = playable(0, 1080, 2*time.Hour)
 	ladder := candidateAt(t, media.HLS, master)
 	ladder.Ladder = source.LadderMultivariant
 	captured = append(captured, ladder)
 
-	measurer := &sourcetest.Measurer{Answers: answers}
-	order, err := newTestRanker(measurer).Rank(t.Context(), captured)
+	measurer := &scripted{answers: answers}
+	order, err := New(testConfig, measurer.Probe).Rank(t.Context(), captured)
 	if err != nil {
 		t.Fatalf("Rank: %v", err)
 	}
-	if asked := measurer.Asked(); len(asked) != maxProbePerHost || !slices.Contains(asked, master) {
+	if asked := measurer.asked; len(asked) != maxProbePerHost || !slices.Contains(asked, master) {
 		t.Fatalf("measured %v, want %d links on one host including the master", asked, maxProbePerHost)
 	}
 	if order[0].URL.String() != master || order[0].Ladder != source.LadderMultivariant {

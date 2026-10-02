@@ -17,13 +17,12 @@ type offered struct {
 	rep *mpd.RepresentationType
 }
 
-func (o offered) kind() media.TrackKind { return kind(o.set, o.rep) }
-func (o offered) height() int           { return height(o.set, o.rep) }
-func (o offered) codecs() string        { return codecs(o.set, o.rep) }
+func (o offered) height() int    { return height(o.set, o.rep) }
+func (o offered) codecs() string { return codecs(o.set, o.rep) }
 
 // muxed is a video representation whose segments carry its sound too.
 func (o offered) muxed() bool {
-	return o.kind() == media.TrackVideo && slices.ContainsFunc(strings.Split(o.codecs(), ","), func(c string) bool {
+	return kind(o.set, o.rep) == media.TrackVideo && slices.ContainsFunc(strings.Split(o.codecs(), ","), func(c string) bool {
 		return !source.DeclaresVideo(c) && strings.TrimSpace(c) != ""
 	})
 }

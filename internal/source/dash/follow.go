@@ -16,23 +16,22 @@ import (
 )
 
 // Timeline translates the one representation a DASH input reads into the segments castor republishes.
-func (Format) Timeline(env source.Env, in media.Input, reads media.TrackKind) timeline.Source {
+func (Format) Timeline(c source.Client, in media.Input, reads media.TrackKind) timeline.Source {
 	if in.Representation == "" {
 		return nil
 	}
 	return &follower{
-		Client:  env.Client,
+		Client:  c,
 		Headers: in.Headers,
-		url:     in.URL, kind: reads, id: in.Representation, clock: time.Now,
+		url:     in.URL, kind: reads, id: in.Representation,
 	}
 }
 
 // follower reads the presentation afresh each window, keeping what it learned once: the track it matches and the clock.
 type follower struct {
 	source.Media
-	kind  media.TrackKind
-	id    string
-	clock func() time.Time
+	kind media.TrackKind
+	id   string
 
 	url    *url.URL
 	want   *wanted
@@ -70,7 +69,7 @@ func (f *follower) Window(ctx context.Context) (timeline.Window, error) {
 		if e.available = instant(m.AvailabilityStartTime); e.available.IsZero() {
 			return timeline.Window{}, errNoEdge
 		}
-		e.now = f.clock().Add(f.skew(ctx, m, from))
+		e.now = time.Now().Add(f.skew(ctx, m, from))
 		e.depth = span(m.TimeShiftBufferDepth)
 		if e.depth == 0 {
 			e.depth = defaultDepth
@@ -126,7 +125,7 @@ func (f *follower) skew(ctx context.Context, m presentation, from *url.URL) time
 			}
 		}
 		if !stated.IsZero() {
-			offset := stated.Sub(f.clock())
+			offset := stated.Sub(time.Now())
 			f.offset = &offset
 			return offset
 		}

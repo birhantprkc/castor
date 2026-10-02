@@ -58,7 +58,7 @@ func TestALivePlaylistCastorCannotReadStaysFfmpegsToRead(t *testing.T) {
 
 func TestARefusedReloadCarriesTheOriginsStatus(t *testing.T) {
 	in, _ := program(t, true).PrimaryInput()
-	follow := Format{}.Timeline(source.Env{Client: &sourcetest.Playlist{Status: http.StatusGone}}, in, media.TrackVideo)
+	follow := Format{}.Timeline(&sourcetest.Playlist{Status: http.StatusGone}, in, media.TrackVideo)
 	_, err := follow.Window(t.Context())
 	if f, ok := errors.AsType[*timeline.Failure](err); !ok || f.Status != http.StatusGone {
 		t.Errorf("a 410 reload failed with %v, want the origin's status carried", err)

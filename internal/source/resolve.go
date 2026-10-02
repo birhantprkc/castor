@@ -66,24 +66,19 @@ func (r *Resolver) RefetchProgram(ctx context.Context, stream *Stream, chosen Re
 	}
 	// Adaptive manifests are segmented even without format-specific parser.
 	origin.Segmented = media.IsSegmented(stream.ContentType)
-	format := r.formats.Claiming(stream.ContentType)
-	resolved, err := format.Resolve(ctx, r.env, Subject{Stream: *stream, Origin: origin, Chosen: chosen})
+	resolved, err := r.formats.Claiming(stream.ContentType).Resolve(ctx, r.env, Subject{Stream: *stream, Origin: origin, Chosen: chosen})
 	if err != nil {
 		return resolved, err
 	}
 	if drm := resolved.Origin.Protection; drm != "" {
 		return resolved, fmt.Errorf("the source is protected by DRM (%s), which castor cannot decrypt", drm)
 	}
-	slog.InfoContext(ctx, "source shape resolved", "shape", format.Name())
+	slog.InfoContext(ctx, "source resolved", "content_type", stream.ContentType)
 	return resolved, nil
 }
 
 // ProgramFor expands one opaque stream into a single-input program (format builds richer graph).
 func ProgramFor(stream *Stream) (media.Program, error) {
-	if stream == nil {
-		return media.Program{}, fmt.Errorf("source stream is nil")
-	}
-
 	// A stream has only container-level fetch metadata; preserve only container-level facts.
 	fetch := media.Fetch{Segmented: media.IsSegmented(stream.ContentType)}
 	inputs := []media.Input{{

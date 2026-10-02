@@ -66,7 +66,7 @@ func TestALivePresentationWithNoStartIsRefused(t *testing.T) {
 	const body = mpdOpen + `type="dynamic"><Period><AdaptationSet contentType="video">
     <SegmentTemplate timescale="1" duration="2" media="$Number$.m4s"/><Representation id="v" height="360"/></AdaptationSet></Period></MPD>`
 	in := media.Input{ID: media.PrimaryInputID, URL: sourcetest.URL(t, "https://cdn.example/live/manifest.mpd"), Representation: "v"}
-	f := Format{}.Timeline(source.Env{Client: &sourcetest.Playlist{Body: body, Status: http.StatusOK}}, in, media.TrackVideo)
+	f := Format{}.Timeline(&sourcetest.Playlist{Body: body, Status: http.StatusOK}, in, media.TrackVideo)
 	if _, err := f.Window(t.Context()); err == nil {
 		t.Error("placed a live edge with no availabilityStartTime")
 	}
@@ -112,7 +112,7 @@ func TestAnIndexWithNoStatedInitTakesWhatPrecedesIt(t *testing.T) {
 func TestARepresentationNamingNothingIsRefused(t *testing.T) {
 	const body = mpdOpen + `type="static"><Period duration="PT2S"><AdaptationSet contentType="video"><Representation id="v" height="360"/></AdaptationSet></Period></MPD>`
 	in := media.Input{ID: media.PrimaryInputID, URL: sourcetest.URL(t, "https://cdn.example/live/manifest.mpd"), Representation: "v"}
-	f := Format{}.Timeline(source.Env{Client: &sourcetest.Playlist{Body: body, Status: http.StatusOK}}, in, media.TrackVideo)
+	f := Format{}.Timeline(&sourcetest.Playlist{Body: body, Status: http.StatusOK}, in, media.TrackVideo)
 	if _, err := f.Window(t.Context()); err == nil {
 		t.Error("read the presentation itself as the representation's media")
 	}

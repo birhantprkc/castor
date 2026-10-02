@@ -20,8 +20,6 @@ type Format struct{}
 
 var _ source.Format = Format{}
 
-func (Format) Name() string { return "dash" }
-
 func (Format) Identity() source.Identity {
 	return source.Identity{ContentType: media.DASH, Extensions: []string{".mpd"}, MIMETypes: []string{media.DASH}}
 }

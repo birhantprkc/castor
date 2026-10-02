@@ -13,7 +13,7 @@ import (
 
 // Republisher serves ffmpeg the inputs whose timelines castor keeps, on loopback, for one read.
 type Republisher struct {
-	env     source.Env
+	client  source.Client
 	formats source.Formats
 	// patience bounds each origin fetch, so a reload is answered before the reader's own deadline.
 	patience  time.Duration
@@ -22,15 +22,15 @@ type Republisher struct {
 
 // New follows timelines on client, which must be the session resolution read through; repackage serves fMP4 as MPEG-TS.
 func New(client source.Client, formats source.Formats, patience time.Duration, repackage Repackage) Republisher {
-	return Republisher{env: source.Env{Client: client}, formats: formats, patience: patience, repackage: repackage}
+	return Republisher{client: client, formats: formats, patience: patience, repackage: repackage}
 }
 
 // Republish points each followed input at its republished timeline; the func stops serving them.
 func (p Republisher) Republish(ctx context.Context, program media.Program) (media.Program, func() error, error) {
 	var feeds []*feed
-	followed := map[media.InputID]string{}
+	followed := map[media.InputID]bool{}
 	for _, in := range program.Inputs {
-		src := p.formats.Claiming(in.ContentType).Timeline(p.env, in, reads(program, in.ID))
+		src := p.formats.Claiming(in.ContentType).Timeline(p.client, in, reads(program, in.ID))
 		if src == nil {
 			continue
 		}
@@ -44,7 +44,7 @@ func (p Republisher) Republish(ctx context.Context, program media.Program) (medi
 				"input", in.ID, "error", err)
 			continue
 		}
-		feeds, followed[in.ID] = append(feeds, feed), string(in.ID)
+		feeds, followed[in.ID] = append(feeds, feed), true
 	}
 	if len(feeds) == 0 {
 		return program, func() error { return nil }, nil
@@ -55,9 +55,9 @@ func (p Republisher) Republish(ctx context.Context, program media.Program) (medi
 	}
 	out := program.Clone()
 	for i, in := range out.Inputs {
-		if name, ok := followed[in.ID]; ok {
+		if followed[in.ID] {
 			// The republished playlist is the representation, so the input names nothing inside it any more.
-			out.Inputs[i].URL, out.Inputs[i].ContentType, out.Inputs[i].Representation = server.URL(name), media.HLS, ""
+			out.Inputs[i].URL, out.Inputs[i].ContentType, out.Inputs[i].Representation = server.URL(string(in.ID)), media.HLS, ""
 			slog.InfoContext(ctx, "castor follows this input's timeline", "input", in.ID, "origin", in.URL.Redacted(), "republished", out.Inputs[i].URL)
 		}
 	}

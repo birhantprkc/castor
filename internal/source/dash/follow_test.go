@@ -4,10 +4,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stupside/castor/internal/media"
-	"github.com/stupside/castor/internal/source"
 	"github.com/stupside/castor/internal/source/sourcetest"
 	"github.com/stupside/castor/internal/source/timeline"
 )
@@ -16,12 +16,16 @@ import (
 func window(t *testing.T, docs map[string]string, kind media.TrackKind, id string, now time.Time) timeline.Window {
 	t.Helper()
 	in := media.Input{ID: media.PrimaryInputID, URL: sourcetest.URL(t, "https://cdn.example/live/manifest.mpd"), Representation: id, ContentType: media.DASH}
-	f := Format{}.Timeline(source.Env{Client: &sourcetest.Playlists{Documents: docs}}, in, kind).(*follower)
-	f.clock = func() time.Time { return now }
-	w, err := f.Window(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
+	var w timeline.Window
+	// The bubble's clock is the presentation's: it starts in 2000 and is moved on to now.
+	synctest.Test(t, func(t *testing.T) {
+		time.Sleep(time.Until(now))
+		follow := Format{}.Timeline(&sourcetest.Playlists{Documents: docs}, in, kind)
+		var err error
+		if w, err = follow.Window(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	})
 	return w
 }
 

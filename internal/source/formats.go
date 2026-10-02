@@ -10,8 +10,8 @@ import (
 // Formats is every format castor reads, in order, first match.
 type Formats []Format
 
-// Claiming is the format that reads contentType, opaque when none does.
-func (fs Formats) Claiming(contentType string) Format {
+// Claiming is the reader of contentType: its format, or opaque when none claims it.
+func (fs Formats) Claiming(contentType string) Reader {
 	for _, f := range fs {
 		if f.Identity().ContentType == contentType {
 			return f

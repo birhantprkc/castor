@@ -20,8 +20,6 @@ type Format struct{}
 
 var _ source.Format = Format{}
 
-func (Format) Name() string { return "hls" }
-
 func (Format) Identity() source.Identity {
 	return source.Identity{
 		ContentType: media.HLS,

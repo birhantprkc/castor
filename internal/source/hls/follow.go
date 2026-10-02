@@ -11,11 +11,11 @@ import (
 )
 
 // Timeline follows a live media playlist, and a spliced fMP4 one whose init may change at a seam; others are read directly.
-func (Format) Timeline(env source.Env, in media.Input, _ media.TrackKind) timeline.Source {
+func (Format) Timeline(c source.Client, in media.Input, _ media.TrackKind) timeline.Source {
 	if !in.Fetch.Live && (!in.Fetch.Spliced || in.Fetch.Framing != media.FramingOutOfBand) {
 		return nil
 	}
-	return follower{Client: env.Client, Headers: in.Headers, url: in.URL}
+	return follower{Client: c, Headers: in.Headers, url: in.URL}
 }
 
 // follower reads the origin's current window of one media playlist, and the media it lists.

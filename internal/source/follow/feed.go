@@ -102,7 +102,7 @@ func (f *feed) decide(ctx context.Context, w timeline.Window) error {
 	}
 	repackaging := false
 	for _, s := range w.Segments {
-		if s.Map == nil || f.repackage == nil {
+		if s.Map == nil {
 			continue
 		}
 		carries, err := f.carries(ctx, *s.Map)
