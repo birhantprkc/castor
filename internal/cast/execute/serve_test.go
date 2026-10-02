@@ -197,7 +197,7 @@ func TestARelayedCastFailsWithItsRead(t *testing.T) {
 // verbatim is an encode that would rewrite the buffer unchanged, so the buffer is served instead.
 func verbatim() transcode.EncodeOptions {
 	return transcode.EncodeOptions{
-		Input:  transcode.FromPipe(transcode.SpoolFormat, fetch.Pace{}),
+		Input:  transcode.FromPipe(fetch.Pace{}),
 		Format: transcode.SpoolFormat,
 		Video:  plan.CopyVideo(),
 		Audio:  plan.CopyAudio(),
@@ -251,7 +251,7 @@ func TestTeardownStopsAnEncoderParkedOnAnInputThatWentQuiet(t *testing.T) {
 			if _, err := sp.Write(head); err != nil {
 				t.Fatal(err)
 			}
-			opts := copying(transcode.FromPipe(transcode.SpoolFormat, fetch.Pace{}))
+			opts := copying(transcode.FromPipe(fetch.Pace{}))
 			// A buffer copied whole into its own container is served with no encoder at all.
 			opts.Audio = plan.EncodeAudio(plan.AudioEncode{Codec: media.CodecAAC})
 			return feed{buffered: &buffered{reader: &pull{spool: sp, done: make(chan struct{})}}}, opts

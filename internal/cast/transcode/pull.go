@@ -36,8 +36,7 @@ type PullOptions struct {
 
 	Verbose bool
 
-	PCM bool
-	// PCMSampleRate is the audio sample rate for the PCM output.
+	// PCMSampleRate is the audio sample rate of the PCM tee, zero for none.
 	PCMSampleRate int
 }
 
@@ -86,7 +85,7 @@ func PullArgs(opts PullOptions) (ffmpeg.Command, error) {
 	args = append(args, opts.Source.outputArgs()...)
 	args = append(args, "-f", SpoolFormat.Muxer, ffmpeg.StdoutPipe)
 
-	if opts.PCM {
+	if opts.PCMSampleRate > 0 {
 		args = append(args, pcmOutputArgs(opts)...)
 	}
 	return ffmpeg.NewCommand(args), nil

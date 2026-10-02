@@ -25,23 +25,9 @@ const (
 	firstBytesTimeout = 10 * time.Second
 )
 
-type streamConfig struct {
-	listeners   Listeners
-	contentType string
-	extension   string
-	headers     map[string]string
-
-	// Path where producer output is spooled; caller owns directory lifecycle.
-	spoolPath string
-
-	writeDeadline time.Duration
-
-	idleGrace time.Duration
-}
-
 // Stream spools producer output and replays from byte 0; URL after first byte/timeout.
 type Stream struct {
-	cfg streamConfig
+	o Opening
 
 	listener net.Listener
 	server   *http.Server
@@ -61,48 +47,17 @@ type Stream struct {
 	lastFetch time.Time
 }
 
-// OpenStream serves a single producer stream over HTTP, replaying from byte 0.
-func OpenStream(ctx context.Context, o Opening) (*Stream, error) {
-	cfg := streamConfigFor(o)
-	cfg.spoolPath = filepath.Join(o.Dir, "out"+o.Format.Extension)
-	srv, err := openStream(ctx, cfg, o.Out)
+// OpenStream spools producer into dir in the background and serves that spool over HTTP, replaying from byte 0.
+func OpenStream(ctx context.Context, o Opening, dir string, producer io.Reader) (*Stream, error) {
+	sp, err := NewSpool(filepath.Join(dir, "out"+o.Format.Extension))
 	if err != nil {
 		return nil, fmt.Errorf("starting stream server: %w", err)
-	}
-	return srv, nil
-}
-
-// OpenSpool serves a spool another writes, whole once drained closes; Close leaves that writer running.
-func OpenSpooledStream(ctx context.Context, o Opening, sp *Spool, drained <-chan struct{}) (*Stream, error) {
-	srv, err := listenStream(ctx, streamConfigFor(o), sp, drained)
-	if err != nil {
-		return nil, fmt.Errorf("starting stream server: %w", err)
-	}
-	return srv, nil
-}
-
-func streamConfigFor(o Opening) streamConfig {
-	return streamConfig{
-		listeners:     o.Listeners,
-		contentType:   o.Format.ContentType,
-		extension:     o.Format.Extension,
-		headers:       o.Headers,
-		writeDeadline: o.WriteDeadline,
-		idleGrace:     o.IdleGrace,
-	}
-}
-
-// openStream spools producer into cfg.spoolPath in the background and serves that spool.
-func openStream(ctx context.Context, cfg streamConfig, producer io.Reader) (*Stream, error) {
-	sp, err := NewSpool(cfg.spoolPath)
-	if err != nil {
-		return nil, err
 	}
 	done := make(chan struct{})
-	s, err := listenStream(ctx, cfg, sp, done)
+	s, err := listenStream(ctx, o, sp, done)
 	if err != nil {
 		sp.CloseWrite(nil)
-		return nil, err
+		return nil, fmt.Errorf("starting stream server: %w", err)
 	}
 	s.reading = done
 
@@ -115,9 +70,18 @@ func openStream(ctx context.Context, cfg streamConfig, producer io.Reader) (*Str
 	return s, nil
 }
 
-// listenStream binds where cfg.listeners says and serves sp, final once done closes.
-func listenStream(parent context.Context, cfg streamConfig, sp *Spool, done <-chan struct{}) (*Stream, error) {
-	ln, err := cfg.listeners.Listen(parent)
+// OpenSpooledStream serves a spool another writes, whole once drained closes; Close leaves that writer running.
+func OpenSpooledStream(ctx context.Context, o Opening, sp *Spool, drained <-chan struct{}) (*Stream, error) {
+	srv, err := listenStream(ctx, o, sp, drained)
+	if err != nil {
+		return nil, fmt.Errorf("starting stream server: %w", err)
+	}
+	return srv, nil
+}
+
+// listenStream binds where o's listeners say and serves sp, final once done closes.
+func listenStream(parent context.Context, o Opening, sp *Spool, done <-chan struct{}) (*Stream, error) {
+	ln, err := o.Listeners.Listen(parent)
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +89,7 @@ func listenStream(parent context.Context, cfg streamConfig, sp *Spool, done <-ch
 	// Close alone ends the stream; the cast lends only its values, so its lines reach its watchers.
 	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
 	s := &Stream{
-		cfg:            cfg,
+		o:              o,
 		listener:       ln,
 		cancel:         cancel,
 		spool:          sp,
@@ -134,15 +98,15 @@ func listenStream(parent context.Context, cfg streamConfig, sp *Spool, done <-ch
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/stream"+cfg.extension, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/stream"+o.Format.Extension, func(w http.ResponseWriter, r *http.Request) {
 		s.handleStream(ctx, w, r)
 	})
-	s.server = Serve(ctx, ln, mux)
+	s.server = serve(ctx, ln, mux)
 	return s, nil
 }
 
 func (s *Stream) URL() *url.URL {
-	return &url.URL{Scheme: "http", Host: s.listener.Addr().String(), Path: "/stream" + s.cfg.extension}
+	return &url.URL{Scheme: "http", Host: s.listener.Addr().String(), Path: "/stream" + s.o.Format.Extension}
 }
 
 // Drained is closed when producer ended and spool has all output.
@@ -179,12 +143,12 @@ func (s *Stream) Wait(ctx context.Context) error {
 	case <-s.done:
 	}
 
-	tick := time.NewTicker(SettleInterval)
+	tick := time.NewTicker(settleInterval)
 	defer tick.Stop()
 	for {
 		s.mu.Lock()
 		finished := s.active == 0 &&
-			(s.completed || time.Since(s.lastDisconnect) > s.cfg.idleGrace)
+			(s.completed || time.Since(s.lastDisconnect) > s.o.IdleGrace)
 		s.mu.Unlock()
 		if finished {
 			return nil
@@ -267,7 +231,7 @@ func byteRange(header string) (start, end int64, ok bool) {
 }
 
 func (s *Stream) rangesDeclined() bool {
-	for k, v := range s.cfg.headers {
+	for k, v := range s.o.Headers {
 		if http.CanonicalHeaderKey(k) == "Accept-Ranges" {
 			return strings.EqualFold(strings.TrimSpace(v), "none")
 		}
@@ -296,7 +260,7 @@ func (s *Stream) severed(ctx context.Context, r *http.Request, err error, held i
 		"from", r.RemoteAddr,
 		"user_agent", r.UserAgent(),
 		"stalled_for", stalled.Round(time.Millisecond),
-		"write_deadline", s.cfg.writeDeadline,
+		"write_deadline", s.o.WriteDeadline,
 		"bytes_sent", held,
 		"resumable", final && !s.rangesDeclined(),
 	)
@@ -336,8 +300,8 @@ func (s *Stream) handleStream(srvCtx context.Context, w http.ResponseWriter, r *
 }
 
 func (s *Stream) writeHeaders(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", s.cfg.contentType)
-	for k, v := range s.cfg.headers {
+	w.Header().Set("Content-Type", s.o.Format.ContentType)
+	for k, v := range s.o.Headers {
 		w.Header().Set(k, v)
 	}
 }
@@ -408,7 +372,7 @@ func (s *Stream) send(ctx context.Context, w http.ResponseWriter, r *http.Reques
 		}
 		n, readErr := tail.Read(want)
 		if n > 0 {
-			if err := control.SetWriteDeadline(time.Now().Add(s.cfg.writeDeadline)); err != nil {
+			if err := control.SetWriteDeadline(time.Now().Add(s.o.WriteDeadline)); err != nil {
 				slog.WarnContext(ctx, "stream write deadline unavailable, a client that stops reading will park this goroutine", "error", err)
 			}
 			if _, err := w.Write(want[:n]); err != nil {

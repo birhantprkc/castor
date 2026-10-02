@@ -99,8 +99,7 @@ func (s *session) produce(dev device.Device, work string, f feed, opts transcode
 		return delivery{}, err
 	}
 
-	o.Dir, o.Out = dir, proc.Stdout
-	sk, err := sinkFor(s.ctx, o, proc.Progress)
+	sk, err := sinkFor(s.ctx, o, dir, proc.Stdout, proc.Progress)
 	// Killed first, since everything after needs it to have stopped writing; the tail before the wait, which joins its copy.
 	s.releases.push(func() error {
 		proc.Kill()
@@ -143,16 +142,16 @@ const (
 )
 
 // sinkFor opens the mechanism the format's delivery kind names, judged against what the encoder made.
-func sinkFor(ctx context.Context, o deliver.Opening, made func() media.Progress) (sink, error) {
+func sinkFor(ctx context.Context, o deliver.Opening, dir string, out io.Reader, made func() media.Progress) (sink, error) {
 	switch o.Format.Delivery {
 	case container.DeliverSegmented:
-		srv, err := deliver.OpenSegments(ctx, o)
+		srv, err := deliver.OpenSegments(ctx, o, dir, out)
 		if err != nil {
 			return nil, err
 		}
 		return segmentedSink{Segments: srv, made: made}, nil
 	case container.DeliverStream:
-		srv, err := deliver.OpenStream(ctx, o)
+		srv, err := deliver.OpenStream(ctx, o, dir, out)
 		if err != nil {
 			return nil, err
 		}

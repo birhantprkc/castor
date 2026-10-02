@@ -13,9 +13,9 @@ import (
 
 // HLS output filenames: muxer writes, server serves.
 const (
-	HLSPlaylistName   = "stream.m3u8"
+	hlsPlaylistName   = "stream.m3u8"
 	hLSInitName       = "init.mp4"
-	HLSSegmentPattern = "seg_%05d.m4s"
+	hlsSegmentPattern = "seg_%05d.m4s"
 )
 
 const (
@@ -33,9 +33,9 @@ const HLSWindow = hlsWindowSeconds * time.Second
 // HLSArtifactContentType returns the response type for a generated HLS artifact name.
 func HLSArtifactContentType(name string) (string, bool) {
 	switch strings.ToLower(path.Ext(name)) {
-	case path.Ext(HLSPlaylistName):
+	case path.Ext(hlsPlaylistName):
 		return media.HLS, true
-	case path.Ext(HLSSegmentPattern):
+	case path.Ext(hlsSegmentPattern):
 		return "video/iso.segment", true
 	case path.Ext(hLSInitName):
 		return media.MP4, true
@@ -104,9 +104,9 @@ var formatRegistry = map[string]FormatInfo{
 				"-hls_flags", "delete_segments+independent_segments",
 				"-hls_segment_type", "fmp4",
 				"-hls_fmp4_init_filename", hLSInitName,
-				"-hls_segment_filename", HLSSegmentPattern,
+				"-hls_segment_filename", hlsSegmentPattern,
 			},
-			Output: HLSPlaylistName,
+			Output: hlsPlaylistName,
 		},
 	},
 }

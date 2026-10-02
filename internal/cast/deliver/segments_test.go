@@ -27,10 +27,7 @@ func TestServedCountsOnlyMediaHandedOver(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	srv, _ := serving(t, segmentsConfig{
-		listeners: loopback{}, dir: dir, playlist: "stream.m3u8",
-		headers: map[string]string{"transferMode.dlna.org": "Streaming", "Content-Type": "text/plain"},
-	})
+	srv, _ := serving(t, dir, Opening{Headers: map[string]string{"transferMode.dlna.org": "Streaming", "Content-Type": "text/plain"}})
 
 	for _, tt := range []struct {
 		method, path string
@@ -68,9 +65,9 @@ func TestServedCountsOnlyMediaHandedOver(t *testing.T) {
 
 // The grace is seeded at open, so a renderer coming late for the tail segments still has its window.
 func TestTheIdleGraceStartsBeforeTheFirstRequest(t *testing.T) {
-	srv, ended := serving(t, segmentsConfig{listeners: loopback{}, dir: t.TempDir(), playlist: "stream.m3u8", idleGrace: 3 * SettleInterval})
+	srv, ended := serving(t, t.TempDir(), Opening{IdleGrace: 3 * settleInterval})
 	ended()
-	waiting, cancel := context.WithTimeout(t.Context(), 2*SettleInterval)
+	waiting, cancel := context.WithTimeout(t.Context(), 2*settleInterval)
 	defer cancel()
 	if err := srv.Wait(waiting); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Wait = %v inside the grace that follows the producer's exit", err)
@@ -83,7 +80,7 @@ func TestARendererPollingThePlaylistIsNotIdle(t *testing.T) {
 		t.Fatal(err)
 	}
 	const poll = 50 * time.Millisecond
-	srv, ended := serving(t, segmentsConfig{listeners: loopback{}, dir: dir, playlist: "stream.m3u8", idleGrace: 6 * poll})
+	srv, ended := serving(t, dir, Opening{IdleGrace: 6 * poll})
 	ended()
 
 	polling, stop := context.WithCancel(t.Context())
@@ -109,12 +106,14 @@ func TestARendererPollingThePlaylistIsNotIdle(t *testing.T) {
 	}
 }
 
-// serving starts a server; end closes the producer, which starts the idle grace.
-func serving(t *testing.T, cfg segmentsConfig) (srv *Segments, end func()) {
+// serving serves dir's stream.m3u8 on o; end closes the producer, which starts the idle grace.
+func serving(t *testing.T, dir string, o Opening) (srv *Segments, end func()) {
 	t.Helper()
 	pr, pw := io.Pipe()
-	cfg.idleGrace = cmp.Or(cfg.idleGrace, 30*time.Second)
-	srv, err := openSegments(t.Context(), cfg, pr)
+	o.Listeners = loopback{}
+	o.Format.Tuning.Output = "stream.m3u8"
+	o.IdleGrace = cmp.Or(o.IdleGrace, 30*time.Second)
+	srv, err := OpenSegments(t.Context(), o, dir, pr)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}

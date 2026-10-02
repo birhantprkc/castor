@@ -18,17 +18,9 @@ import (
 	"github.com/stupside/castor/internal/cast/container"
 )
 
-type segmentsConfig struct {
-	listeners Listeners
-	dir       string            // Directory ffmpeg writes playlist and segments into.
-	playlist  string            // Media playlist filename (container.Tuning.Output).
-	headers   map[string]string // Response headers (device.StreamHeaders).
-	idleGrace time.Duration
-}
-
 // Segments serves dir over HTTP, tracks liveness for Wait, deletes behind live edge.
 type Segments struct {
-	cfg      segmentsConfig
+	o        Opening
 	listener net.Listener
 	server   *http.Server
 	playlist string
@@ -41,31 +33,17 @@ type Segments struct {
 	served      int       // Artifacts handed over (measure of renderer fetch, not bytes).
 }
 
-// OpenSegments serves a live HLS directory; no byte pacing, the client self-paces.
-func OpenSegments(ctx context.Context, o Opening) (*Segments, error) {
-	srv, err := openSegments(ctx, segmentsConfig{
-		listeners: o.Listeners,
-		dir:       o.Dir,
-		playlist:  o.Format.Tuning.Output,
-		headers:   o.Headers,
-		idleGrace: o.IdleGrace,
-	}, o.Out)
+// OpenSegments serves the live HLS directory dir producer writes; no byte pacing, the client self-paces.
+func OpenSegments(ctx context.Context, o Opening, dir string, producer io.Reader) (*Segments, error) {
+	ln, err := o.Listeners.Listen(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("starting HLS server: %w", err)
 	}
-	return srv, nil
-}
-
-func openSegments(ctx context.Context, cfg segmentsConfig, producer io.Reader) (*Segments, error) {
-	ln, err := cfg.listeners.Listen(ctx)
-	if err != nil {
-		return nil, err
-	}
 
 	s := &Segments{
-		cfg:         cfg,
+		o:           o,
 		listener:    ln,
-		playlist:    filepath.Join(cfg.dir, cfg.playlist),
+		playlist:    filepath.Join(dir, o.Format.Tuning.Output),
 		drained:     make(chan struct{}),
 		lastRequest: time.Now(),
 	}
@@ -75,13 +53,13 @@ func openSegments(ctx context.Context, cfg segmentsConfig, producer io.Reader) (
 		_, _ = io.Copy(io.Discard, producer)
 	})
 
-	files := http.FileServer(http.Dir(cfg.dir))
+	files := http.FileServer(http.Dir(dir))
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		s.touch()
 		slog.InfoContext(r.Context(), "hls request", "from", r.RemoteAddr, "path", r.URL.Path)
 		// Set renderer headers first, then artifact's own type.
-		for k, v := range s.cfg.headers {
+		for k, v := range s.o.Headers {
 			w.Header().Set(k, v)
 		}
 		// Go doesn't register .m3u8/.m4s; set type before ServeContent sniffs.
@@ -95,13 +73,13 @@ func openSegments(ctx context.Context, cfg segmentsConfig, producer io.Reader) (
 			s.handedOver()
 		}
 	})
-	s.server = Serve(ctx, ln, mux)
+	s.server = serve(ctx, ln, mux)
 	return s, nil
 }
 
 // URL is the media-playlist address the device should play.
 func (s *Segments) URL() *url.URL {
-	return &url.URL{Scheme: "http", Host: s.listener.Addr().String(), Path: "/" + s.cfg.playlist}
+	return &url.URL{Scheme: "http", Host: s.listener.Addr().String(), Path: "/" + s.o.Format.Tuning.Output}
 }
 
 // Served returns artifacts handed over (zero = URL accepted but no bytes fetched).
@@ -135,7 +113,7 @@ func (s *Segments) handedOver() {
 // carriesMedia returns true for program (anything but playlist) to avoid silent count breakage.
 func (s *Segments) carriesMedia(p string) bool {
 	name := strings.TrimPrefix(path.Clean("/"+p), "/")
-	return name != "" && name != s.cfg.playlist
+	return name != "" && name != s.o.Format.Tuning.Output
 }
 
 // answered tracks response status for Served count (ResponseWriter doesn't report it).
@@ -183,11 +161,11 @@ func (s *Segments) Wait(ctx context.Context) error {
 	case <-s.drained:
 	}
 
-	tick := time.NewTicker(SettleInterval)
+	tick := time.NewTicker(settleInterval)
 	defer tick.Stop()
 	for {
 		s.mu.Lock()
-		idle := time.Since(s.lastRequest) > s.cfg.idleGrace
+		idle := time.Since(s.lastRequest) > s.o.IdleGrace
 		s.mu.Unlock()
 		if idle {
 			return nil

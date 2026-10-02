@@ -13,20 +13,18 @@ import (
 
 // EncodeInput is what an encode reads: the zero value reads nothing and is refused.
 type EncodeInput struct {
-	pipe   container.FormatInfo
+	piped  bool
 	pace   fetch.Pace
 	source ProgramSource
 }
 
-// FromPipe reads the container fed to stdin, at pace.
-func FromPipe(format container.FormatInfo, pace fetch.Pace) EncodeInput {
-	return EncodeInput{pipe: format, pace: pace}
+// FromPipe reads the spool fed to stdin, at pace.
+func FromPipe(pace fetch.Pace) EncodeInput {
+	return EncodeInput{piped: true, pace: pace}
 }
 
 // FromSource reads the network source on the terms of its fetch plan.
 func FromSource(source ProgramSource) EncodeInput { return EncodeInput{source: source} }
-
-func (in EncodeInput) piped() bool { return in.pipe.Muxer != "" }
 
 type EncodeOptions struct {
 	Input  EncodeInput
@@ -41,7 +39,7 @@ func (o EncodeOptions) Verbatim() bool {
 	_, video := o.Video.Encode()
 	_, audio := o.Audio.Encode()
 	return o.Video.Decided() && o.Audio.Decided() && !video && !audio &&
-		o.Input.pipe.Muxer == SpoolFormat.Muxer && o.Format.Muxer == SpoolFormat.Muxer &&
+		o.Input.piped && o.Format.Muxer == SpoolFormat.Muxer &&
 		o.Format.Delivery == container.DeliverStream
 }
 
@@ -60,17 +58,17 @@ func encodeTuning(format container.FormatInfo) (container.Tuning, error) {
 }
 
 func encodeInputArgs(in EncodeInput) []string {
-	if !in.piped() {
+	if !in.piped {
 		return sourceInputArgs(in.source)
 	}
 	args := paceArgs(in.pace, ffmpeg.Binary{})
 	args = append(args, demuxFlags...)
-	return append(args, "-f", in.pipe.Muxer, "-i", ffmpeg.StdinPipe)
+	return append(args, "-f", SpoolFormat.Muxer, "-i", ffmpeg.StdinPipe)
 }
 
 // encodeMapArgs maps the first video and first audio track explicitly, and optionally.
 func encodeMapArgs(in EncodeInput) []string {
-	if in.piped() {
+	if in.piped {
 		return []string{"-map", "0:V:0?", "-map", "0:a:0?"}
 	}
 	return sourceMapArgs(in.source)
@@ -81,7 +79,7 @@ func encodeOutputTarget(opts EncodeOptions, tuning container.Tuning, burnIn stri
 	if burnIn != "" {
 		args = append(args, "-stats_period", "0.1")
 	}
-	if !opts.Input.piped() {
+	if !opts.Input.piped {
 		args = append(args, opts.Input.source.outputArgs()...)
 	}
 
@@ -91,7 +89,7 @@ func encodeOutputTarget(opts EncodeOptions, tuning container.Tuning, burnIn stri
 }
 
 func EncodeArgs(opts EncodeOptions) (ffmpeg.Command, error) {
-	if !opts.Input.piped() && len(opts.Input.source.program.Inputs) == 0 {
+	if !opts.Input.piped && len(opts.Input.source.program.Inputs) == 0 {
 		return ffmpeg.Command{}, fmt.Errorf("encode has no input: build one with FromPipe or FromSource")
 	}
 	if err := decidedTracks(opts.Video, opts.Audio); err != nil {

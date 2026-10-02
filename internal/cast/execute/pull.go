@@ -94,7 +94,6 @@ func startPuller(ctx context.Context, spec pullSpec, pcmOut *io.PipeWriter) (*ff
 		Video:         spec.floor.Video,
 		Audio:         spec.floor.Audio,
 		Verbose:       slog.Default().Enabled(ctx, slog.LevelDebug),
-		PCM:           pcmOut != nil,
 		PCMSampleRate: spec.pcmRate,
 	})
 	if err != nil {

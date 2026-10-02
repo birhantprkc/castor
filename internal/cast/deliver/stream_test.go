@@ -18,7 +18,7 @@ import (
 // Handed is the most one client took: a HEAD takes nothing, and a later partial client does not add to it.
 func TestHandedIsTheMostAnyOneClientTook(t *testing.T) {
 	const size = 8 << 20
-	srv := spooled(t, streamConfig{}, payload(size))
+	srv := spooled(t, Opening{}, payload(size))
 
 	head(t, srv)
 	if handed, last := srv.Handed(); handed != 0 || !last.IsZero() {
@@ -51,7 +51,7 @@ func TestARangeResumesFromTheByteAsked(t *testing.T) {
 		{"bounded short of the end", fmt.Sprintf("bytes=%d-%d", from, total-1024), total - 1024, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			srv := spooled(t, streamConfig{}, want)
+			srv := spooled(t, Opening{}, want)
 			resp := get(t, srv, tt.asked)
 			if resp.StatusCode != http.StatusPartialContent {
 				t.Fatalf("status = %d, want 206", resp.StatusCode)
@@ -79,7 +79,7 @@ func TestARangeResumesFromTheByteAsked(t *testing.T) {
 
 func TestAResumePastTheEndIs416(t *testing.T) {
 	want := payload(4096)
-	resp := get(t, spooled(t, streamConfig{}, want), fmt.Sprintf("bytes=%d-", len(want)))
+	resp := get(t, spooled(t, Opening{}, want), fmt.Sprintf("bytes=%d-", len(want)))
 	if resp.StatusCode != http.StatusRequestedRangeNotSatisfiable {
 		t.Fatalf("status = %d, want 416", resp.StatusCode)
 	}
@@ -96,7 +96,7 @@ func TestARefusedRangeReplaysFromByteZero(t *testing.T) {
 		srv  func(t *testing.T) *Stream
 	}{
 		{"a delivery declaring Accept-Ranges: none", func(t *testing.T) *Stream {
-			return spooled(t, streamConfig{headers: map[string]string{"Accept-Ranges": "none"}}, body)
+			return spooled(t, Opening{Headers: map[string]string{"Accept-Ranges": "none"}}, body)
 		}},
 		{"a producer still running", func(t *testing.T) *Stream { return producing(t, body) }},
 	} {
@@ -114,7 +114,7 @@ func TestARefusedRangeReplaysFromByteZero(t *testing.T) {
 
 // A client that stops reading is cut by the write deadline, and Wait ends after the idle grace.
 func TestAHungClientIsFreedAndTheCastEnds(t *testing.T) {
-	srv := spooled(t, streamConfig{writeDeadline: 300 * time.Millisecond, idleGrace: 50 * time.Millisecond}, payload(8<<20))
+	srv := spooled(t, Opening{WriteDeadline: 300 * time.Millisecond, IdleGrace: 50 * time.Millisecond}, payload(8<<20))
 	read(t, get(t, srv, ""), 1)
 	settle(t, srv)
 	srv.mu.Lock()
@@ -197,15 +197,13 @@ func payload(size int) []byte {
 }
 
 // spooled starts a server and returns once the whole body is in the spool.
-func spooled(t *testing.T, cfg streamConfig, body []byte) *Stream {
+func spooled(t *testing.T, o Opening, body []byte) *Stream {
 	t.Helper()
-	cfg.listeners = loopback{}
-	cfg.contentType = "video/mp4"
-	cfg.extension = ".mp4"
-	cfg.spoolPath = filepath.Join(t.TempDir(), "out.mp4")
-	cfg.writeDeadline = cmp.Or(cfg.writeDeadline, time.Minute)
-	cfg.idleGrace = cmp.Or(cfg.idleGrace, 30*time.Second)
-	srv, err := openStream(t.Context(), cfg, bytes.NewReader(body))
+	o.Listeners = loopback{}
+	o.Format = container.FormatInfo{ContentType: "video/mp4", Extension: ".mp4"}
+	o.WriteDeadline = cmp.Or(o.WriteDeadline, time.Minute)
+	o.IdleGrace = cmp.Or(o.IdleGrace, 30*time.Second)
+	srv, err := OpenStream(t.Context(), o, t.TempDir(), bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,13 +220,11 @@ func spooled(t *testing.T, cfg streamConfig, body []byte) *Stream {
 func producing(t *testing.T, head []byte) *Stream {
 	t.Helper()
 	pr, pw := io.Pipe()
-	srv, err := openStream(t.Context(), streamConfig{
-		listeners:     loopback{},
-		contentType:   "video/mp4",
-		extension:     ".mp4",
-		spoolPath:     filepath.Join(t.TempDir(), "out.mp4"),
-		writeDeadline: time.Minute,
-	}, pr)
+	srv, err := OpenStream(t.Context(), Opening{
+		Format:        container.FormatInfo{ContentType: "video/mp4", Extension: ".mp4"},
+		Listeners:     loopback{},
+		WriteDeadline: time.Minute,
+	}, t.TempDir(), pr)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -3,7 +3,6 @@ package execute
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -49,21 +48,19 @@ func opened(t *testing.T, contentType string) (sink, *io.PipeWriter) {
 		t.Fatalf("castor produces no %s", contentType)
 	}
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, container.HLSPlaylistName), []byte("#EXTM3U\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, format.Tuning.Output), []byte("#EXTM3U\n"), 0o600); err != nil {
 		t.Fatalf("writing the playlist the mechanism serves: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf(container.HLSSegmentPattern, 0)), make([]byte, 188), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "seg_00000.m4s"), make([]byte, 188), 0o600); err != nil {
 		t.Fatalf("writing the segment the mechanism serves: %v", err)
 	}
 	pr, pw := io.Pipe()
 	sink, err := sinkFor(t.Context(), deliver.Opening{
 		Format:        format,
 		Listeners:     loopback{},
-		Dir:           dir,
-		Out:           pr,
 		IdleGrace:     50 * time.Millisecond,
 		WriteDeadline: 300 * time.Millisecond,
-	}, made)
+	}, dir, pr, made)
 	if err != nil {
 		t.Fatalf("opening the %s delivery: %v", contentType, err)
 	}
@@ -101,7 +98,7 @@ func relayed(t *testing.T) (sink, *io.PipeWriter) {
 func mechanisms() []mechanism {
 	return []mechanism{
 		{name: "streamed", judged: true, reads: true, open: func(t *testing.T) (sink, *io.PipeWriter) { return opened(t, media.MP4) }},
-		{name: "segmented", judged: false, reads: true, media: fmt.Sprintf(container.HLSSegmentPattern, 0), open: func(t *testing.T) (sink, *io.PipeWriter) { return opened(t, media.HLS) }},
+		{name: "segmented", judged: false, reads: true, media: "seg_00000.m4s", open: func(t *testing.T) (sink, *io.PipeWriter) { return opened(t, media.HLS) }},
 		{name: "relayed", judged: true, open: relayed},
 	}
 }

@@ -35,7 +35,7 @@ func testFormat(contentType string) container.FormatInfo {
 
 func TestTheArgvRendersTheDecision(t *testing.T) {
 	src := muxedSource(t, mustURL(t, "http://example.test/in.m3u8"), media.HLS, fetch.Policy{})
-	piped := FromPipe(SpoolFormat, fetch.Pace{})
+	piped := FromPipe(fetch.Pace{})
 	scale := "scale=-2:'min(1080,max(2,trunc(ih/2)*2))'"
 	hardware := plan.Encoder{
 		Name: "h264_test_hw", Codec: media.CodecH264, Hardware: true,
@@ -84,7 +84,7 @@ func TestTheArgvRendersTheDecision(t *testing.T) {
 		absent: []string{"-vf", "-preset", "-b:v", "-readrate", "-stats_period"},
 	}, {
 		name: "a piped encode renders its pace ahead of the pipe input",
-		args: mustEncodeArgs(t, EncodeOptions{Input: FromPipe(SpoolFormat, fetch.Pace{Realtime: 1, Burst: 32 * time.Second}), Format: mpegtsFormat, Video: plan.CopyVideo(), Audio: aacAudio}),
+		args: mustEncodeArgs(t, EncodeOptions{Input: FromPipe(fetch.Pace{Realtime: 1, Burst: 32 * time.Second}), Format: mpegtsFormat, Video: plan.CopyVideo(), Audio: aacAudio}),
 		want: slices.Concat([]string{"-readrate", "1.0", "-readrate_initial_burst", "32"}, demuxFlags, []string{"-f", SpoolFormat.Muxer, "-i", "pipe:0"}),
 	}, {
 		name: "a burn-in draws text and reports every tenth of a second",
@@ -129,7 +129,7 @@ func TestTheArgvRendersTheDecision(t *testing.T) {
 }
 
 func TestOnlyAnEncodeThatWouldRewriteItsSpoolUnchangedIsVerbatim(t *testing.T) {
-	piped := FromPipe(SpoolFormat, fetch.Pace{})
+	piped := FromPipe(fetch.Pace{})
 	segmentedTS := mpegtsFormat
 	segmentedTS.Delivery = container.DeliverSegmented
 	src := muxedSource(t, mustURL(t, "http://example.test/in.ts"), media.MPEGTS, fetch.Policy{})
@@ -157,7 +157,7 @@ func TestOnlyAnEncodeThatWouldRewriteItsSpoolUnchangedIsVerbatim(t *testing.T) {
 }
 
 func TestIllegalCommandsAreRefused(t *testing.T) {
-	piped := FromPipe(SpoolFormat, fetch.Pace{})
+	piped := FromPipe(fetch.Pace{})
 	for _, tt := range []struct {
 		name string
 		opts EncodeOptions
@@ -194,7 +194,7 @@ func TestACancelledProbeIsNotRemembered(t *testing.T) {
 func TestPipesAreCountedFromTheArgvAndMatchTheConsumer(t *testing.T) {
 	src := muxedSource(t, mustURL(t, "http://example.test/in.mp4"), media.MP4, fetch.Policy{})
 	teeing := copyingPull(src)
-	teeing.PCM, teeing.PCMSampleRate = true, 16000
+	teeing.PCMSampleRate = 16000
 	for _, tt := range []struct {
 		name  string
 		opts  PullOptions

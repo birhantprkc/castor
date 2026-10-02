@@ -54,7 +54,7 @@ func (s *session) encode(dev device.Device, f feed, burn Burn) (transcode.Encode
 func (s *session) input(f feed, ceiling fetch.Pace) (facts, transcode.EncodeInput, error) {
 	if f.buffered != nil {
 		measured := measure(s.ctx, "the local buffer this encode reads", s.cfg.Probes.File(f.buffered.reader.spool.Path()))
-		return measured, transcode.FromPipe(transcode.SpoolFormat, ceiling), nil
+		return measured, transcode.FromPipe(ceiling), nil
 	}
 	policies := s.attempt.Fetch.Encoding(f.program, ceiling)
 	source, err := transcode.NewProgramSource(f.program, policies, s.cfg.Binary)

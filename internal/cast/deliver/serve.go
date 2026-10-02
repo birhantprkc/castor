@@ -12,8 +12,8 @@ type Listeners interface {
 	Listen(ctx context.Context) (net.Listener, error)
 }
 
-// Serve answers the renderer on ln until the returned server closes; its requests carry ctx's values, not its end.
-func Serve(ctx context.Context, ln net.Listener, h http.Handler) *http.Server {
+// serve answers the renderer on ln until the returned server closes; its requests carry ctx's values, not its end.
+func serve(ctx context.Context, ln net.Listener, h http.Handler) *http.Server {
 	base := context.WithoutCancel(ctx)
 	server := &http.Server{Handler: h, ReadHeaderTimeout: 5 * time.Second, BaseContext: func(net.Listener) context.Context { return base }}
 	go func() { _ = server.Serve(ln) }()

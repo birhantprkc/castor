@@ -36,7 +36,7 @@ func TestTheExtraPipesCarryWhatTheFlagsSay(t *testing.T) {
 	defer srv.Close()
 
 	opts := copyingPull(muxedSource(t, mustURL(t, srv.URL+"/video.mp4"), media.MP4, fetch.For(media.Fetch{}, 30*time.Second)))
-	opts.PCM, opts.PCMSampleRate = true, 16000
+	opts.PCMSampleRate = 16000
 	cmd, err := PullArgs(opts)
 	if err != nil {
 		t.Fatal(err)
