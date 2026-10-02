@@ -15,8 +15,8 @@ service DeviceService {
 message DriveRequest {
   string cast_id = 1 [(buf.validate.field).string.min_len = 1];
   Device device = 2 [(buf.validate.field).required = true];
-  // profile is what is known of the device before connecting to it.
-  Capabilities profile = 3;
+  // self_fetch is whether the device fetches a stream URL itself, known before connecting to it.
+  bool self_fetch = 3;
 }
 
 message DriveResponse {
@@ -65,11 +65,9 @@ message Capabilities {
   repeated string containers = 1;
   repeated VideoSupport video = 2;
   repeated AudioSupport audio = 3;
-  // self_fetch is whether the renderer fetches a stream URL itself.
-  bool self_fetch = 4;
   // served_container is what a served cast that remuxes is muxed into.
-  string served_container = 5;
-  bool deinterlaces = 6;
+  string served_container = 4;
+  bool deinterlaces = 5;
 }
 
 message VideoSupport {

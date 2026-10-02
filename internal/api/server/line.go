@@ -9,7 +9,6 @@ import (
 	"connectrpc.com/connect"
 
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
-	"github.com/stupside/castor/internal/media"
 )
 
 // line is a cast's one link to its device: the calls Drive sends down its stream, and those awaiting answers.
@@ -19,10 +18,10 @@ type line struct {
 	// outbox hands each command to the Drive handler, the only goroutine that sends on its stream.
 	outbox chan *castorv1.DeviceCommand
 
-	mu       sync.Mutex
-	profile  media.Capabilities
-	next     int
-	awaiting map[string]chan *castorv1.AnswerRequest
+	mu        sync.Mutex
+	selfFetch bool
+	next      int
+	awaiting  map[string]chan *castorv1.AnswerRequest
 }
 
 func newLine() *line {
@@ -34,8 +33,8 @@ func newLine() *line {
 	}
 }
 
-// attach lends the line the device profile describes; a cast takes one device, so a second is refused.
-func (l *line) attach(profile media.Capabilities) error {
+// attach lends the line a device; a cast takes one device, so a second is refused.
+func (l *line) attach(selfFetch bool) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	select {
@@ -43,7 +42,7 @@ func (l *line) attach(profile media.Capabilities) error {
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("this cast already has its device"))
 	default:
 	}
-	l.profile = profile
+	l.selfFetch = selfFetch
 	close(l.attached)
 	return nil
 }
@@ -51,10 +50,11 @@ func (l *line) attach(profile media.Capabilities) error {
 // leave cuts the line: every call on it fails from now on.
 func (l *line) leave() { close(l.left) }
 
-func (l *line) lent() media.Capabilities {
+// fetchesItself is whether the lent device fetches a stream URL itself.
+func (l *line) fetchesItself() bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.profile
+	return l.selfFetch
 }
 
 // call has the device run cmd and waits for its answer; abandoning the wait cancels it there too.

@@ -10,12 +10,12 @@ import (
 
 	"github.com/stupside/castor/gen/castor/v1/castorv1connect"
 	"github.com/stupside/castor/internal/device"
-	"github.com/stupside/castor/internal/media"
 )
 
 // Renderers reaches the renderers on the client's network.
 type Renderers interface {
-	Profile(t device.Type) media.Capabilities
+	// SelfFetches is whether renderers of type t fetch a stream URL themselves.
+	SelfFetches(t device.Type) bool
 	Connect(ctx context.Context, target device.Info) (device.Device, error)
 }
 

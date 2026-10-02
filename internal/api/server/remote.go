@@ -15,7 +15,9 @@ import (
 // remoteRenderer is the lent device as the engine sees it: every call is made on the client that lent it.
 type remoteRenderer struct{ s *session }
 
-func (r remoteRenderer) Profile() media.Capabilities { return r.s.line.lent() }
+func (r remoteRenderer) Profile() media.Capabilities {
+	return media.Capabilities{SelfFetch: r.s.line.fetchesItself()}
+}
 
 func (r remoteRenderer) Connect(ctx context.Context) (device.Device, error) {
 	cmd := &castorv1.DeviceCommand{Command: &castorv1.DeviceCommand_Connect_{Connect: &castorv1.DeviceCommand_Connect{}}}

@@ -8,7 +8,6 @@ import (
 	"connectrpc.com/connect"
 
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
-	"github.com/stupside/castor/internal/api/wire"
 )
 
 // devices takes the device a client lends a cast, and its answers to what the cast asks of it.
@@ -20,7 +19,7 @@ func (d devices) Drive(ctx context.Context, req *castorv1.DriveRequest, out *con
 	if err != nil {
 		return err
 	}
-	if err := s.line.attach(wire.FromCapabilities(req.GetProfile())); err != nil {
+	if err := s.line.attach(req.GetSelfFetch()); err != nil {
 		return err
 	}
 	defer s.line.leave()

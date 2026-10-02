@@ -10,7 +10,6 @@ import (
 func Capabilities(c media.Capabilities) *castorv1.Capabilities {
 	out := &castorv1.Capabilities{
 		Containers:      c.Containers,
-		SelfFetch:       c.SelfFetch,
 		ServedContainer: c.ServedContainer,
 		Deinterlaces:    c.Deinterlaces,
 	}
@@ -34,7 +33,6 @@ func Capabilities(c media.Capabilities) *castorv1.Capabilities {
 func FromCapabilities(c *castorv1.Capabilities) media.Capabilities {
 	out := media.Capabilities{
 		Containers:      c.GetContainers(),
-		SelfFetch:       c.GetSelfFetch(),
 		ServedContainer: c.GetServedContainer(),
 		Deinterlaces:    c.GetDeinterlaces(),
 	}

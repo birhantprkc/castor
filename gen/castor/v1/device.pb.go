@@ -26,8 +26,8 @@ type DriveRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	CastId string                 `protobuf:"bytes,1,opt,name=cast_id,json=castId,proto3" json:"cast_id,omitempty"`
 	Device *Device                `protobuf:"bytes,2,opt,name=device,proto3" json:"device,omitempty"`
-	// profile is what is known of the device before connecting to it.
-	Profile       *Capabilities `protobuf:"bytes,3,opt,name=profile,proto3" json:"profile,omitempty"`
+	// self_fetch is whether the device fetches a stream URL itself, known before connecting to it.
+	SelfFetch     bool `protobuf:"varint,3,opt,name=self_fetch,json=selfFetch,proto3" json:"self_fetch,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -76,11 +76,11 @@ func (x *DriveRequest) GetDevice() *Device {
 	return nil
 }
 
-func (x *DriveRequest) GetProfile() *Capabilities {
+func (x *DriveRequest) GetSelfFetch() bool {
 	if x != nil {
-		return x.Profile
+		return x.SelfFetch
 	}
-	return nil
+	return false
 }
 
 type DriveResponse struct {
@@ -360,11 +360,9 @@ type Capabilities struct {
 	Containers []string               `protobuf:"bytes,1,rep,name=containers,proto3" json:"containers,omitempty"`
 	Video      []*VideoSupport        `protobuf:"bytes,2,rep,name=video,proto3" json:"video,omitempty"`
 	Audio      []*AudioSupport        `protobuf:"bytes,3,rep,name=audio,proto3" json:"audio,omitempty"`
-	// self_fetch is whether the renderer fetches a stream URL itself.
-	SelfFetch bool `protobuf:"varint,4,opt,name=self_fetch,json=selfFetch,proto3" json:"self_fetch,omitempty"`
 	// served_container is what a served cast that remuxes is muxed into.
-	ServedContainer string `protobuf:"bytes,5,opt,name=served_container,json=servedContainer,proto3" json:"served_container,omitempty"`
-	Deinterlaces    bool   `protobuf:"varint,6,opt,name=deinterlaces,proto3" json:"deinterlaces,omitempty"`
+	ServedContainer string `protobuf:"bytes,4,opt,name=served_container,json=servedContainer,proto3" json:"served_container,omitempty"`
+	Deinterlaces    bool   `protobuf:"varint,5,opt,name=deinterlaces,proto3" json:"deinterlaces,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -418,13 +416,6 @@ func (x *Capabilities) GetAudio() []*AudioSupport {
 		return x.Audio
 	}
 	return nil
-}
-
-func (x *Capabilities) GetSelfFetch() bool {
-	if x != nil {
-		return x.SelfFetch
-	}
-	return false
 }
 
 func (x *Capabilities) GetServedContainer() string {
@@ -1227,11 +1218,12 @@ var File_castor_v1_device_proto protoreflect.FileDescriptor
 
 const file_castor_v1_device_proto_rawDesc = "" +
 	"\n" +
-	"\x16castor/v1/device.proto\x12\tcastor.v1\x1a\x1bbuf/validate/validate.proto\"\x96\x01\n" +
+	"\x16castor/v1/device.proto\x12\tcastor.v1\x1a\x1bbuf/validate/validate.proto\"\x82\x01\n" +
 	"\fDriveRequest\x12 \n" +
 	"\acast_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x06castId\x121\n" +
-	"\x06device\x18\x02 \x01(\v2\x11.castor.v1.DeviceB\x06\xbaH\x03\xc8\x01\x01R\x06device\x121\n" +
-	"\aprofile\x18\x03 \x01(\v2\x17.castor.v1.CapabilitiesR\aprofile\"K\n" +
+	"\x06device\x18\x02 \x01(\v2\x11.castor.v1.DeviceB\x06\xbaH\x03\xc8\x01\x01R\x06device\x12\x1d\n" +
+	"\n" +
+	"self_fetch\x18\x03 \x01(\bR\tselfFetch\"K\n" +
 	"\rDriveResponse\x12:\n" +
 	"\acommand\x18\x01 \x01(\v2\x18.castor.v1.DeviceCommandB\x06\xbaH\x03\xc8\x01\x01R\acommand\"\xfe\x03\n" +
 	"\rAnswerRequest\x12 \n" +
@@ -1253,17 +1245,15 @@ const file_castor_v1_device_proto_rawDesc = "" +
 	"\x06Device\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
 	"\x04type\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x04type\x12\x18\n" +
-	"\aaddress\x18\x03 \x01(\tR\aaddress\"\xfa\x01\n" +
+	"\aaddress\x18\x03 \x01(\tR\aaddress\"\xdb\x01\n" +
 	"\fCapabilities\x12\x1e\n" +
 	"\n" +
 	"containers\x18\x01 \x03(\tR\n" +
 	"containers\x12-\n" +
 	"\x05video\x18\x02 \x03(\v2\x17.castor.v1.VideoSupportR\x05video\x12-\n" +
-	"\x05audio\x18\x03 \x03(\v2\x17.castor.v1.AudioSupportR\x05audio\x12\x1d\n" +
-	"\n" +
-	"self_fetch\x18\x04 \x01(\bR\tselfFetch\x12)\n" +
-	"\x10served_container\x18\x05 \x01(\tR\x0fservedContainer\x12\"\n" +
-	"\fdeinterlaces\x18\x06 \x01(\bR\fdeinterlaces\"|\n" +
+	"\x05audio\x18\x03 \x03(\v2\x17.castor.v1.AudioSupportR\x05audio\x12)\n" +
+	"\x10served_container\x18\x04 \x01(\tR\x0fservedContainer\x12\"\n" +
+	"\fdeinterlaces\x18\x05 \x01(\bR\fdeinterlaces\"|\n" +
 	"\fVideoSupport\x12\x14\n" +
 	"\x05codec\x18\x01 \x01(\tR\x05codec\x12\x1a\n" +
 	"\bprofiles\x18\x02 \x03(\tR\bprofiles\x12\x1d\n" +
@@ -1349,31 +1339,30 @@ var file_castor_v1_device_proto_goTypes = []any{
 }
 var file_castor_v1_device_proto_depIdxs = []int32{
 	4,  // 0: castor.v1.DriveRequest.device:type_name -> castor.v1.Device
-	5,  // 1: castor.v1.DriveRequest.profile:type_name -> castor.v1.Capabilities
-	8,  // 2: castor.v1.DriveResponse.command:type_name -> castor.v1.DeviceCommand
-	10, // 3: castor.v1.AnswerRequest.done:type_name -> castor.v1.AnswerRequest.Done
-	5,  // 4: castor.v1.AnswerRequest.capabilities:type_name -> castor.v1.Capabilities
-	11, // 5: castor.v1.AnswerRequest.headers:type_name -> castor.v1.AnswerRequest.Headers
-	9,  // 6: castor.v1.AnswerRequest.error:type_name -> castor.v1.DeviceError
-	6,  // 7: castor.v1.Capabilities.video:type_name -> castor.v1.VideoSupport
-	7,  // 8: castor.v1.Capabilities.audio:type_name -> castor.v1.AudioSupport
-	13, // 9: castor.v1.DeviceCommand.connect:type_name -> castor.v1.DeviceCommand.Connect
-	14, // 10: castor.v1.DeviceCommand.play:type_name -> castor.v1.DeviceCommand.Play
-	15, // 11: castor.v1.DeviceCommand.stream_headers:type_name -> castor.v1.DeviceCommand.StreamHeaders
-	16, // 12: castor.v1.DeviceCommand.await_end:type_name -> castor.v1.DeviceCommand.AwaitEnd
-	17, // 13: castor.v1.DeviceCommand.close:type_name -> castor.v1.DeviceCommand.Close
-	18, // 14: castor.v1.DeviceCommand.cancel:type_name -> castor.v1.DeviceCommand.Cancel
-	19, // 15: castor.v1.DeviceError.gone:type_name -> castor.v1.DeviceError.Gone
-	12, // 16: castor.v1.AnswerRequest.Headers.headers:type_name -> castor.v1.AnswerRequest.Headers.HeadersEntry
-	0,  // 17: castor.v1.DeviceService.Drive:input_type -> castor.v1.DriveRequest
-	2,  // 18: castor.v1.DeviceService.Answer:input_type -> castor.v1.AnswerRequest
-	1,  // 19: castor.v1.DeviceService.Drive:output_type -> castor.v1.DriveResponse
-	3,  // 20: castor.v1.DeviceService.Answer:output_type -> castor.v1.AnswerResponse
-	19, // [19:21] is the sub-list for method output_type
-	17, // [17:19] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	8,  // 1: castor.v1.DriveResponse.command:type_name -> castor.v1.DeviceCommand
+	10, // 2: castor.v1.AnswerRequest.done:type_name -> castor.v1.AnswerRequest.Done
+	5,  // 3: castor.v1.AnswerRequest.capabilities:type_name -> castor.v1.Capabilities
+	11, // 4: castor.v1.AnswerRequest.headers:type_name -> castor.v1.AnswerRequest.Headers
+	9,  // 5: castor.v1.AnswerRequest.error:type_name -> castor.v1.DeviceError
+	6,  // 6: castor.v1.Capabilities.video:type_name -> castor.v1.VideoSupport
+	7,  // 7: castor.v1.Capabilities.audio:type_name -> castor.v1.AudioSupport
+	13, // 8: castor.v1.DeviceCommand.connect:type_name -> castor.v1.DeviceCommand.Connect
+	14, // 9: castor.v1.DeviceCommand.play:type_name -> castor.v1.DeviceCommand.Play
+	15, // 10: castor.v1.DeviceCommand.stream_headers:type_name -> castor.v1.DeviceCommand.StreamHeaders
+	16, // 11: castor.v1.DeviceCommand.await_end:type_name -> castor.v1.DeviceCommand.AwaitEnd
+	17, // 12: castor.v1.DeviceCommand.close:type_name -> castor.v1.DeviceCommand.Close
+	18, // 13: castor.v1.DeviceCommand.cancel:type_name -> castor.v1.DeviceCommand.Cancel
+	19, // 14: castor.v1.DeviceError.gone:type_name -> castor.v1.DeviceError.Gone
+	12, // 15: castor.v1.AnswerRequest.Headers.headers:type_name -> castor.v1.AnswerRequest.Headers.HeadersEntry
+	0,  // 16: castor.v1.DeviceService.Drive:input_type -> castor.v1.DriveRequest
+	2,  // 17: castor.v1.DeviceService.Answer:input_type -> castor.v1.AnswerRequest
+	1,  // 18: castor.v1.DeviceService.Drive:output_type -> castor.v1.DriveResponse
+	3,  // 19: castor.v1.DeviceService.Answer:output_type -> castor.v1.AnswerResponse
+	18, // [18:20] is the sub-list for method output_type
+	16, // [16:18] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_castor_v1_device_proto_init() }

@@ -74,7 +74,7 @@ func newTV() *tv {
 	return &tv{connected: make(chan device.Info, 4), handed: make(chan *url.URL, 4), played: make(chan []byte, 4), closed: make(chan struct{}, 4)}
 }
 
-func (t *tv) Profile(device.Type) media.Capabilities { return media.Capabilities{SelfFetch: true} }
+func (t *tv) SelfFetches(device.Type) bool { return true }
 
 func (t *tv) Connect(_ context.Context, target device.Info) (device.Device, error) {
 	t.connected <- target

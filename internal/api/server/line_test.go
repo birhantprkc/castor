@@ -9,7 +9,6 @@ import (
 	"connectrpc.com/connect"
 
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
-	"github.com/stupside/castor/internal/media"
 )
 
 func connectCommand() *castorv1.DeviceCommand {
@@ -20,7 +19,7 @@ func connectCommand() *castorv1.DeviceCommand {
 func attached(t *testing.T) (*line, <-chan *castorv1.DeviceCommand) {
 	t.Helper()
 	l := newLine()
-	if err := l.attach(media.Capabilities{}); err != nil {
+	if err := l.attach(false); err != nil {
 		t.Fatal(err)
 	}
 	sent := make(chan *castorv1.DeviceCommand, 8)
@@ -40,7 +39,7 @@ func attached(t *testing.T) (*line, <-chan *castorv1.DeviceCommand) {
 func TestACastTakesOneDevice(t *testing.T) {
 	l, _ := attached(t)
 	defer l.leave()
-	err := l.attach(media.Capabilities{})
+	err := l.attach(false)
 	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
 		t.Errorf("a second device was met with %v, want it refused", err)
 	}

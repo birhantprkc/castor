@@ -19,9 +19,9 @@ func (c *Client) Drive(parent context.Context, id string, target device.Info) er
 	ctx, leave := context.WithCancelCause(parent)
 	defer leave(nil)
 	stream, err := c.devices.Drive(ctx, &castorv1.DriveRequest{
-		CastId:  id,
-		Device:  &castorv1.Device{Name: target.Name, Type: string(target.Type), Address: target.Address},
-		Profile: wire.Capabilities(c.renderers.Profile(target.Type)),
+		CastId:    id,
+		Device:    &castorv1.Device{Name: target.Name, Type: string(target.Type), Address: target.Address},
+		SelfFetch: c.renderers.SelfFetches(target.Type),
 	})
 	if err != nil {
 		return fmt.Errorf("driving cast: %w", err)
