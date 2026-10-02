@@ -27,7 +27,7 @@ const (
 	hlsWindowSeconds = hlsSegmentSeconds * hlsListSize
 )
 
-// HLSWindow: exported for renderer hand-off (deleted media would cause 404).
+// HLSWindow is how much media a live playlist keeps; a renderer handed off reads within it, past it media is deleted.
 const HLSWindow = hlsWindowSeconds * time.Second
 
 // HLSArtifactContentType returns the response type for a generated HLS artifact name.

@@ -59,7 +59,7 @@ var _ device.Family = Family{}
 
 func (Family) SelfFetches() bool { return true }
 
-// discover finds Rokus over SSDP.
+// Discover finds Rokus over SSDP.
 func (Family) Discover(ctx context.Context) []device.Info {
 	hc, err := httpu.NewHTTPUClient()
 	if err != nil {

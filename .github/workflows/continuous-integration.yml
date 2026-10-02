@@ -36,7 +36,8 @@ jobs:
       # Pinned, not @latest: a lint gate that changes under CI turns an unrelated
       # push red and teaches everyone to ignore it. It runs under make env because
       # the repo is cgo and staticcheck type-checks the whole graph.
-      - run: eval "$(make env)" && go run honnef.co/go/tools/cmd/staticcheck@2026.2.1 ./internal/... ./cmd/...
+      # Every check, style included, over all hand-written code; gen/ is buf's.
+      - run: eval "$(make env)" && go run honnef.co/go/tools/cmd/staticcheck@2026.2.1 -checks all ./internal/... ./cmd/... ./e2e/...
       # -test is load-bearing: without it every function only a test reaches reads
       # as dead. deadcode exits 0 whether or not it found anything, so the gate is
       # its output and not its status. One line is allowed through: castorNativeLog

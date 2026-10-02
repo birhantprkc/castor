@@ -9,7 +9,7 @@ import (
 	"sync"
 )
 
-// Spool: append-only buffer with blocking tails, safe for concurrent access.
+// Spool is an append-only buffer with blocking tails, safe for concurrent access.
 type Spool struct {
 	path string
 	w    *os.File

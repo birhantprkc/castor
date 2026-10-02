@@ -58,7 +58,7 @@ func (d *dlnaDevice) name() string {
 
 var _ device.Device = (*dlnaDevice)(nil)
 
-// Family: UPnP AVTransport strategy (renderers don't self-fetch).
+// Family is the UPnP AVTransport strategy; its renderers do not fetch for themselves.
 type Family struct{}
 
 // familyType is the name config.yaml selects this family by.
@@ -109,7 +109,7 @@ func dlnaInfo(result goupnp.MaybeRootDevice) (device.Info, bool) {
 	}, true
 }
 
-// Locate: HTTP address trusted; others use unicast M-SEARCH (no multicast).
+// Locate trusts an HTTP address and finds any other with a unicast M-SEARCH, no multicast.
 func (Family) Locate(ctx context.Context, address string) (string, error) {
 	if u, err := url.Parse(address); err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" {
 		return address, nil

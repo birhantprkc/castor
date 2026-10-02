@@ -209,7 +209,7 @@ func (r renderers) Connect(ctx context.Context, target device.Info) (device.Devi
 	return r.families.Connect(ctx, target, r.timeout)
 }
 
-// NetworkConfig: how long discovery and a device protocol are given, and the interface renderers reach castor on.
+// NetworkConfig is how long discovery and a device protocol are given, and the interface renderers reach castor on.
 type NetworkConfig struct {
 	Timeout   time.Duration `yaml:"timeout" validate:"required"`
 	Interface string        `yaml:"interface"`

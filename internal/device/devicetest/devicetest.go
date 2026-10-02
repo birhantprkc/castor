@@ -14,7 +14,7 @@ import (
 // pollsBeforeTeardown is how many poll intervals a running cast is watched before it is torn down.
 const pollsBeforeTeardown = 5
 
-// AwaitsTheCastsEnd: AwaitEnd outlasts polling until the cast ends; open runs in a synctest bubble, off the network.
+// AwaitsTheCastsEnd checks that AwaitEnd outlasts polling until the cast ends; open runs in a synctest bubble, off the network.
 func AwaitsTheCastsEnd(t *testing.T, open func() device.Device) {
 	t.Helper()
 	synctest.Test(t, func(t *testing.T) {

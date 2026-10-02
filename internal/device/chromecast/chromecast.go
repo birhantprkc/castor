@@ -85,7 +85,7 @@ func (Family) Locate(_ context.Context, address string) (string, error) {
 	return address, nil
 }
 
-// discover browses mDNS (_googlecast._tcp) until ctx expires.
+// Discover browses mDNS (_googlecast._tcp) until ctx expires.
 func (Family) Discover(ctx context.Context) []device.Info {
 	entries, err := castdns.DiscoverCastDNSEntries(ctx, nil)
 	if err != nil {

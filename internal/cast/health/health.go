@@ -8,7 +8,7 @@ import (
 	"github.com/stupside/castor/internal/media"
 )
 
-// Window: which side of playback gate verdict is made.
+// Window is which side of the playback gate a verdict is made on.
 type Window int
 
 const (
@@ -70,7 +70,7 @@ func (k Kind) String() string {
 	}
 }
 
-// Health: measurements and terminal states; zero resolves to Starting.
+// Health is the measurements and terminal states; the zero value resolves to Starting.
 type Health struct {
 	// Bytes of artifact available now.
 	Landed int64

@@ -7,7 +7,7 @@ import (
 	"github.com/stupside/castor/internal/media"
 )
 
-// Shape: renderer, source, ceiling, operator preference; pure data, no I/O.
+// Shape is the renderer, the source, the ceiling and the operator's preference: pure data, no I/O.
 type Shape struct {
 	// Static profile or negotiated capabilities; zeros mark unmeasured fields.
 	Renderer media.Capabilities

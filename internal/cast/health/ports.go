@@ -6,7 +6,7 @@ import (
 	"github.com/stupside/castor/internal/media"
 )
 
-// Producer: observation surface reporting state and evidence (never decides).
+// Producer is an observation surface reporting state and evidence; it never decides.
 type Producer interface {
 	Done() <-chan struct{}
 	Evidence() []string
@@ -24,7 +24,7 @@ type Lead interface {
 	Done() bool
 }
 
-// Audience: viewer requests and media (one port) to distinguish pause from gone.
+// Audience is the viewer's requests and media, one port, to tell a pause from a renderer gone.
 type Audience interface {
 	// Handed: bytes handed and last move time; counts bytes not requests.
 	Handed() (bytes int64, last time.Time)

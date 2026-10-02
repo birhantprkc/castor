@@ -28,7 +28,7 @@ const (
 	ReadOnce
 )
 
-// Needs: facts rule reads; ordered; controls when renderer acquired.
+// Needs is the facts a rule reads, ordered; it controls when the renderer is acquired.
 type Needs int
 
 const (
