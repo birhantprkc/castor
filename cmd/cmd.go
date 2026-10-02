@@ -153,11 +153,9 @@ func (a *app) cast(ctx context.Context, cfg *config.Config, c *client.Client, re
 	go func() { driving <- c.Drive(lending, id, target) }()
 
 	err = w.Outcome()
+	// Ctrl+C stops the cast; anything else that ends the watch leaves it to the server.
 	if ctx.Err() != nil {
 		err = context.Cause(ctx)
-	}
-	// Whatever ended the watch, nothing is left casting and the renderer is released before castor exits.
-	if err != nil {
 		stop(ctx, c, id)
 	}
 	release()
