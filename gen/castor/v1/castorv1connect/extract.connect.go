@@ -39,7 +39,7 @@ const (
 
 // ExtractServiceClient is a client for the castor.v1.ExtractService service.
 type ExtractServiceClient interface {
-	// Extract opens every page and returns the streams they fetched, deduplicated; it fails only when none was found.
+	// Extract fails only when no page played a stream.
 	Extract(context.Context, *v1.ExtractRequest) (*v1.ExtractResponse, error)
 }
 
@@ -79,7 +79,7 @@ func (c *extractServiceClient) Extract(ctx context.Context, req *v1.ExtractReque
 
 // ExtractServiceHandler is an implementation of the castor.v1.ExtractService service.
 type ExtractServiceHandler interface {
-	// Extract opens every page and returns the streams they fetched, deduplicated; it fails only when none was found.
+	// Extract fails only when no page played a stream.
 	Extract(context.Context, *v1.ExtractRequest) (*v1.ExtractResponse, error)
 }
 

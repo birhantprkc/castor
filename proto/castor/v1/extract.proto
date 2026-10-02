@@ -7,7 +7,7 @@ import "castor/v1/stream.proto";
 
 // ExtractService finds the streams pages play, opening them in a browser on the server.
 service ExtractService {
-  // Extract opens every page and returns the streams they fetched, deduplicated; it fails only when none was found.
+  // Extract fails only when no page played a stream.
   rpc Extract(ExtractRequest) returns (ExtractResponse);
 }
 

@@ -34,10 +34,10 @@ message Stream {
 
 // Preferences is what the operator asks of one cast.
 message Preferences {
-  Delivery delivery = 1 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
+  Delivery delivery = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).enum.defined_only = true
+  ];
   // max_height is the tallest picture the cast may show.
   int32 max_height = 2 [(buf.validate.field).int32.gte = 2];
   // subtitles is the language to burn in, a whisper code or auto to detect it, empty for none.
@@ -63,7 +63,7 @@ message RankResponse {
 }
 
 message RankedStream {
-  string url = 1 [(buf.validate.field).string.uri = true];
+  string url = 1;
   uint64 bitrate = 2;
   // last_resort marks a stream admitted without a measurement to back it.
   bool last_resort = 3;

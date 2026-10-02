@@ -43,7 +43,6 @@ const (
 type DeviceServiceClient interface {
 	// Drive lends the device: a cast takes one, starts once it is lent, and plays on once its client leaves.
 	Drive(context.Context, *v1.DriveRequest) (*connect.ServerStreamForClient[v1.DriveResponse], error)
-	// Answer answers one of the cast's calls on the device.
 	Answer(context.Context, *v1.AnswerRequest) (*v1.AnswerResponse, error)
 }
 
@@ -97,7 +96,6 @@ func (c *deviceServiceClient) Answer(ctx context.Context, req *v1.AnswerRequest)
 type DeviceServiceHandler interface {
 	// Drive lends the device: a cast takes one, starts once it is lent, and plays on once its client leaves.
 	Drive(context.Context, *v1.DriveRequest, *connect.ServerStream[v1.DriveResponse]) error
-	// Answer answers one of the cast's calls on the device.
 	Answer(context.Context, *v1.AnswerRequest) (*v1.AnswerResponse, error)
 }
 

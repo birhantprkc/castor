@@ -369,10 +369,9 @@ const file_castor_v1_stream_proto_rawDesc = "" +
 	"\fcontent_type\x18\x03 \x01(\tR\vcontentType\x1a:\n" +
 	"\fHeadersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xad\x01\n" +
-	"\vPreferences\x12;\n" +
-	"\bdelivery\x18\x01 \x01(\x0e2\x13.castor.v1.DeliveryB\n" +
-	"\xbaH\a\x82\x01\x04\x10\x01 \x00R\bdelivery\x12&\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xae\x01\n" +
+	"\vPreferences\x12<\n" +
+	"\bdelivery\x18\x01 \x01(\x0e2\x13.castor.v1.DeliveryB\v\xbaH\b\xc8\x01\x01\x82\x01\x02\x10\x01R\bdelivery\x12&\n" +
 	"\n" +
 	"max_height\x18\x02 \x01(\x05B\a\xbaH\x04\x1a\x02(\x02R\tmaxHeight\x129\n" +
 	"\tsubtitles\x18\x03 \x01(\tB\x1b\xbaH\x18r\x162\x14^(auto|[a-z]{2,3})?$R\tsubtitles\"\x86\x01\n" +
@@ -380,9 +379,9 @@ const file_castor_v1_stream_proto_rawDesc = "" +
 	"\astreams\x18\x01 \x03(\v2\x11.castor.v1.StreamB\b\xbaH\x05\x92\x01\x02\b\x01R\astreams\x12@\n" +
 	"\vpreferences\x18\x02 \x01(\v2\x16.castor.v1.PreferencesB\x06\xbaH\x03\xc8\x01\x01R\vpreferences\"?\n" +
 	"\fRankResponse\x12/\n" +
-	"\x06ranked\x18\x01 \x03(\v2\x17.castor.v1.RankedStreamR\x06ranked\"e\n" +
-	"\fRankedStream\x12\x1a\n" +
-	"\x03url\x18\x01 \x01(\tB\b\xbaH\x05r\x03\x88\x01\x01R\x03url\x12\x18\n" +
+	"\x06ranked\x18\x01 \x03(\v2\x17.castor.v1.RankedStreamR\x06ranked\"[\n" +
+	"\fRankedStream\x12\x10\n" +
+	"\x03url\x18\x01 \x01(\tR\x03url\x12\x18\n" +
 	"\abitrate\x18\x02 \x01(\x04R\abitrate\x12\x1f\n" +
 	"\vlast_resort\x18\x03 \x01(\bR\n" +
 	"lastResort*K\n" +

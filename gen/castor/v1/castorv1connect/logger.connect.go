@@ -39,7 +39,7 @@ const (
 
 // LoggerServiceClient is a client for the castor.v1.LoggerService service.
 type LoggerServiceClient interface {
-	// Watch sends the cast's status at once and as it changes, with its log lines at the asked level; it ends with the cast's outcome.
+	// Watch sends the cast's status now and on every change.
 	Watch(context.Context, *v1.WatchRequest) (*connect.ServerStreamForClient[v1.WatchResponse], error)
 }
 
@@ -75,7 +75,7 @@ func (c *loggerServiceClient) Watch(ctx context.Context, req *v1.WatchRequest) (
 
 // LoggerServiceHandler is an implementation of the castor.v1.LoggerService service.
 type LoggerServiceHandler interface {
-	// Watch sends the cast's status at once and as it changes, with its log lines at the asked level; it ends with the cast's outcome.
+	// Watch sends the cast's status now and on every change.
 	Watch(context.Context, *v1.WatchRequest, *connect.ServerStream[v1.WatchResponse]) error
 }
 

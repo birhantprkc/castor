@@ -80,7 +80,7 @@ func (LogLevel) EnumDescriptor() ([]byte, []int) {
 type WatchRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	CastId string                 `protobuf:"bytes,1,opt,name=cast_id,json=castId,proto3" json:"cast_id,omitempty"`
-	// logs is the least severe server log this watcher is sent, live and never kept; unset sends none.
+	// logs is the least severe line sent; unset sends none.
 	Logs          *LogLevel `protobuf:"varint,2,opt,name=logs,proto3,enum=castor.v1.LogLevel,oneof" json:"logs,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -218,7 +218,7 @@ type CastStatus struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// streams is how many streams the cast was handed, once it measures them.
 	Streams uint32 `protobuf:"varint,1,opt,name=streams,proto3" json:"streams,omitempty"`
-	// castable is how many measuring kept, once it has.
+	// castable is how many of them measuring kept.
 	Castable uint32 `protobuf:"varint,2,opt,name=castable,proto3" json:"castable,omitempty"`
 	// attempt counts tries from 1, once casting.
 	Attempt uint32 `protobuf:"varint,3,opt,name=attempt,proto3" json:"attempt,omitempty"`
@@ -291,7 +291,7 @@ type LogLine struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	Level   LogLevel               `protobuf:"varint,1,opt,name=level,proto3,enum=castor.v1.LogLevel" json:"level,omitempty"`
 	Message string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
-	// attrs keep the order they were logged in.
+	// attrs are in logged order, group keys dotted.
 	Attrs         []*LogLine_Attr `protobuf:"bytes,3,rep,name=attrs,proto3" json:"attrs,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -461,11 +461,11 @@ const file_castor_v1_logger_proto_rawDesc = "" +
 	"\acast_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x06castId\x128\n" +
 	"\x04logs\x18\x02 \x01(\x0e2\x13.castor.v1.LogLevelB\n" +
 	"\xbaH\a\x82\x01\x04\x10\x01 \x00H\x00R\x04logs\x88\x01\x01B\a\n" +
-	"\x05_logs\"{\n" +
+	"\x05_logs\"t\n" +
 	"\rWatchResponse\x12/\n" +
 	"\x06status\x18\x01 \x01(\v2\x15.castor.v1.CastStatusH\x00R\x06status\x12(\n" +
-	"\x04line\x18\x02 \x01(\v2\x12.castor.v1.LogLineH\x00R\x04lineB\x0f\n" +
-	"\x06update\x12\x05\xbaH\x02\b\x01\"\xd2\x01\n" +
+	"\x04line\x18\x02 \x01(\v2\x12.castor.v1.LogLineH\x00R\x04lineB\b\n" +
+	"\x06update\"\xd2\x01\n" +
 	"\n" +
 	"CastStatus\x12\x18\n" +
 	"\astreams\x18\x01 \x01(\rR\astreams\x12\x1a\n" +
@@ -474,9 +474,9 @@ const file_castor_v1_logger_proto_rawDesc = "" +
 	"\brevision\x18\x04 \x01(\v2\x1e.castor.v1.CastStatus.RevisionR\brevision\x1a8\n" +
 	"\bRevision\x12\x1a\n" +
 	"\bstrategy\x18\x01 \x01(\tR\bstrategy\x12\x10\n" +
-	"\x03why\x18\x02 \x01(\tR\x03why\"\xb7\x01\n" +
-	"\aLogLine\x123\n" +
-	"\x05level\x18\x01 \x01(\x0e2\x13.castor.v1.LogLevelB\b\xbaH\x05\x82\x01\x02 \x00R\x05level\x12\x18\n" +
+	"\x03why\x18\x02 \x01(\tR\x03why\"\xad\x01\n" +
+	"\aLogLine\x12)\n" +
+	"\x05level\x18\x01 \x01(\x0e2\x13.castor.v1.LogLevelR\x05level\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12-\n" +
 	"\x05attrs\x18\x03 \x03(\v2\x17.castor.v1.LogLine.AttrR\x05attrs\x1a.\n" +
 	"\x04Attr\x12\x10\n" +

@@ -4,23 +4,22 @@ package castor.v1;
 
 import "buf/validate/validate.proto";
 
-// DeviceService lends a client's device to a cast: the cast's calls on it arrive through Drive and are answered with Answer.
+// DeviceService lends a client's device to a cast: its calls arrive through Drive and are answered through Answer.
 service DeviceService {
   // Drive lends the device: a cast takes one, starts once it is lent, and plays on once its client leaves.
   rpc Drive(DriveRequest) returns (stream DriveResponse);
-  // Answer answers one of the cast's calls on the device.
   rpc Answer(AnswerRequest) returns (AnswerResponse);
 }
 
 message DriveRequest {
   string cast_id = 1 [(buf.validate.field).string.min_len = 1];
-  Device device = 2 [(buf.validate.field).required = true];
+  Device device = 2;
   // self_fetch is whether the device fetches a stream URL itself, known before connecting to it.
   bool self_fetch = 3;
 }
 
 message DriveResponse {
-  DeviceCommand command = 1 [(buf.validate.field).required = true];
+  DeviceCommand command = 1;
 }
 
 message AnswerRequest {
@@ -53,7 +52,7 @@ message AnswerRequest {
 
 message AnswerResponse {}
 
-// Device names the device a cast plays on; the client reaches it, the server only logs it.
+// Device is the lent device, sent for the server's logs.
 message Device {
   string name = 1;
   string type = 2;
@@ -86,7 +85,7 @@ message AudioSupport {
 message DeviceCommand {
   option (buf.validate.message).cel = {
     id: "device_command.id"
-    message: "every command but a cancel carries the id its answer names"
+    message: "id is set on every command but cancel, and empty on cancel"
     expression: "has(this.cancel) == (this.id == '')"
   };
 
@@ -106,27 +105,27 @@ message DeviceCommand {
   message Connect {}
 
   message Play {
-    string handle = 1 [(buf.validate.field).string.min_len = 1];
+    string handle = 1;
     // url is what the renderer fetches: the source itself, or what the server serves it.
-    string url = 2 [(buf.validate.field).string.uri = true];
+    string url = 2;
     string content_type = 3;
   }
 
   message StreamHeaders {
-    string handle = 1 [(buf.validate.field).string.min_len = 1];
-    string content_type = 2 [(buf.validate.field).string.min_len = 1];
+    string handle = 1;
+    string content_type = 2;
   }
 
   message AwaitEnd {
-    string handle = 1 [(buf.validate.field).string.min_len = 1];
+    string handle = 1;
   }
 
   message Close {
-    string handle = 1 [(buf.validate.field).string.min_len = 1];
+    string handle = 1;
   }
 
   message Cancel {
-    string command_id = 1 [(buf.validate.field).string.min_len = 1];
+    string command_id = 1;
   }
 }
 
@@ -134,7 +133,7 @@ message DeviceCommand {
 message DeviceError {
   oneof error {
     option (buf.validate.oneof).required = true;
-    string message = 1;
+    string message = 1 [(buf.validate.field).string.min_len = 1];
     Gone gone = 2;
   }
 
