@@ -19,6 +19,7 @@ message WatchRequest {
 // WatchResponse is one update; the stream's own status is the outcome: OK ended, canceled stopped, aborted failed.
 message WatchResponse {
   oneof update {
+    option (buf.validate.oneof).required = true;
     CastStatus status = 1;
     LogLine line = 2;
   }
@@ -26,13 +27,22 @@ message WatchResponse {
 
 // CastStatus is where a cast stands; nothing decides on it, it is for people to read.
 message CastStatus {
-  Phase phase = 1;
+  option (buf.validate.message).cel = {
+    id: "cast_status.castable"
+    message: "measuring keeps no more streams than the cast was handed"
+    expression: "this.castable <= this.streams"
+  };
+
+  Phase phase = 1 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
   // streams is how many streams the cast was handed.
-  int32 streams = 2;
+  int32 streams = 2 [(buf.validate.field).int32.gte = 0];
   // castable is how many measuring kept, once it has.
-  int32 castable = 3;
+  int32 castable = 3 [(buf.validate.field).int32.gte = 0];
   // attempt counts tries from 1, once casting.
-  int32 attempt = 4;
+  int32 attempt = 4 [(buf.validate.field).int32.gte = 0];
   // revision is the latest change of plan, unset before any.
   Revision revision = 5;
 
@@ -60,7 +70,10 @@ enum LogLevel {
 
 // LogLine is one line the server logged for a cast, sent live and never kept.
 message LogLine {
-  LogLevel level = 1;
+  LogLevel level = 1 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
   string message = 2;
   // attrs keep the order they were logged in.
   repeated Attr attrs = 3;

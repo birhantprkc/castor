@@ -301,31 +301,28 @@ func TestADryRunIsTheServersRankingAsTheCastWouldAskIt(t *testing.T) {
 	}
 }
 
-func TestACastThatLeavesWhatItAsksUnstatedIsRefused(t *testing.T) {
-	c, _ := serve(t, backend(handoff), newTV())
+func TestTheServerRefusesACastTheContractForbids(t *testing.T) {
+	_, base := serve(t, backend(handoff), newTV())
+	// A client that skips the contract's rules, so the server is the one to hold them.
+	raw := castorv1connect.NewCastServiceClient(http.DefaultClient, base.api)
 
 	unasked := named("https://cdn.example/direct")
 	unasked.Preferences = nil
 	undelivered := named("https://cdn.example/direct")
 	undelivered.Preferences = &castorv1.Preferences{MaxHeight: 720}
+	unspoken := named("https://cdn.example/direct")
+	unspoken.Preferences = &castorv1.Preferences{Delivery: castorv1.Delivery_DELIVERY_AUTO, MaxHeight: 720, Subtitles: "not a language"}
+	misheaded := named("https://cdn.example/direct")
+	misheaded.GetNamed().Headers = map[string]*castorv1.HeaderValues{"Bad Header": {Values: []string{"x"}}}
 	for name, req := range map[string]*castorv1.StartCastRequest{
-		"no preferences": unasked,
-		"no delivery":    undelivered,
+		"no preferences":       unasked,
+		"no delivery":          undelivered,
+		"no subtitle language": unspoken,
+		"no header name":       misheaded,
+		"a relative link":      named("/movie.m3u8"),
+		"no streams found":     found(),
 	} {
-		if _, err := c.Start(t.Context(), req); connect.CodeOf(err) != connect.CodeInvalidArgument {
-			t.Errorf("%s started with %v, want the server to refuse guessing it", name, err)
-		}
-	}
-}
-
-func TestTheContractRefusesStreamsNoServerCouldFetch(t *testing.T) {
-	c, _ := serve(t, backend(handoff), newTV())
-
-	for name, streams := range map[string]*castorv1.StartCastRequest{
-		"a relative link":  named("/movie.m3u8"),
-		"no streams found": found(),
-	} {
-		if _, err := c.Start(t.Context(), streams); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		if _, err := raw.StartCast(t.Context(), req); connect.CodeOf(err) != connect.CodeInvalidArgument {
 			t.Errorf("%s started with %v, want the contract's refusal", name, err)
 		}
 	}
@@ -435,7 +432,7 @@ func TestTheServersLinesForACastReachOnlyTheWatchersThatAskedForThem(t *testing.
 	}
 }
 
-func TestWhatTheServerServesReachesTheRendererThroughTheClientNotTheServer(t *testing.T) {
+func TestWhatTheServerServesTheRendererFetchesFromTheServerItself(t *testing.T) {
 	screen := newTV()
 	delivered, delivery := make(chan string, 1), make(chan string, 1)
 	c, base := serve(t, backend(func(ctx context.Context, r execute.Renderer, listeners deliver.Listeners, _ []*source.Stream, _ attempt.Turns) error {
@@ -601,11 +598,13 @@ func TestACastHasOneDeviceAndPlaysOnWhenTheClientLendingItLeaves(t *testing.T) {
 			return err
 		}
 		defer dev.Close()
+		if err := dev.Play(ctx, streams[0].URL, streams[0].ContentType); err != nil {
+			return err
+		}
 		close(playing)
-		// Busy on the server, asking the device nothing, when its client leaves.
-		<-ctx.Done()
+		err = dev.AwaitEnd(ctx)
 		close(ended)
-		return ctx.Err()
+		return err
 	}), newTV())
 
 	id, err := c.Start(t.Context(), named("https://cdn.example/direct"))

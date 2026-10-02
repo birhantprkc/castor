@@ -29,7 +29,7 @@ message StartCastRequest {
 }
 
 message StartCastResponse {
-  string cast_id = 1;
+  string cast_id = 1 [(buf.validate.field).string.min_len = 1];
 }
 
 message StopCastRequest {

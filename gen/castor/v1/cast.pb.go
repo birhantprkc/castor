@@ -293,9 +293,9 @@ const file_castor_v1_cast_proto_rawDesc = "" +
 	"\vpreferences\x18\x03 \x01(\v2\x16.castor.v1.PreferencesB\x06\xbaH\x03\xc8\x01\x01R\vpreferences\x1a>\n" +
 	"\x05Found\x125\n" +
 	"\astreams\x18\x01 \x03(\v2\x11.castor.v1.StreamB\b\xbaH\x05\x92\x01\x02\b\x01R\astreamsB\x10\n" +
-	"\astreams\x12\x05\xbaH\x02\b\x01\",\n" +
-	"\x11StartCastResponse\x12\x17\n" +
-	"\acast_id\x18\x01 \x01(\tR\x06castId\"3\n" +
+	"\astreams\x12\x05\xbaH\x02\b\x01\"5\n" +
+	"\x11StartCastResponse\x12 \n" +
+	"\acast_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x06castId\"3\n" +
 	"\x0fStopCastRequest\x12 \n" +
 	"\acast_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x06castId\"\x12\n" +
 	"\x10StopCastResponse2\x9a\x01\n" +

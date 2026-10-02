@@ -5,6 +5,9 @@ import (
 	"context"
 	"net/http"
 
+	"connectrpc.com/connect"
+	"connectrpc.com/validate"
+
 	"github.com/stupside/castor/gen/castor/v1/castorv1connect"
 	"github.com/stupside/castor/internal/device"
 	"github.com/stupside/castor/internal/media"
@@ -28,12 +31,14 @@ type Client struct {
 }
 
 func New(baseURL string, renderers Renderers) *Client {
+	// Both ways, every message is held to the rules the contract states.
+	valid := connect.WithInterceptors(validate.NewInterceptor(validate.WithValidateResponses()))
 	return &Client{
 		renderers: renderers,
-		casts:     castorv1connect.NewCastServiceClient(http.DefaultClient, baseURL),
-		devices:   castorv1connect.NewDeviceServiceClient(http.DefaultClient, baseURL),
-		logger:    castorv1connect.NewLoggerServiceClient(http.DefaultClient, baseURL),
-		streams:   castorv1connect.NewStreamServiceClient(http.DefaultClient, baseURL),
-		extractor: castorv1connect.NewExtractServiceClient(http.DefaultClient, baseURL),
+		casts:     castorv1connect.NewCastServiceClient(http.DefaultClient, baseURL, valid),
+		devices:   castorv1connect.NewDeviceServiceClient(http.DefaultClient, baseURL, valid),
+		logger:    castorv1connect.NewLoggerServiceClient(http.DefaultClient, baseURL, valid),
+		streams:   castorv1connect.NewStreamServiceClient(http.DefaultClient, baseURL, valid),
+		extractor: castorv1connect.NewExtractServiceClient(http.DefaultClient, baseURL, valid),
 	}
 }

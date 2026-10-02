@@ -187,7 +187,7 @@ type Preferences struct {
 	Delivery Delivery               `protobuf:"varint,1,opt,name=delivery,proto3,enum=castor.v1.Delivery" json:"delivery,omitempty"`
 	// max_height is the tallest picture the cast may show.
 	MaxHeight int32 `protobuf:"varint,2,opt,name=max_height,json=maxHeight,proto3" json:"max_height,omitempty"`
-	// subtitles is the language to burn in, empty for none.
+	// subtitles is the language to burn in, a BCP-47 tag or auto to detect it, empty for none.
 	Subtitles     string `protobuf:"bytes,3,opt,name=subtitles,proto3" json:"subtitles,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -406,30 +406,32 @@ var File_castor_v1_stream_proto protoreflect.FileDescriptor
 
 const file_castor_v1_stream_proto_rawDesc = "" +
 	"\n" +
-	"\x16castor/v1/stream.proto\x12\tcastor.v1\x1a\x1bbuf/validate/validate.proto\"\xd6\x01\n" +
+	"\x16castor/v1/stream.proto\x12\tcastor.v1\x1a\x1bbuf/validate/validate.proto\"\xe5\x01\n" +
 	"\x06Stream\x12\x1a\n" +
-	"\x03url\x18\x01 \x01(\tB\b\xbaH\x05r\x03\x88\x01\x01R\x03url\x128\n" +
-	"\aheaders\x18\x02 \x03(\v2\x1e.castor.v1.Stream.HeadersEntryR\aheaders\x12!\n" +
+	"\x03url\x18\x01 \x01(\tB\b\xbaH\x05r\x03\x88\x01\x01R\x03url\x12G\n" +
+	"\aheaders\x18\x02 \x03(\v2\x1e.castor.v1.Stream.HeadersEntryB\r\xbaH\n" +
+	"\x9a\x01\a\"\x05r\x03\xc0\x01\x01R\aheaders\x12!\n" +
 	"\fcontent_type\x18\x03 \x01(\tR\vcontentType\x1aS\n" +
 	"\fHeadersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12-\n" +
-	"\x05value\x18\x02 \x01(\v2\x17.castor.v1.HeaderValuesR\x05value:\x028\x01\"&\n" +
-	"\fHeaderValues\x12\x16\n" +
-	"\x06values\x18\x01 \x03(\tR\x06values\"\x90\x01\n" +
+	"\x05value\x18\x02 \x01(\v2\x17.castor.v1.HeaderValuesR\x05value:\x028\x01\"8\n" +
+	"\fHeaderValues\x12(\n" +
+	"\x06values\x18\x01 \x03(\tB\x10\xbaH\r\x92\x01\n" +
+	"\"\br\x06\xc8\x01\x00\xc0\x01\x02R\x06values\"\xc4\x01\n" +
 	"\vPreferences\x12;\n" +
 	"\bdelivery\x18\x01 \x01(\x0e2\x13.castor.v1.DeliveryB\n" +
 	"\xbaH\a\x82\x01\x04\x10\x01 \x00R\bdelivery\x12&\n" +
 	"\n" +
-	"max_height\x18\x02 \x01(\x05B\a\xbaH\x04\x1a\x02(\x02R\tmaxHeight\x12\x1c\n" +
-	"\tsubtitles\x18\x03 \x01(\tR\tsubtitles\"\x86\x01\n" +
+	"max_height\x18\x02 \x01(\x05B\a\xbaH\x04\x1a\x02(\x02R\tmaxHeight\x12P\n" +
+	"\tsubtitles\x18\x03 \x01(\tB2\xbaH/r-2+^(auto|[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*)?$R\tsubtitles\"\x86\x01\n" +
 	"\vRankRequest\x125\n" +
 	"\astreams\x18\x01 \x03(\v2\x11.castor.v1.StreamB\b\xbaH\x05\x92\x01\x02\b\x01R\astreams\x12@\n" +
 	"\vpreferences\x18\x02 \x01(\v2\x16.castor.v1.PreferencesB\x06\xbaH\x03\xc8\x01\x01R\vpreferences\"?\n" +
 	"\fRankResponse\x12/\n" +
-	"\x06ranked\x18\x01 \x03(\v2\x17.castor.v1.RankedStreamR\x06ranked\"[\n" +
-	"\fRankedStream\x12\x10\n" +
-	"\x03url\x18\x01 \x01(\tR\x03url\x12\x18\n" +
-	"\abitrate\x18\x02 \x01(\x03R\abitrate\x12\x1f\n" +
+	"\x06ranked\x18\x01 \x03(\v2\x17.castor.v1.RankedStreamR\x06ranked\"n\n" +
+	"\fRankedStream\x12\x1a\n" +
+	"\x03url\x18\x01 \x01(\tB\b\xbaH\x05r\x03\x88\x01\x01R\x03url\x12!\n" +
+	"\abitrate\x18\x02 \x01(\x03B\a\xbaH\x04\"\x02(\x00R\abitrate\x12\x1f\n" +
 	"\vlast_resort\x18\x03 \x01(\bR\n" +
 	"lastResort*K\n" +
 	"\bDelivery\x12\x18\n" +

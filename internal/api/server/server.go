@@ -45,8 +45,8 @@ type Caster interface {
 // handlers are the API and the media route renderers reach at server.
 func handlers(ctx context.Context, b Backend, server *url.URL) (api, renderers http.Handler) {
 	reg := newRegistry()
-	// Requests are held to the rules the contract states, before any handler reads them.
-	valid := connect.WithInterceptors(validate.NewInterceptor())
+	// Both ways, every message is held to the rules the contract states.
+	valid := connect.WithInterceptors(validate.NewInterceptor(validate.WithValidateResponses()))
 	mux := http.NewServeMux()
 	mux.Handle(castorv1connect.NewCastServiceHandler(&casts{ctx: ctx, caster: b.Caster, undriven: undriven, server: server, registry: reg}, valid))
 	mux.Handle(castorv1connect.NewDeviceServiceHandler(devices{registry: reg}, valid))

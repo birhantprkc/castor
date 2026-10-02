@@ -20,7 +20,7 @@ message DriveRequest {
 }
 
 message DriveResponse {
-  DeviceCommand command = 1;
+  DeviceCommand command = 1 [(buf.validate.field).required = true];
 }
 
 message AnswerRequest {
@@ -37,7 +37,17 @@ message AnswerRequest {
   message Done {}
 
   message Headers {
-    map<string, string> headers = 1;
+    map<string, string> headers = 1 [(buf.validate.field).map = {
+      keys: {
+        string: {well_known_regex: KNOWN_REGEX_HTTP_HEADER_NAME}
+      }
+      values: {
+        string: {
+          well_known_regex: KNOWN_REGEX_HTTP_HEADER_VALUE
+          strict: false
+        }
+      }
+    }];
   }
 }
 
@@ -76,8 +86,15 @@ message AudioSupport {
 
 // DeviceCommand is one call the server's cast makes on the client's renderer.
 message DeviceCommand {
+  option (buf.validate.message).cel = {
+    id: "device_command.id"
+    message: "every command but a cancel carries the id its answer names"
+    expression: "has(this.cancel) == (this.id == '')"
+  };
+
   string id = 1;
   oneof command {
+    option (buf.validate.oneof).required = true;
     // connect opens the lent device; its id is the handle later commands name.
     Connect connect = 2;
     Play play = 3;
@@ -91,33 +108,34 @@ message DeviceCommand {
   message Connect {}
 
   message Play {
-    string handle = 1;
+    string handle = 1 [(buf.validate.field).string.min_len = 1];
     // url is what the renderer fetches: the source itself, or what the server serves it.
-    string url = 2;
+    string url = 2 [(buf.validate.field).string.uri = true];
     string content_type = 3;
   }
 
   message StreamHeaders {
-    string handle = 1;
-    string content_type = 2;
+    string handle = 1 [(buf.validate.field).string.min_len = 1];
+    string content_type = 2 [(buf.validate.field).string.min_len = 1];
   }
 
   message AwaitEnd {
-    string handle = 1;
+    string handle = 1 [(buf.validate.field).string.min_len = 1];
   }
 
   message Close {
-    string handle = 1;
+    string handle = 1 [(buf.validate.field).string.min_len = 1];
   }
 
   message Cancel {
-    string command_id = 1;
+    string command_id = 1 [(buf.validate.field).string.min_len = 1];
   }
 }
 
 // DeviceError is a renderer's failure, typed where the server's recovery reads its kind.
 message DeviceError {
   oneof error {
+    option (buf.validate.oneof).required = true;
     string message = 1;
     Gone gone = 2;
   }

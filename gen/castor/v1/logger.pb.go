@@ -520,17 +520,18 @@ const file_castor_v1_logger_proto_rawDesc = "" +
 	"\x16castor/v1/logger.proto\x12\tcastor.v1\x1a\x1bbuf/validate/validate.proto\"c\n" +
 	"\fWatchRequest\x12 \n" +
 	"\acast_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x06castId\x121\n" +
-	"\x04logs\x18\x02 \x01(\x0e2\x13.castor.v1.LogLevelB\b\xbaH\x05\x82\x01\x02\x10\x01R\x04logs\"t\n" +
+	"\x04logs\x18\x02 \x01(\x0e2\x13.castor.v1.LogLevelB\b\xbaH\x05\x82\x01\x02\x10\x01R\x04logs\"{\n" +
 	"\rWatchResponse\x12/\n" +
 	"\x06status\x18\x01 \x01(\v2\x15.castor.v1.CastStatusH\x00R\x06status\x12(\n" +
-	"\x04line\x18\x02 \x01(\v2\x12.castor.v1.LogLineH\x00R\x04lineB\b\n" +
-	"\x06update\"\xe8\x02\n" +
+	"\x04line\x18\x02 \x01(\v2\x12.castor.v1.LogLineH\x00R\x04lineB\x0f\n" +
+	"\x06update\x12\x05\xbaH\x02\b\x01\"\x85\x04\n" +
 	"\n" +
-	"CastStatus\x121\n" +
-	"\x05phase\x18\x01 \x01(\x0e2\x1b.castor.v1.CastStatus.PhaseR\x05phase\x12\x18\n" +
-	"\astreams\x18\x02 \x01(\x05R\astreams\x12\x1a\n" +
-	"\bcastable\x18\x03 \x01(\x05R\bcastable\x12\x18\n" +
-	"\aattempt\x18\x04 \x01(\x05R\aattempt\x12:\n" +
+	"CastStatus\x12=\n" +
+	"\x05phase\x18\x01 \x01(\x0e2\x1b.castor.v1.CastStatus.PhaseB\n" +
+	"\xbaH\a\x82\x01\x04\x10\x01 \x00R\x05phase\x12!\n" +
+	"\astreams\x18\x02 \x01(\x05B\a\xbaH\x04\x1a\x02(\x00R\astreams\x12#\n" +
+	"\bcastable\x18\x03 \x01(\x05B\a\xbaH\x04\x1a\x02(\x00R\bcastable\x12!\n" +
+	"\aattempt\x18\x04 \x01(\x05B\a\xbaH\x04\x1a\x02(\x00R\aattempt\x12:\n" +
 	"\brevision\x18\x05 \x01(\v2\x1e.castor.v1.CastStatus.RevisionR\brevision\x1a8\n" +
 	"\bRevision\x12\x1a\n" +
 	"\bstrategy\x18\x01 \x01(\tR\bstrategy\x12\x10\n" +
@@ -539,9 +540,11 @@ const file_castor_v1_logger_proto_rawDesc = "" +
 	"\x11PHASE_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15PHASE_AWAITING_DEVICE\x10\x01\x12\x13\n" +
 	"\x0fPHASE_MEASURING\x10\x02\x12\x11\n" +
-	"\rPHASE_CASTING\x10\x03\"\xad\x01\n" +
-	"\aLogLine\x12)\n" +
-	"\x05level\x18\x01 \x01(\x0e2\x13.castor.v1.LogLevelR\x05level\x12\x18\n" +
+	"\rPHASE_CASTING\x10\x03:t\xbaHq\x1ao\n" +
+	"\x14cast_status.castable\x128measuring keeps no more streams than the cast was handed\x1a\x1dthis.castable <= this.streams\"\xb9\x01\n" +
+	"\aLogLine\x125\n" +
+	"\x05level\x18\x01 \x01(\x0e2\x13.castor.v1.LogLevelB\n" +
+	"\xbaH\a\x82\x01\x04\x10\x01 \x00R\x05level\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12-\n" +
 	"\x05attrs\x18\x03 \x03(\v2\x17.castor.v1.LogLine.AttrR\x05attrs\x1a.\n" +
 	"\x04Attr\x12\x10\n" +

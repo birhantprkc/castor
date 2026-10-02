@@ -1231,9 +1231,9 @@ const file_castor_v1_device_proto_rawDesc = "" +
 	"\fDriveRequest\x12 \n" +
 	"\acast_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x06castId\x121\n" +
 	"\x06device\x18\x02 \x01(\v2\x11.castor.v1.DeviceB\x06\xbaH\x03\xc8\x01\x01R\x06device\x121\n" +
-	"\aprofile\x18\x03 \x01(\v2\x17.castor.v1.CapabilitiesR\aprofile\"C\n" +
-	"\rDriveResponse\x122\n" +
-	"\acommand\x18\x01 \x01(\v2\x18.castor.v1.DeviceCommandR\acommand\"\xe5\x03\n" +
+	"\aprofile\x18\x03 \x01(\v2\x17.castor.v1.CapabilitiesR\aprofile\"K\n" +
+	"\rDriveResponse\x12:\n" +
+	"\acommand\x18\x01 \x01(\v2\x18.castor.v1.DeviceCommandB\x06\xbaH\x03\xc8\x01\x01R\acommand\"\xfe\x03\n" +
 	"\rAnswerRequest\x12 \n" +
 	"\acast_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x06castId\x12&\n" +
 	"\n" +
@@ -1242,9 +1242,9 @@ const file_castor_v1_device_proto_rawDesc = "" +
 	"\fcapabilities\x18\x04 \x01(\v2\x17.castor.v1.CapabilitiesH\x00R\fcapabilities\x12<\n" +
 	"\aheaders\x18\x05 \x01(\v2 .castor.v1.AnswerRequest.HeadersH\x00R\aheaders\x12.\n" +
 	"\x05error\x18\x06 \x01(\v2\x16.castor.v1.DeviceErrorH\x00R\x05error\x1a\x06\n" +
-	"\x04Done\x1a\x8e\x01\n" +
-	"\aHeaders\x12G\n" +
-	"\aheaders\x18\x01 \x03(\v2-.castor.v1.AnswerRequest.Headers.HeadersEntryR\aheaders\x1a:\n" +
+	"\x04Done\x1a\xa7\x01\n" +
+	"\aHeaders\x12`\n" +
+	"\aheaders\x18\x01 \x03(\v2-.castor.v1.AnswerRequest.Headers.HeadersEntryB\x17\xbaH\x14\x9a\x01\x11\"\x05r\x03\xc0\x01\x01*\br\x06\xc8\x01\x00\xc0\x01\x02R\aheaders\x1a:\n" +
 	"\fHeadersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x0f\n" +
@@ -1272,7 +1272,7 @@ const file_castor_v1_device_proto_rawDesc = "" +
 	"\tmax_level\x18\x04 \x01(\x05R\bmaxLevel\"G\n" +
 	"\fAudioSupport\x12\x14\n" +
 	"\x05codec\x18\x01 \x01(\tR\x05codec\x12!\n" +
-	"\fmax_channels\x18\x02 \x01(\x05R\vmaxChannels\"\xbd\x05\n" +
+	"\fmax_channels\x18\x02 \x01(\x05R\vmaxChannels\"\xff\x06\n" +
 	"\rDeviceCommand\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12<\n" +
 	"\aconnect\x18\x02 \x01(\v2 .castor.v1.DeviceCommand.ConnectH\x00R\aconnect\x123\n" +
@@ -1281,30 +1281,31 @@ const file_castor_v1_device_proto_rawDesc = "" +
 	"\tawait_end\x18\x05 \x01(\v2!.castor.v1.DeviceCommand.AwaitEndH\x00R\bawaitEnd\x126\n" +
 	"\x05close\x18\x06 \x01(\v2\x1e.castor.v1.DeviceCommand.CloseH\x00R\x05close\x129\n" +
 	"\x06cancel\x18\a \x01(\v2\x1f.castor.v1.DeviceCommand.CancelH\x00R\x06cancel\x1a\t\n" +
-	"\aConnect\x1aS\n" +
-	"\x04Play\x12\x16\n" +
-	"\x06handle\x18\x01 \x01(\tR\x06handle\x12\x10\n" +
-	"\x03url\x18\x02 \x01(\tR\x03url\x12!\n" +
-	"\fcontent_type\x18\x03 \x01(\tR\vcontentType\x1aJ\n" +
-	"\rStreamHeaders\x12\x16\n" +
-	"\x06handle\x18\x01 \x01(\tR\x06handle\x12!\n" +
-	"\fcontent_type\x18\x02 \x01(\tR\vcontentType\x1a\"\n" +
-	"\bAwaitEnd\x12\x16\n" +
-	"\x06handle\x18\x01 \x01(\tR\x06handle\x1a\x1f\n" +
-	"\x05Close\x12\x16\n" +
-	"\x06handle\x18\x01 \x01(\tR\x06handle\x1a'\n" +
-	"\x06Cancel\x12\x1d\n" +
+	"\aConnect\x1af\n" +
+	"\x04Play\x12\x1f\n" +
+	"\x06handle\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x06handle\x12\x1a\n" +
+	"\x03url\x18\x02 \x01(\tB\b\xbaH\x05r\x03\x88\x01\x01R\x03url\x12!\n" +
+	"\fcontent_type\x18\x03 \x01(\tR\vcontentType\x1a\\\n" +
+	"\rStreamHeaders\x12\x1f\n" +
+	"\x06handle\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x06handle\x12*\n" +
+	"\fcontent_type\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\vcontentType\x1a+\n" +
+	"\bAwaitEnd\x12\x1f\n" +
+	"\x06handle\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x06handle\x1a(\n" +
+	"\x05Close\x12\x1f\n" +
+	"\x06handle\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x06handle\x1a0\n" +
+	"\x06Cancel\x12&\n" +
 	"\n" +
-	"command_id\x18\x01 \x01(\tR\tcommandIdB\t\n" +
-	"\acommand\"\xbb\x01\n" +
+	"command_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tcommandId:y\xbaHv\x1at\n" +
+	"\x11device_command.id\x12:every command but a cancel carries the id its answer names\x1a#has(this.cancel) == (this.id == '')B\x10\n" +
+	"\acommand\x12\x05\xbaH\x02\b\x01\"\xc2\x01\n" +
 	"\vDeviceError\x12\x1a\n" +
 	"\amessage\x18\x01 \x01(\tH\x00R\amessage\x121\n" +
 	"\x04gone\x18\x02 \x01(\v2\x1b.castor.v1.DeviceError.GoneH\x00R\x04gone\x1aT\n" +
 	"\x04Gone\x12\x1a\n" +
 	"\brenderer\x18\x01 \x01(\tR\brenderer\x12\x1a\n" +
 	"\bobserved\x18\x02 \x01(\tR\bobserved\x12\x14\n" +
-	"\x05cause\x18\x03 \x01(\tR\x05causeB\a\n" +
-	"\x05error2\x8c\x01\n" +
+	"\x05cause\x18\x03 \x01(\tR\x05causeB\x0e\n" +
+	"\x05error\x12\x05\xbaH\x02\b\x012\x8c\x01\n" +
 	"\rDeviceService\x12<\n" +
 	"\x05Drive\x12\x17.castor.v1.DriveRequest\x1a\x18.castor.v1.DriveResponse0\x01\x12=\n" +
 	"\x06Answer\x12\x18.castor.v1.AnswerRequest\x1a\x19.castor.v1.AnswerResponseB\x94\x01\n" +
