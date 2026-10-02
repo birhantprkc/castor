@@ -122,6 +122,6 @@ func Embedded(ctx context.Context, b Backend, lan net.Listener) (string, error) 
 
 func embed(ctx context.Context, l net.Listener, h http.Handler) {
 	if err := serve(ctx, l, h); err != nil {
-		slog.ErrorContext(ctx, "embedded api stopped", "error", err)
+		slog.ErrorContext(ctx, "embedded server stopped", "address", l.Addr().String(), "error", err)
 	}
 }

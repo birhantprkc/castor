@@ -15,7 +15,7 @@ import (
 
 // Drive lends target to cast id, running the server's calls on it until the cast ends or ctx does.
 func (c *Client) Drive(parent context.Context, id string, target device.Info) error {
-	// Leaving ends the stream, and with it the cast: the server fails a cast whose device's client is gone.
+	// Leaving ends the stream and every call on the renderer; the cast plays on without it.
 	ctx, leave := context.WithCancelCause(parent)
 	defer leave(nil)
 	stream, err := c.devices.Drive(ctx, &castorv1.DriveRequest{

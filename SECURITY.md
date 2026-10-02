@@ -24,9 +24,9 @@ If a key lands in `config.yaml` by mistake, revoke it at the issuing service.
 
 Used only by the interactive `castor cast` browser, and sent only to TMDB. Manage keys at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api).
 
-## Local stream server
+## Stream server
 
-While casting, Castor serves the stream to the TV over HTTP on your local network interface, for the length of the cast. It has no authentication, because DLNA renderers can't authenticate: anyone on your network who knows the URL can fetch it. Use Castor on a trusted network.
+The castor server serves the TV over HTTP until the TV stops fetching: inside `castor` on your local network interface, or on `server.listen` (and `server.advertise`) for a `castor server`. It has no authentication, because DLNA renderers can't authenticate: anyone who reaches it and knows a cast's URL can fetch it. A `castor server` also answers its API, unauthenticated, on the same port. Run it on a network you trust.
 
 ## Headless Chrome
 

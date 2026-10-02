@@ -1,4 +1,4 @@
-// Package client drives a castor server for the renderers on its own network: it finds them and controls them.
+// Package client lends a castor server the renderers on its own network, running the server's calls on them.
 package client
 
 import (
