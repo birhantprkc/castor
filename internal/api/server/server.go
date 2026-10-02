@@ -48,7 +48,7 @@ func handlers(ctx context.Context, b Backend, server *url.URL) (api, renderers h
 	// Both ways, every message is held to the rules the contract states.
 	valid := connect.WithInterceptors(validate.NewInterceptor(validate.WithValidateResponses()))
 	mux := http.NewServeMux()
-	mux.Handle(castorv1connect.NewCastServiceHandler(&casts{ctx: ctx, caster: b.Caster, undriven: undriven, server: server, registry: reg}, valid))
+	mux.Handle(castorv1connect.NewCastServiceHandler(&casts{ctx: ctx, caster: b.Caster, server: server, registry: reg}, valid))
 	mux.Handle(castorv1connect.NewDeviceServiceHandler(devices{registry: reg}, valid))
 	mux.Handle(castorv1connect.NewLoggerServiceHandler(logger{registry: reg}, valid))
 	mux.Handle(castorv1connect.NewStreamServiceHandler(ranking{caster: b.Caster}, valid))

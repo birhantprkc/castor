@@ -14,7 +14,6 @@ import (
 type casts struct {
 	ctx      context.Context
 	caster   func(asked *castorv1.Preferences) Caster
-	undriven time.Duration
 	server   *url.URL
 	registry *registry
 }
@@ -29,7 +28,7 @@ func (c *casts) StartCast(_ context.Context, req *castorv1.StartCastRequest) (*c
 	go func() {
 		defer cancel(nil)
 		// Nothing starts before a device is lent; a watcher opened first then misses nothing.
-		waiting := time.NewTimer(c.undriven)
+		waiting := time.NewTimer(undriven)
 		select {
 		case <-s.line.attached:
 			waiting.Stop()

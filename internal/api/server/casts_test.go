@@ -12,8 +12,7 @@ import (
 
 func TestACastNobodyLendsADeviceIsAbandonedAfterItsGrace(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		const grace = time.Minute
-		c := &casts{ctx: t.Context(), caster: func(*castorv1.Preferences) Caster { return nil }, undriven: grace, server: &url.URL{Scheme: "http", Host: "127.0.0.1:8410"}, registry: newRegistry()}
+		c := &casts{ctx: t.Context(), caster: func(*castorv1.Preferences) Caster { return nil }, server: &url.URL{Scheme: "http", Host: "127.0.0.1:8410"}, registry: newRegistry()}
 		started, err := c.StartCast(t.Context(), &castorv1.StartCastRequest{})
 		if err != nil {
 			t.Fatal(err)
@@ -23,7 +22,7 @@ func TestACastNobodyLendsADeviceIsAbandonedAfterItsGrace(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		time.Sleep(grace - time.Nanosecond)
+		time.Sleep(undriven - time.Nanosecond)
 		synctest.Wait()
 		if _, _, over, _ := s.status.read(); over {
 			t.Fatal("abandoned before its grace ran out")
