@@ -27,7 +27,7 @@ func (c *Client) Drive(parent context.Context, id string, target device.Info) er
 		return fmt.Errorf("driving cast: %w", err)
 	}
 	defer func() { _ = stream.Close() }()
-	d := newDriver(ctx, leave, c, id, target)
+	d := &driver{ctx: ctx, leave: leave, c: c, castID: id, lent: target, devices: map[string]device.Device{}, running: map[string]context.CancelFunc{}}
 	defer d.release()
 	for stream.Receive() {
 		d.run(stream.Msg().GetCommand())
@@ -53,10 +53,6 @@ type driver struct {
 	devices map[string]device.Device
 	running map[string]context.CancelFunc
 	wg      sync.WaitGroup
-}
-
-func newDriver(ctx context.Context, leave context.CancelCauseFunc, c *Client, castID string, target device.Info) *driver {
-	return &driver{ctx: ctx, leave: leave, c: c, castID: castID, lent: target, devices: map[string]device.Device{}, running: map[string]context.CancelFunc{}}
 }
 
 func (d *driver) run(cmd *castorv1.DeviceCommand) {

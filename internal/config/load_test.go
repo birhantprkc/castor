@@ -62,6 +62,15 @@ func TestLoad(t *testing.T) {
 		yaml:    "server:\n  advertise: my-nas\n",
 		wantErr: true,
 	}, {
+		name: "the environment overrides a key the file sets",
+		yaml: "resolver:\n  max_height: 1080\n",
+		env:  map[string]string{"CASTOR_RESOLVER__MAX_HEIGHT": "720"},
+		want: func(t *testing.T, cfg *Config) {
+			if cfg.Resolver.MaxHeight != 720 {
+				t.Errorf("resolver.max_height = %d, want the environment's 720", cfg.Resolver.MaxHeight)
+			}
+		},
+	}, {
 		name:    "an unknown device type is a typo, not a discovery failure",
 		yaml:    "device:\n  name: tv\n  type: firetv\n",
 		wantErr: true,

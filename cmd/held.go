@@ -13,7 +13,7 @@ func held(run func() error) error {
 	slog.SetDefault(slog.New(h))
 	defer func() {
 		slog.SetDefault(prev)
-		for _, r := range h.lines.taken() {
+		for _, r := range h.lines.kept {
 			_ = prev.Handler().Handle(context.Background(), r)
 		}
 	}()
@@ -30,12 +30,6 @@ type holding struct {
 type lines struct {
 	mu   sync.Mutex
 	kept []slog.Record
-}
-
-func (l *lines) taken() []slog.Record {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.kept
 }
 
 func (h *holding) Enabled(ctx context.Context, level slog.Level) bool {

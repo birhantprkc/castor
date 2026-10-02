@@ -31,7 +31,7 @@ func (a *app) serverCommand() *cli.Command {
 			if err != nil {
 				return fmt.Errorf("resolving where TVs reach this server (set server.advertise): %w", err)
 			}
-			return server.Serve(ctx, l, advertised, backend(cfg))
+			return server.Serve(ctx, l, advertised, cfg.Backend(burnIn))
 		},
 	}
 }

@@ -32,7 +32,7 @@ func (c *casts) StartCast(_ context.Context, req *castorv1.StartCastRequest) (*c
 		select {
 		case <-s.line.attached:
 			waiting.Stop()
-			s.end(c.run(ctx, s, caster, req))
+			s.end(run(ctx, s, caster, req))
 		case <-waiting.C:
 			s.end(errUndriven)
 		case <-ctx.Done():
@@ -44,7 +44,7 @@ func (c *casts) StartCast(_ context.Context, req *castorv1.StartCastRequest) (*c
 }
 
 // run measures streams and casts them on the lent device, returning the outcome: nil ended, errStopped stopped, else why it failed.
-func (c *casts) run(ctx context.Context, s *session, caster Caster, req *castorv1.StartCastRequest) error {
+func run(ctx context.Context, s *session, caster Caster, req *castorv1.StartCastRequest) error {
 	s.status.update(func(now *castorv1.CastStatus) {
 		now.Streams = uint32(handed(req))
 	})

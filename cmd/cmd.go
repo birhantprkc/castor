@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"sync"
 
 	"charm.land/log/v2"
 	"github.com/urfave/cli/v3"
@@ -28,25 +27,24 @@ type app struct {
 	configSet  bool
 	debug      bool
 	dryRun     bool
+}
 
-	config func() (*config.Config, error)
+// config loads the configuration a command runs on; the default path may be absent (env and defaults suffice), a path the user named may not.
+func (a *app) config() (*config.Config, error) {
+	if a.configSet {
+		if _, err := os.Stat(a.configPath); err != nil {
+			return nil, fmt.Errorf("config file: %w", err)
+		}
+	}
+	cfg, err := config.Load(a.configPath)
+	if err == nil {
+		slog.Info("config loaded", "path", a.configPath)
+	}
+	return cfg, err
 }
 
 func Root() *cli.Command {
 	a := &app{}
-	a.config = sync.OnceValues(func() (*config.Config, error) {
-		// The default path may be absent (env and defaults suffice); a path the user named may not.
-		if a.configSet {
-			if _, err := os.Stat(a.configPath); err != nil {
-				return nil, fmt.Errorf("config file: %w", err)
-			}
-		}
-		cfg, err := config.Load(a.configPath)
-		if err == nil {
-			slog.Info("config loaded", "path", a.configPath)
-		}
-		return cfg, err
-	})
 
 	return &cli.Command{
 		Name:    "castor",
@@ -116,7 +114,7 @@ func (a *app) dial(ctx context.Context, cfg *config.Config) (*client.Client, err
 	if err != nil {
 		return nil, fmt.Errorf("opening where renderers reach this machine: %w", err)
 	}
-	base, err := server.Embedded(ctx, backend(cfg), lan)
+	base, err := server.Embedded(ctx, cfg.Backend(burnIn), lan)
 	if err != nil {
 		return nil, err
 	}
@@ -192,10 +190,6 @@ func (l *logged) Status(s *castorv1.CastStatus) {
 		slog.InfoContext(l.ctx, "cast attempting", "try", s.GetAttempt())
 	}
 	l.last = s
-}
-
-func backend(cfg *config.Config) server.Backend {
-	return cfg.Backend(burnIn)
 }
 
 // burnIn transcribes a cast that asked for subtitles, in the language it asked.
