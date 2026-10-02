@@ -40,14 +40,10 @@ type Plays struct {
 	Video map[string]int `yaml:"video"`
 	// Audio maps each codec to its channel ceiling, 0 for none.
 	Audio map[string]int `yaml:"audio"`
-	// HDR is whether the receiver engages a PQ or HLG picture; castor declares no receiver that does.
-	HDR bool `yaml:"hdr"`
 	// Levels maps a codec to the highest level it decodes, in ffprobe's units (h264 x10); absent means no ceiling.
 	Levels map[string]int `yaml:"levels"`
 	// MaxSampleRate is the highest audio sample rate the receiver plays, 0 for no ceiling.
 	MaxSampleRate int `yaml:"max_sample_rate"`
-	// Deinterlaces is whether the receiver shows an interlaced picture without combing.
-	Deinterlaces bool `yaml:"deinterlaces"`
 }
 
 // Player consumes a handed stream onto a tape, the way one kind of media is played.

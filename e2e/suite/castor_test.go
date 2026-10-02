@@ -15,11 +15,6 @@ import (
 	"github.com/stupside/castor/e2e/settings"
 )
 
-// Castor is the system under test: one invocation of the CLI, run to its exit.
-type Castor interface {
-	Cast(ctx context.Context, launch settings.Launch, args []string) (output []byte, err error)
-}
-
 // binary is castor as a user runs it, one process per cast so no case shares its state with another.
 type binary string
 
@@ -42,7 +37,7 @@ const (
 )
 
 // castor is the binary TestMain builds, the same main package a user runs.
-var castor Castor
+var castor binary
 
 func TestMain(m *testing.M) {
 	flag.Parse()

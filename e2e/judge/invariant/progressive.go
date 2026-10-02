@@ -22,7 +22,7 @@ func (Progressive) Judge(e judge.Evidence) []string {
 	}
 	flagged := slices.Contains(interlacedOrders, p.FieldOrder)
 	return slices.Concat(
-		judge.FailIf(flagged && !e.Endpoint.Plays.Deinterlaces, fmt.Sprintf("an interlaced picture (%s) reached a receiver that does not deinterlace", p.FieldOrder)),
+		judge.FailIf(flagged, fmt.Sprintf("an interlaced picture (%s) reached a receiver, and none castor declares deinterlaces", p.FieldOrder)),
 		// Combing under a progressive flag shows on any receiver, since none deinterlaces what claims to be progressive.
 		judge.FailIf(!flagged && e.Origin.Stream.Interlaced && p.Combed, "the picture lands combed: interlaced fields were re-encoded without a deinterlacer"),
 	)

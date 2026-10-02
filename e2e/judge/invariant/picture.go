@@ -17,7 +17,7 @@ func (PictureLanded) Judge(e judge.Evidence) []string {
 	failures := slices.Concat(
 		judge.FailIf(p.VideoPackets == 0, "no video packet landed"),
 		judge.FailIf(!decodesVideo(plays.Video, p.Video, p.Depth), fmt.Sprintf("video %q at %d bits, but the receiver decodes %v", p.Video, p.Depth, plays.Video)),
-		judge.FailIf(hdr[p.Transfer] && !plays.HDR, fmt.Sprintf("the picture is tagged %s, an HDR transfer the receiver never said it engages", p.Transfer)),
+		judge.FailIf(hdr[p.Transfer], fmt.Sprintf("the picture is tagged %s, an HDR transfer no receiver castor declares engages", p.Transfer)),
 		judge.FailIf(p.Tallest > e.Ceiling, fmt.Sprintf("a frame is %dp, above the %dp ceiling", p.Tallest, e.Ceiling)),
 	)
 	// A quarter-turned source may land stood up, so its rendition is whichever side is shorter.
