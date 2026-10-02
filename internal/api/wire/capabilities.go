@@ -14,17 +14,17 @@ func Capabilities(c media.Capabilities) *castorv1.Capabilities {
 		Deinterlaces:    c.Deinterlaces,
 	}
 	for _, v := range c.Video {
-		vs := &castorv1.VideoSupport{Codec: string(v.Codec), MaxLevel: int32(v.MaxLevel)}
+		vs := &castorv1.VideoSupport{Codec: string(v.Codec), MaxLevel: uint32(v.MaxLevel)}
 		for _, p := range v.Profiles {
 			vs.Profiles = append(vs.Profiles, string(p))
 		}
 		for _, b := range v.BitDepths {
-			vs.BitDepths = append(vs.BitDepths, int32(b))
+			vs.BitDepths = append(vs.BitDepths, uint32(b))
 		}
 		out.Video = append(out.Video, vs)
 	}
 	for _, a := range c.Audio {
-		out.Audio = append(out.Audio, &castorv1.AudioSupport{Codec: string(a.Codec), MaxChannels: int32(a.MaxChannels)})
+		out.Audio = append(out.Audio, &castorv1.AudioSupport{Codec: string(a.Codec), MaxChannels: uint32(a.MaxChannels)})
 	}
 	return out
 }

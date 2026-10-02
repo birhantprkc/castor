@@ -175,7 +175,7 @@ func (k caster) Play(ctx context.Context, renderer execute.Renderer, listeners d
 
 // Preferences is what this machine's operator asks of every cast it starts.
 func (c *Config) Preferences() *castorv1.Preferences {
-	asked := &castorv1.Preferences{Delivery: castorv1.Delivery_DELIVERY_AUTO, MaxHeight: int32(c.Resolver.MaxHeight)}
+	asked := &castorv1.Preferences{Delivery: castorv1.Delivery_DELIVERY_AUTO, MaxHeight: uint32(c.Resolver.MaxHeight)}
 	if c.Cast.Delivery == compose.DeliveryServe {
 		asked.Delivery = castorv1.Delivery_DELIVERY_SERVE
 	}

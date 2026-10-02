@@ -141,7 +141,7 @@ type Preferences struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Delivery Delivery               `protobuf:"varint,1,opt,name=delivery,proto3,enum=castor.v1.Delivery" json:"delivery,omitempty"`
 	// max_height is the tallest picture the cast may show.
-	MaxHeight int32 `protobuf:"varint,2,opt,name=max_height,json=maxHeight,proto3" json:"max_height,omitempty"`
+	MaxHeight uint32 `protobuf:"varint,2,opt,name=max_height,json=maxHeight,proto3" json:"max_height,omitempty"`
 	// subtitles is the language to burn in, a whisper code or auto to detect it, empty for none.
 	Subtitles     string `protobuf:"bytes,3,opt,name=subtitles,proto3" json:"subtitles,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -185,7 +185,7 @@ func (x *Preferences) GetDelivery() Delivery {
 	return Delivery_DELIVERY_UNSPECIFIED
 }
 
-func (x *Preferences) GetMaxHeight() int32 {
+func (x *Preferences) GetMaxHeight() uint32 {
 	if x != nil {
 		return x.MaxHeight
 	}
@@ -373,7 +373,7 @@ const file_castor_v1_stream_proto_rawDesc = "" +
 	"\vPreferences\x12<\n" +
 	"\bdelivery\x18\x01 \x01(\x0e2\x13.castor.v1.DeliveryB\v\xbaH\b\xc8\x01\x01\x82\x01\x02\x10\x01R\bdelivery\x12&\n" +
 	"\n" +
-	"max_height\x18\x02 \x01(\x05B\a\xbaH\x04\x1a\x02(\x02R\tmaxHeight\x129\n" +
+	"max_height\x18\x02 \x01(\rB\a\xbaH\x04*\x02(\x02R\tmaxHeight\x129\n" +
 	"\tsubtitles\x18\x03 \x01(\tB\x1b\xbaH\x18r\x162\x14^(auto|[a-z]{2,3})?$R\tsubtitles\"\x86\x01\n" +
 	"\vRankRequest\x125\n" +
 	"\astreams\x18\x01 \x03(\v2\x11.castor.v1.StreamB\b\xbaH\x05\x92\x01\x02\b\x01R\astreams\x12@\n" +

@@ -39,7 +39,7 @@ message Preferences {
     (buf.validate.field).enum.defined_only = true
   ];
   // max_height is the tallest picture the cast may show.
-  int32 max_height = 2 [(buf.validate.field).int32.gte = 2];
+  uint32 max_height = 2 [(buf.validate.field).uint32.gte = 2];
   // subtitles is the language to burn in, a whisper code or auto to detect it, empty for none.
   string subtitles = 3 [(buf.validate.field).string.pattern = "^(auto|[a-z]{2,3})?$"];
 }

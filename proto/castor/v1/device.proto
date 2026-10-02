@@ -72,13 +72,13 @@ message Capabilities {
 message VideoSupport {
   string codec = 1;
   repeated string profiles = 2;
-  repeated int32 bit_depths = 3;
-  int32 max_level = 4;
+  repeated uint32 bit_depths = 3;
+  uint32 max_level = 4;
 }
 
 message AudioSupport {
   string codec = 1;
-  int32 max_channels = 2;
+  uint32 max_channels = 2;
 }
 
 // DeviceCommand is one call the server's cast makes on the client's renderer.

@@ -436,8 +436,8 @@ type VideoSupport struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Codec         string                 `protobuf:"bytes,1,opt,name=codec,proto3" json:"codec,omitempty"`
 	Profiles      []string               `protobuf:"bytes,2,rep,name=profiles,proto3" json:"profiles,omitempty"`
-	BitDepths     []int32                `protobuf:"varint,3,rep,packed,name=bit_depths,json=bitDepths,proto3" json:"bit_depths,omitempty"`
-	MaxLevel      int32                  `protobuf:"varint,4,opt,name=max_level,json=maxLevel,proto3" json:"max_level,omitempty"`
+	BitDepths     []uint32               `protobuf:"varint,3,rep,packed,name=bit_depths,json=bitDepths,proto3" json:"bit_depths,omitempty"`
+	MaxLevel      uint32                 `protobuf:"varint,4,opt,name=max_level,json=maxLevel,proto3" json:"max_level,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -486,14 +486,14 @@ func (x *VideoSupport) GetProfiles() []string {
 	return nil
 }
 
-func (x *VideoSupport) GetBitDepths() []int32 {
+func (x *VideoSupport) GetBitDepths() []uint32 {
 	if x != nil {
 		return x.BitDepths
 	}
 	return nil
 }
 
-func (x *VideoSupport) GetMaxLevel() int32 {
+func (x *VideoSupport) GetMaxLevel() uint32 {
 	if x != nil {
 		return x.MaxLevel
 	}
@@ -503,7 +503,7 @@ func (x *VideoSupport) GetMaxLevel() int32 {
 type AudioSupport struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Codec         string                 `protobuf:"bytes,1,opt,name=codec,proto3" json:"codec,omitempty"`
-	MaxChannels   int32                  `protobuf:"varint,2,opt,name=max_channels,json=maxChannels,proto3" json:"max_channels,omitempty"`
+	MaxChannels   uint32                 `protobuf:"varint,2,opt,name=max_channels,json=maxChannels,proto3" json:"max_channels,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -545,7 +545,7 @@ func (x *AudioSupport) GetCodec() string {
 	return ""
 }
 
-func (x *AudioSupport) GetMaxChannels() int32 {
+func (x *AudioSupport) GetMaxChannels() uint32 {
 	if x != nil {
 		return x.MaxChannels
 	}
@@ -1258,11 +1258,11 @@ const file_castor_v1_device_proto_rawDesc = "" +
 	"\x05codec\x18\x01 \x01(\tR\x05codec\x12\x1a\n" +
 	"\bprofiles\x18\x02 \x03(\tR\bprofiles\x12\x1d\n" +
 	"\n" +
-	"bit_depths\x18\x03 \x03(\x05R\tbitDepths\x12\x1b\n" +
-	"\tmax_level\x18\x04 \x01(\x05R\bmaxLevel\"G\n" +
+	"bit_depths\x18\x03 \x03(\rR\tbitDepths\x12\x1b\n" +
+	"\tmax_level\x18\x04 \x01(\rR\bmaxLevel\"G\n" +
 	"\fAudioSupport\x12\x14\n" +
 	"\x05codec\x18\x01 \x01(\tR\x05codec\x12!\n" +
-	"\fmax_channels\x18\x02 \x01(\x05R\vmaxChannels\"\xbf\x06\n" +
+	"\fmax_channels\x18\x02 \x01(\rR\vmaxChannels\"\xbf\x06\n" +
 	"\rDeviceCommand\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12<\n" +
 	"\aconnect\x18\x02 \x01(\v2 .castor.v1.DeviceCommand.ConnectH\x00R\aconnect\x123\n" +
