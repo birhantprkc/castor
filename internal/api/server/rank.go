@@ -20,11 +20,19 @@ func (r ranking) Rank(ctx context.Context, req *castorv1.RankRequest) (*castorv1
 	}
 	ranked, err := r.caster(req.GetPreferences()).Rank(ctx, found)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		return nil, failed(ctx, connect.CodeFailedPrecondition, err)
 	}
 	out := &castorv1.RankResponse{Ranked: make([]*castorv1.RankedStream, len(ranked))}
 	for i, s := range ranked {
 		out.Ranked[i] = &castorv1.RankedStream{Url: s.URL.String(), Bitrate: uint64(s.Bitrate()), LastResort: s.LastResort}
 	}
 	return out, nil
+}
+
+// failed codes err as code, unless the request itself ended, which connect codes from its context.
+func failed(ctx context.Context, code connect.Code, err error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return connect.NewError(code, err)
 }
