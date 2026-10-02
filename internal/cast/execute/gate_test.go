@@ -9,10 +9,8 @@ import (
 	"time"
 
 	"github.com/stupside/castor/internal/cast/deliver"
-	"github.com/stupside/castor/internal/cast/fetch"
 	"github.com/stupside/castor/internal/cast/health"
 	"github.com/stupside/castor/internal/cast/plan"
-	"github.com/stupside/castor/internal/media"
 )
 
 // fakeLead mocks transcriber for gate testing without whisper model.
@@ -130,8 +128,8 @@ func gateFixture(t *testing.T, pace float64) *buffered {
 	t.Cleanup(func() { sp.CloseWrite(nil) })
 
 	return &buffered{reader: &pull{
-		spool:  sp,
-		done:   make(chan struct{}),
-		policy: fetch.Plan{media.PrimaryInputID: {Pace: fetch.Pace{Realtime: pace}}},
+		spool: sp,
+		done:  make(chan struct{}),
+		pace:  pace,
 	}}
 }

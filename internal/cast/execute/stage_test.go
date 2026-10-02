@@ -131,7 +131,7 @@ func TestASilentSourceRunsNoStageAtAll(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	buf, err := s.read(workspace{dir: t.TempDir()}, followed)
+	buf, err := s.read(t.TempDir(), followed)
 	if err != nil {
 		t.Fatalf("starting the read: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestReleasingAReadStopsItsTranscriptionBeforeTheWorkDirGoes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.read(workspace{dir: t.TempDir()}, followed); err != nil {
+	if _, err := s.read(t.TempDir(), followed); err != nil {
 		t.Fatalf("starting the read: %v", err)
 	}
 	if err := s.releases.release(); err != nil {
@@ -183,7 +183,7 @@ func TestReleasingAReadStopsItWhileItsSourceStillAnswers(t *testing.T) {
 	program := programFromStream(t, stream)
 	s := readingSession(t, castConfig(pushOnly(), ffmpegPath, ffprobePath), attempt.Attempt{Program: program, Fetch: sourceFetchPlan(t, program, time.Hour)})
 
-	buf, err := s.read(workspace{dir: t.TempDir()}, program)
+	buf, err := s.read(t.TempDir(), program)
 	if err != nil {
 		t.Fatalf("starting the read: %v", err)
 	}

@@ -18,7 +18,7 @@ type buffered struct {
 }
 
 // read buffers program under its own context, so releasing it stops the read and its transcription before the work dir goes.
-func (s *session) read(ws workspace, program media.Program) (*buffered, error) {
+func (s *session) read(work string, program media.Program) (*buffered, error) {
 	ctx, stop := context.WithCancel(s.ctx)
 	source, err := transcode.NewProgramSource(program, s.attempt.Fetch, s.cfg.Binary)
 	if err != nil {
@@ -32,7 +32,7 @@ func (s *session) read(ws workspace, program media.Program) (*buffered, error) {
 		return nil, err
 	}
 
-	burn := s.transcription(ctx, ws, facts, program)
+	burn := s.transcription(ctx, work, facts, program)
 	floor, err := plan.Floor(ctx, plan.Inputs{
 		Probe:     facts.probe,
 		Into:      transcode.SpoolFormat,
@@ -57,7 +57,7 @@ func (s *session) read(ws workspace, program media.Program) (*buffered, error) {
 		policy:     s.attempt.Fetch,
 		source:     source,
 		probe:      facts.probe,
-		spoolPath:  filepath.Join(ws.dir, "spool"+transcode.SpoolFormat.Extension),
+		spoolPath:  filepath.Join(work, "spool"+transcode.SpoolFormat.Extension),
 		floor:      floor,
 		pcmRate:    pcmRate,
 	})
@@ -83,7 +83,7 @@ func (s *session) read(ws workspace, program media.Program) (*buffered, error) {
 }
 
 // transcription is the burn-in this read feeds, nil where subtitles are off or nothing shows the source has sound.
-func (s *session) transcription(ctx context.Context, ws workspace, facts facts, program media.Program) Burn {
+func (s *session) transcription(ctx context.Context, work string, facts facts, program media.Program) Burn {
 	if s.cfg.Subtitles == nil {
 		return nil
 	}
@@ -91,5 +91,5 @@ func (s *session) transcription(ctx context.Context, ws workspace, facts facts, 
 		slog.InfoContext(ctx, "no subtitles for this cast: nothing shows the source carries sound")
 		return nil
 	}
-	return s.cfg.Subtitles(ctx, ws.dir)
+	return s.cfg.Subtitles(ctx, work)
 }

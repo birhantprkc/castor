@@ -34,12 +34,12 @@ type delivery struct {
 }
 
 // serve encodes what f reads for dev, delivers it, and watches it play; it reports how far the delivery got.
-func (s *session) serve(dev device.Device, ws workspace, f feed, burn Burn) (attempt.Phase, error) {
+func (s *session) serve(dev device.Device, work string, f feed, burn Burn) (attempt.Phase, error) {
 	opts, err := s.encode(dev, f, burn)
 	if err != nil {
 		return 0, err
 	}
-	d, err := s.produce(dev, ws, f, opts, burn)
+	d, err := s.produce(dev, work, f, opts, burn)
 	if err != nil {
 		return 0, err
 	}
@@ -57,8 +57,14 @@ func (s *session) serve(dev device.Device, ws workspace, f feed, burn Burn) (att
 	return attempt.PhasePlaying, d.sink.Settled()
 }
 
-func (s *session) produce(dev device.Device, ws workspace, f feed, opts transcode.EncodeOptions, burn Burn) (delivery, error) {
-	o := opening(dev, opts, s.cfg.Listeners)
+func (s *session) produce(dev device.Device, work string, f feed, opts transcode.EncodeOptions, burn Burn) (delivery, error) {
+	o := deliver.Opening{
+		Format:        opts.Format,
+		Listeners:     s.cfg.Listeners,
+		Headers:       dev.StreamHeaders(opts.Format.ContentType),
+		IdleGrace:     idleGrace,
+		WriteDeadline: writeDeadline,
+	}
 	// A burn-in follows the encoder's progress, so only a cast without one can do without an encoder.
 	if f.buffered != nil && burn == nil && opts.Verbatim() {
 		return s.relay(o, f.buffered.reader)
@@ -77,7 +83,7 @@ func (s *session) produce(dev device.Device, ws workspace, f feed, opts transcod
 		}
 	}
 
-	dir := filepath.Join(ws.dir, "delivery")
+	dir := filepath.Join(work, "delivery")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		closeTail()
 		return delivery{}, fmt.Errorf("creating the delivery directory: %w", err)
@@ -102,7 +108,7 @@ func (s *session) produce(dev device.Device, ws workspace, f feed, opts transcod
 		if sk != nil {
 			_ = sk.Close()
 		}
-		return encoderResult(s.ctx, proc, proc.Wait())
+		return encoderResult(s.ctx, proc)
 	})
 	if err != nil {
 		return delivery{}, fmt.Errorf("starting the delivery: %w", err)
@@ -126,17 +132,6 @@ func (s *session) relay(o deliver.Opening, reader *pull) (delivery, error) {
 	})
 	slog.InfoContext(s.ctx, "serving the read's buffer as it is, since the encode would change nothing")
 	return delivery{sink: sk, output: reader}, nil
-}
-
-// opening is the terms every delivery of this cast opens on.
-func opening(dev device.Device, opts transcode.EncodeOptions, listeners deliver.Listeners) deliver.Opening {
-	return deliver.Opening{
-		Format:        opts.Format,
-		Listeners:     listeners,
-		Headers:       dev.StreamHeaders(opts.Format.ContentType),
-		IdleGrace:     idleGrace,
-		WriteDeadline: writeDeadline,
-	}
 }
 
 const (

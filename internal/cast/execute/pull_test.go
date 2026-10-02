@@ -24,7 +24,7 @@ func TestTheReadsFloorEncodeIsCappedAtTheCastsCeiling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	buf, err := s.read(workspace{dir: t.TempDir()}, followed)
+	buf, err := s.read(t.TempDir(), followed)
 	if err != nil {
 		t.Fatal(err)
 	}

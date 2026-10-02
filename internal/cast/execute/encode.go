@@ -121,8 +121,8 @@ func (s *session) startEncoder(opts transcode.EncodeOptions, tail io.Reader, ste
 	return proc, nil
 }
 
-func encoderResult(ctx context.Context, proc *ffmpeg.Process, waitErr error) error {
-	err := cmp.Or(waitErr, proc.SilentFailure())
+func encoderResult(ctx context.Context, proc *ffmpeg.Process) error {
+	err := cmp.Or(proc.Wait(), proc.SilentFailure())
 	if err == nil || ctx.Err() != nil || proc.Evidence().ExitStatus < 0 {
 		return nil
 	}

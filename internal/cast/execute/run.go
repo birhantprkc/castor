@@ -111,7 +111,7 @@ func (s *session) handoff() (ran, error) {
 }
 
 func (s *session) remux() (ran, error) {
-	ws, err := s.workspace()
+	work, err := s.workdir()
 	if err != nil {
 		return ran{}, err
 	}
@@ -123,12 +123,12 @@ func (s *session) remux() (ran, error) {
 	if err != nil {
 		return ran{}, err
 	}
-	reached, err := s.serve(dev, ws, feed{program: program}, nil)
+	reached, err := s.serve(dev, work, feed{program: program}, nil)
 	return ran{reached: reached}, err
 }
 
 func (s *session) readOnce() (ran, error) {
-	ws, err := s.workspace()
+	work, err := s.workdir()
 	if err != nil {
 		return ran{}, err
 	}
@@ -136,7 +136,7 @@ func (s *session) readOnce() (ran, error) {
 	if err != nil {
 		return ran{}, err
 	}
-	buf, err := s.read(ws, program)
+	buf, err := s.read(work, program)
 	if err != nil {
 		return ran{}, err
 	}
@@ -148,7 +148,7 @@ func (s *session) readOnce() (ran, error) {
 	if err != nil {
 		return reading, err
 	}
-	reached, err := s.serve(dev, ws, feed{buffered: buf}, buf.burn)
+	reached, err := s.serve(dev, work, feed{buffered: buf}, buf.burn)
 	return ran{reached: max(reading.reached, reached), reader: buf.reader}, err
 }
 
@@ -191,18 +191,14 @@ func (s *session) compose() (compose.Row, error) {
 	return row, nil
 }
 
-// workspace is where an attempt keeps its files.
-type workspace struct {
-	dir string
-}
-
-func (s *session) workspace() (workspace, error) {
+// workdir is where an attempt keeps its files, removed when it is released.
+func (s *session) workdir() (string, error) {
 	dir, err := os.MkdirTemp("", "castor-")
 	if err != nil {
-		return workspace{}, fmt.Errorf("creating work directory: %w", err)
+		return "", fmt.Errorf("creating work directory: %w", err)
 	}
 	s.releases.push(func() error { _ = os.RemoveAll(dir); return nil })
-	return workspace{dir: dir}, nil
+	return dir, nil
 }
 
 // follow points the inputs whose timelines castor keeps at castor's republished playlists.

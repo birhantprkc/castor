@@ -22,10 +22,10 @@ type pull struct {
 	pcm    io.ReadCloser
 	pcmOut *io.PipeWriter
 
-	policy fetch.Plan
-	floor  plan.MediaPlan
-	spool  *deliver.Spool
-	proc   *ffmpeg.Process
+	pace  float64
+	floor plan.MediaPlan
+	spool *deliver.Spool
+	proc  *ffmpeg.Process
 
 	// done is closed once the read has ended, publishing err with it.
 	done chan struct{}
@@ -68,7 +68,7 @@ func startPull(ctx context.Context, spec pullSpec) (*pull, error) {
 		}
 		return nil, err
 	}
-	p := &pull{pcm: pcm, pcmOut: pcmOut, policy: spec.policy, floor: spec.floor, spool: sp, proc: proc, done: make(chan struct{})}
+	p := &pull{pcm: pcm, pcmOut: pcmOut, pace: spec.policy.Pace(), floor: spec.floor, spool: sp, proc: proc, done: make(chan struct{})}
 
 	produced := spec.floor.Encoded()
 	// NewProgramSource refused every program Validate rejects, so the primary is present.
@@ -119,7 +119,9 @@ func startPuller(ctx context.Context, spec pullSpec, pcmOut *io.PipeWriter) (*ff
 func (p *pull) run(ctx context.Context) {
 	defer close(p.done)
 
-	err := p.copyInto()
+	_, err := io.Copy(p.spool, p.proc.Stdout)
+	// A clean exit is not a complete read: the demuxer skips or truncates media and still exits 0.
+	err = cmp.Or(err, p.proc.Wait(), p.proc.SilentFailure())
 
 	proc := p.proc
 	if err != nil && ctx.Err() == nil {
@@ -137,13 +139,6 @@ func (p *pull) run(ctx context.Context) {
 	if err == nil {
 		slog.InfoContext(ctx, "upstream pull complete", "spooled_bytes", p.spool.Size())
 	}
-}
-
-// copyInto buffers the read's output to its end.
-func (p *pull) copyInto() error {
-	_, copyErr := io.Copy(p.spool, p.proc.Stdout)
-	// A clean exit is not a complete read: the demuxer skips or truncates media and still exits 0.
-	return cmp.Or(copyErr, p.proc.Wait(), p.proc.SilentFailure())
 }
 
 func (p *pull) logProgress(ctx context.Context) {
@@ -167,7 +162,7 @@ func (p *pull) logProgress(ctx context.Context) {
 				"rate_bytes_per_sec", bytesPerSecond(size-last, now.Sub(lastAt)),
 				"media_position", sample.Position.Round(time.Second),
 				"speed", float64(sample.Speed),
-				"readrate", p.policy.Pace(),
+				"readrate", p.pace,
 			)
 			last, lastAt = size, now
 		}
@@ -230,5 +225,5 @@ func (p *pull) judgedPace() float64 {
 	if p.pcmOut != nil || p.floor.Encoded().Any() {
 		return 0
 	}
-	return p.policy.Pace()
+	return p.pace
 }

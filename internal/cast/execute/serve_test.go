@@ -165,7 +165,7 @@ func TestARelayedCastIsOpenedOverItsRead(t *testing.T) {
 	s, buf := servingSession(t, ""), gateFixture(t, 0)
 	buf.reader.spool.CloseWrite(nil)
 	close(buf.reader.done)
-	d, err := s.produce(observedRenderer{wait: blocking}, scratch(t), feed{buffered: buf}, verbatim(), nil)
+	d, err := s.produce(observedRenderer{wait: blocking}, t.TempDir(), feed{buffered: buf}, verbatim(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestARelayedCastFailsWithItsRead(t *testing.T) {
 	buf.reader.err = failed
 	buf.reader.spool.CloseWrite(failed)
 	close(buf.reader.done)
-	if _, err := s.produce(observedRenderer{wait: blocking}, scratch(t), feed{buffered: buf}, verbatim(), nil); err != nil {
+	if _, err := s.produce(observedRenderer{wait: blocking}, t.TempDir(), feed{buffered: buf}, verbatim(), nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.releases.release(); !errors.Is(err, failed) {
@@ -202,12 +202,6 @@ func verbatim() transcode.EncodeOptions {
 		Video:  plan.CopyVideo(),
 		Audio:  plan.CopyAudio(),
 	}
-}
-
-// scratch is a workspace the test cleans up.
-func scratch(t *testing.T) workspace {
-	t.Helper()
-	return workspace{dir: t.TempDir()}
 }
 
 func statusOf(t *testing.T, u *url.URL) int {
@@ -245,11 +239,11 @@ func TestTeardownStopsAnEncoderParkedOnAnInputThatWentQuiet(t *testing.T) {
 
 	for _, tt := range []struct {
 		name  string
-		setup func(t *testing.T, s *session, ws workspace) (feed, transcode.EncodeOptions)
+		setup func(t *testing.T, s *session, work string) (feed, transcode.EncodeOptions)
 	}{{
 		name: "reading a buffer nothing will grow",
-		setup: func(t *testing.T, s *session, ws workspace) (feed, transcode.EncodeOptions) {
-			sp, err := deliver.NewSpool(filepath.Join(ws.dir, "spool.ts"))
+		setup: func(t *testing.T, s *session, work string) (feed, transcode.EncodeOptions) {
+			sp, err := deliver.NewSpool(filepath.Join(work, "spool.ts"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -264,14 +258,14 @@ func TestTeardownStopsAnEncoderParkedOnAnInputThatWentQuiet(t *testing.T) {
 		},
 	}, {
 		name: "reading an origin that went quiet",
-		setup: func(t *testing.T, s *session, _ workspace) (feed, transcode.EncodeOptions) {
+		setup: func(t *testing.T, s *session, _ string) (feed, transcode.EncodeOptions) {
 			return feed{}, copying(transcode.FromSource(programSourceWithin(t, quietOrigin(t, head), media.MPEGTS, time.Hour)))
 		},
 	}} {
 		t.Run(tt.name, func(t *testing.T) {
-			s, ws, dev := servingSession(t, ffmpegPath), scratch(t), probingRenderer{}
-			f, opts := tt.setup(t, s, ws)
-			d, err := s.produce(dev, ws, f, opts, nil)
+			s, work, dev := servingSession(t, ffmpegPath), t.TempDir(), probingRenderer{}
+			f, opts := tt.setup(t, s, work)
+			d, err := s.produce(dev, work, f, opts, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -358,7 +352,7 @@ func openFixture(t *testing.T, contentType, workDir string) delivery {
 		Video:  plan.CopyVideo(),
 		Audio:  plan.EncodeAudio(plan.AudioEncode{Codec: media.CodecAAC}),
 	}
-	d, err := s.produce(probingRenderer{}, workspace{dir: workDir}, feed{}, opts, nil)
+	d, err := s.produce(probingRenderer{}, workDir, feed{}, opts, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
