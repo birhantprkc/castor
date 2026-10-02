@@ -142,7 +142,7 @@ type Preferences struct {
 	Delivery Delivery               `protobuf:"varint,1,opt,name=delivery,proto3,enum=castor.v1.Delivery" json:"delivery,omitempty"`
 	// max_height is the tallest picture the cast may show.
 	MaxHeight int32 `protobuf:"varint,2,opt,name=max_height,json=maxHeight,proto3" json:"max_height,omitempty"`
-	// subtitles is the language to burn in, a BCP-47 tag or auto to detect it, empty for none.
+	// subtitles is the language to burn in, a whisper code or auto to detect it, empty for none.
 	Subtitles     string `protobuf:"bytes,3,opt,name=subtitles,proto3" json:"subtitles,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -369,13 +369,13 @@ const file_castor_v1_stream_proto_rawDesc = "" +
 	"\fcontent_type\x18\x03 \x01(\tR\vcontentType\x1a:\n" +
 	"\fHeadersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc4\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xad\x01\n" +
 	"\vPreferences\x12;\n" +
 	"\bdelivery\x18\x01 \x01(\x0e2\x13.castor.v1.DeliveryB\n" +
 	"\xbaH\a\x82\x01\x04\x10\x01 \x00R\bdelivery\x12&\n" +
 	"\n" +
-	"max_height\x18\x02 \x01(\x05B\a\xbaH\x04\x1a\x02(\x02R\tmaxHeight\x12P\n" +
-	"\tsubtitles\x18\x03 \x01(\tB2\xbaH/r-2+^(auto|[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*)?$R\tsubtitles\"\x86\x01\n" +
+	"max_height\x18\x02 \x01(\x05B\a\xbaH\x04\x1a\x02(\x02R\tmaxHeight\x129\n" +
+	"\tsubtitles\x18\x03 \x01(\tB\x1b\xbaH\x18r\x162\x14^(auto|[a-z]{2,3})?$R\tsubtitles\"\x86\x01\n" +
 	"\vRankRequest\x125\n" +
 	"\astreams\x18\x01 \x03(\v2\x11.castor.v1.StreamB\b\xbaH\x05\x92\x01\x02\b\x01R\astreams\x12@\n" +
 	"\vpreferences\x18\x02 \x01(\v2\x16.castor.v1.PreferencesB\x06\xbaH\x03\xc8\x01\x01R\vpreferences\"?\n" +

@@ -40,8 +40,8 @@ message Preferences {
   }];
   // max_height is the tallest picture the cast may show.
   int32 max_height = 2 [(buf.validate.field).int32.gte = 2];
-  // subtitles is the language to burn in, a BCP-47 tag or auto to detect it, empty for none.
-  string subtitles = 3 [(buf.validate.field).string.pattern = "^(auto|[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*)?$"];
+  // subtitles is the language to burn in, a whisper code or auto to detect it, empty for none.
+  string subtitles = 3 [(buf.validate.field).string.pattern = "^(auto|[a-z]{2,3})?$"];
 }
 
 enum Delivery {

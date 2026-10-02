@@ -5,7 +5,7 @@ package subtitle
 type Whisper struct {
 	Enable    bool   `yaml:"enable"`
 	ModelPath string `yaml:"model_path"` // override the auto-downloaded tiny.en model
-	// Language is a BCP-47 code (e.g. "en", "fr"), or auto to detect it from the audio.
+	// Language is a whisper language code (e.g. "en", "fr"), or auto to detect it from the audio.
 	Language string `yaml:"language"`
 }
 
