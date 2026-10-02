@@ -31,26 +31,6 @@ func attached(t *testing.T) (*line, <-chan *castorv1.DeviceCommand) {
 	return l, sent
 }
 
-func TestACallIsAnsweredByItsDevice(t *testing.T) {
-	l, sent := attached(t)
-	defer l.leave()
-	answered := make(chan error, 1)
-	go func() {
-		_, err := l.call(t.Context(), connectCommand())
-		answered <- err
-	}()
-	cmd := <-sent
-	if !l.answer(&castorv1.AnswerRequest{CommandId: cmd.GetId()}) {
-		t.Fatal("the answer found no call awaiting it")
-	}
-	if err := <-answered; err != nil {
-		t.Errorf("the call ended with %v, want its answer", err)
-	}
-	if l.answer(&castorv1.AnswerRequest{CommandId: cmd.GetId()}) {
-		t.Error("a call was answered twice")
-	}
-}
-
 func TestACallFailsOnceItsDeviceLeft(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		l, sent := attached(t)

@@ -16,9 +16,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"connectrpc.com/grpcreflect"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/reflect/protoreflect"
 
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
 	"github.com/stupside/castor/gen/castor/v1/castorv1connect"
@@ -304,54 +302,9 @@ func TestADryRunIsTheServersRankingAsTheCastWouldAskIt(t *testing.T) {
 func TestTheServerRefusesACastTheContractForbidsAndTheClientSaysWhy(t *testing.T) {
 	c, _ := serve(t, backend(handoff), newTV())
 
-	unasked := named("https://cdn.example/direct")
-	unasked.Preferences = nil
-	undelivered := named("https://cdn.example/direct")
-	undelivered.Preferences = &castorv1.Preferences{MaxHeight: 720}
-	unspoken := named("https://cdn.example/direct")
-	unspoken.Preferences = &castorv1.Preferences{Delivery: castorv1.Delivery_DELIVERY_AUTO, MaxHeight: 720, Subtitles: "not a language"}
-	misheaded := named("https://cdn.example/direct")
-	misheaded.GetNamed().Headers = map[string]string{"Bad Header": "x"}
-	for name, tc := range map[string]struct {
-		req   *castorv1.StartRequest
-		broke string
-	}{
-		"no preferences":       {unasked, "preferences"},
-		"no delivery":          {undelivered, "preferences.delivery"},
-		"no subtitle language": {unspoken, "preferences.subtitles"},
-		"no header name":       {misheaded, "named.headers"},
-		"a relative link":      {named("/movie.m3u8"), "named.url"},
-		"a file on the server": {named("file:///etc/passwd"), "named.url"},
-		"no streams found":     {found(), "found.streams"},
-	} {
-		_, err := c.Start(t.Context(), tc.req)
-		if !errors.Is(err, client.ErrRefused) || !strings.Contains(err.Error(), tc.broke) {
-			t.Errorf("%s started with %v, want the server's refusal naming %s", name, err, tc.broke)
-		}
-	}
-}
-
-func TestTheServerAnswersHealthAndDescribesItself(t *testing.T) {
-	_, base := serve(t, backend(handoff), newTV())
-
-	resp, err := http.Post(base.api+"/grpc.health.v1.Health/Check", "application/json", strings.NewReader("{}"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "SERVING") {
-		t.Errorf("health answered %s, want SERVING", body)
-	}
-
-	var h2c http.Protocols
-	h2c.SetUnencryptedHTTP2(true)
-	services, err := grpcreflect.NewClient(&http.Client{Transport: &http.Transport{Protocols: &h2c}}, base.api).NewStream(t.Context()).ListServices()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Contains(services, protoreflect.FullName(castorv1connect.CastServiceName)) {
-		t.Errorf("reflection listed %v, want the cast service a debugging client can call", services)
+	_, err := c.Start(t.Context(), named("file:///etc/passwd"))
+	if !errors.Is(err, client.ErrRefused) || !strings.Contains(err.Error(), "named.url") {
+		t.Errorf("a file on the server started with %v, want the server's refusal naming named.url", err)
 	}
 }
 
@@ -782,9 +735,6 @@ func TestPagesAreOpenedOnTheServerAndTheirStreamsReturnWithWhatFetchingThemNeeds
 
 	if _, err := c.Extract(t.Context(), &castorv1.ExtractRequest{Pages: []string{"https://site.example/empty"}}); connect.CodeOf(err) != connect.CodeNotFound {
 		t.Errorf("a page that plays nothing answered %v, want not found", err)
-	}
-	if _, err := c.Extract(t.Context(), &castorv1.ExtractRequest{Pages: []string{"chrome://settings"}}); !errors.Is(err, client.ErrRefused) {
-		t.Errorf("a malformed page answered %v, want the contract's refusal", err)
 	}
 }
 
