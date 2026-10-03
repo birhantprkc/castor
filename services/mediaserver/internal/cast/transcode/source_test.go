@@ -45,7 +45,7 @@ func TestEachInputIsOpenedOnItsOwnTerms(t *testing.T) {
 			"-rw_timeout", "1000000",
 			"-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "60", "-reconnect_on_http_error", "429,500,502,503,504",
 			"-headers", "X-Video-Token: v\r\n",
-			"-f", "hls", "-http_seekable", "0", "-prefer_x_start", "1", "-allowed_extensions", "ALL", "-allowed_segment_extensions", "ALL",
+			"-f", "hls", "-http_seekable", "0", "-http_persistent", "0", "-prefer_x_start", "1", "-allowed_extensions", "ALL", "-allowed_segment_extensions", "ALL",
 			"-extension_picky", "0", "-seg_format_options", "extension_picky=0",
 			"-seg_max_retry", "4", "-i", "https://video.test/master.m3u8",
 		}),

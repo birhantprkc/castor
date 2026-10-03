@@ -26,8 +26,9 @@ func (Format) Identity() source.Identity {
 }
 
 // InputArgs names the demuxer, since it refuses odd names, and reads unseekable, or it walks byte ranges without delivering them.
+// Each segment opens its own connection: a proxy may close an idle one unannounced, and a reader reusing it hangs until its deadline.
 func (Format) InputArgs(segmentRetries int) []string {
-	return append([]string{"-f", ffmpeg.FormatHLS, "-http_seekable", "0"}, ffmpeg.HLSTolerances(segmentRetries)...)
+	return append([]string{"-f", ffmpeg.FormatHLS, "-http_seekable", "0", "-http_persistent", "0"}, ffmpeg.HLSTolerances(segmentRetries)...)
 }
 
 const (
