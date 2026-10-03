@@ -163,7 +163,7 @@ tmdb:
 A machine that stays on, such as a NAS, does the heavy work; your computer finds the TV and drives it. On the server, with a token in its config:
 
 ```sh
-castor server   # or the standalone castor-media; listens on :8410 (server.listen)
+castor server   # listens on :8410 (server.listen)
 ```
 
 On your computer:
@@ -183,8 +183,6 @@ Everything castor does to your TVs is an API: list them, cast a link or a page o
 ```sh
 castor api   # listens on :8411 (api.listen)
 ```
-
-The standalone `castor-api` is the API without a media server of its own, so it needs none of the tools and runs on more machines, a Raspberry Pi among them; set `server.url` to the media server it casts through.
 
 ```sh
 curl -X POST http://localhost:8411/castor.v1.DeviceService/ListDevices \

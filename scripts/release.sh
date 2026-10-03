@@ -24,17 +24,11 @@ for dir in prebuilt/castor-*; do
   os="${target%-*}"; arch="${target##*-}"
 
   archive castor "$dir/castor" "$os" "$arch"
-  archive castor-media "$dir/castor-media" "$os" "$arch"
 
   if [ "$os" = linux ]; then
     mkdir -p "docker/$arch"
     cp "$dir/castor" "docker/$arch/castor"
   fi
-done
-
-for bin in prebuilt/api/castor-api_*; do
-  target="${bin#prebuilt/api/castor-api_}"   # e.g. linux_arm64
-  archive castor-api "$bin" "${target%_*}" "${target##*_}"
 done
 
 ( cd dist && sha256sum *.tar.gz *.zip > checksums.txt )

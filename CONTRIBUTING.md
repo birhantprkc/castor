@@ -78,6 +78,6 @@ make hooks   # points core.hooksPath at .githooks/
 
 ## Releases
 
-[release-please](https://github.com/googleapis/release-please) keeps a release PR up to date from the commits on `main`. Merging it tags `vX.Y.Z` and publishes the `castor`, `castor-media` and `castor-api` archives, the Docker image (`:latest`, the full `castor`), and the Homebrew cask.
+[release-please](https://github.com/googleapis/release-please) keeps a release PR up to date from the commits on `main`. Merging it tags `vX.Y.Z` and publishes the `castor` archives, the Docker image (`:latest`, the full `castor`), and the Homebrew cask.
 
 For a preview, run the **canary-release** workflow on any branch. It publishes `ghcr.io/stupside/castor:canary` and moves no stable pointer.
