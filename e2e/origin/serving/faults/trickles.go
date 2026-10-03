@@ -43,7 +43,7 @@ func (t trickle) Wrap(next http.Handler, p origin.Published) http.Handler {
 			if _, err := w.Write(body[:n]); err != nil {
 				return
 			}
-			w.(http.Flusher).Flush()
+			_ = http.NewResponseController(w).Flush()
 			body = body[n:]
 			select {
 			case <-time.After(pause):

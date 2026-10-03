@@ -1,7 +1,6 @@
 package offer
 
 import (
-	"encoding/json"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -36,6 +35,5 @@ type logged struct{ line string }
 func (logged) Name() string { return "logged" }
 
 func (l logged) Mount(_ *testing.T, _ *http.ServeMux, src *origin.Origin) (template.HTML, template.JS) {
-	quoted, _ := json.Marshal(strings.Replace(l.line, "%s", src.URL, 1))
-	return "", template.JS("console.log(" + string(quoted) + ");")
+	return "", template.JS("console.log(" + command.Quote(strings.Replace(l.line, "%s", src.URL, 1)) + ");")
 }

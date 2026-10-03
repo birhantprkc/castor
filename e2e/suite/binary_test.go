@@ -41,13 +41,6 @@ func (b binary) command(ctx context.Context, launch settings.Launch, args []stri
 	return cmd
 }
 
-const (
-	// castTimeout bounds one cast, well past the longest verdict castor waits for (two stall windows).
-	castTimeout = 8 * time.Minute
-	// handOff is how long a hand-off may land after castor exits: a detached Cast LOAD is still in flight.
-	handOff = 10 * time.Second
-)
-
 // The binaries TestMain builds, the same main packages a user runs; castor-api without cgo, as it ships.
 var castor, castorAPI, castorMedia binary
 

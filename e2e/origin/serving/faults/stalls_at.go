@@ -38,7 +38,7 @@ func (s *stall) Wrap(next http.Handler, p origin.Published) http.Handler {
 		}
 		body := serving.Buffered(next, w, r)
 		_, _ = w.Write(body[:len(body)/2])
-		w.(http.Flusher).Flush()
+		_ = http.NewResponseController(w).Flush()
 		p.Held(r)
 	})
 }

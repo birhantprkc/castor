@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -138,7 +139,7 @@ func baseURL(addr string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if ip := net.ParseIP(host); host == "" || ip != nil && ip.IsUnspecified() {
+	if ip, err := netip.ParseAddr(host); host == "" || err == nil && ip.IsUnspecified() {
 		host = "127.0.0.1"
 	}
 	return "http://" + net.JoinHostPort(host, port), nil

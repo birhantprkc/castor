@@ -24,6 +24,3 @@ func Creative(segments, height int, mux ...string) error {
 	}
 	return nil
 }
-
-// width is the even width of a 16:9 picture height tall.
-func width(height int) int { return (height*16/9 + 1) &^ 1 }

@@ -7,7 +7,6 @@ import (
 	"maps"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/stupside/castor/e2e/strategy"
 )
@@ -61,58 +60,6 @@ type Catalog struct {
 	Quirks    strategy.Registry[strategy.Factory[Quirk]]
 }
 
-// pixelFormats is the 4:2:0 format each supported bit depth encodes in.
-var pixelFormats = map[int]string{8: "yuv420p", 10: "yuv420p10le"}
-
-// Stream is a resolved spec: the strategies it names, bound. Audio is nil for a silent stream.
-type Stream struct {
-	Packager Packager
-	Video    VideoCodec
-	// Heights are the renditions, ascending; the last is the tallest.
-	Heights  []int
-	Depth    int
-	Transfer Transfer
-	Audio    AudioCodec
-	Channels int
-	Carriage Carriage
-	Segments SegmentsSpec
-	Seconds  int
-	Entry    EntrySpec
-
-	// Knobs a quirk bends; zero is the plain synthetic source.
-	Rate     string   // testsrc frame rate, as ffmpeg takes it ("15", "59.94", "24000/1001")
-	VideoIn  []string // input options before the testsrc -i
-	AudioIn  []string // input options before the sine -i
-	Filters  []string // filters after the transfer tag, before the ladder splits
-	VideoOut []string // after the video encoder's arguments; a repeated option wins
-	AudioOut []string // after the audio encoder's arguments
-	MuxOut   []string // before the packager's arguments
-
-	// Facts a quirk records for the judge.
-	Rotation   int
-	AudioDelay time.Duration
-	SampleRate int
-	Interlaced bool
-	Chroma     int
-}
-
-// Height is the tallest rendition.
-func (s Stream) Height() int { return s.Heights[len(s.Heights)-1] }
-
-// Rung is the tallest rendition within ceiling, and false when every rendition is taller.
-func (s Stream) Rung(ceiling int) (int, bool) {
-	for _, h := range slices.Backward(s.Heights) {
-		if h <= ceiling {
-			return h, true
-		}
-	}
-	return 0, false
-}
-
-func (s Stream) layout() Layout {
-	return Layout{Rungs: len(s.Heights), Audio: s.Audio != nil, Carriage: s.Carriage, SegmentExt: s.Segments.Extension}
-}
-
 // Resolve binds spec to the catalog's strategies and refuses what cannot be published.
 func (c Catalog) Resolve(spec Spec) (Stream, error) {
 	packager, err := c.Packagers.Lookup(spec.Packaging)
@@ -127,8 +74,8 @@ func (c Catalog) Resolve(spec Spec) (Stream, error) {
 	if err != nil {
 		return Stream{}, fmt.Errorf("stream.video.transfer: %w", err)
 	}
-	heights := slices.Sorted(slices.Values(append(slices.Clone(spec.Video.Ladder), spec.Video.Height)))
-	heights = slices.DeleteFunc(heights, func(h int) bool { return h == 0 })
+	heights := slices.DeleteFunc(slices.Concat(spec.Video.Ladder, []int{spec.Video.Height}), func(h int) bool { return h == 0 })
+	slices.Sort(heights)
 	if len(heights) == 0 || (spec.Video.Height != 0 && len(spec.Video.Ladder) > 0) || heights[0] < 2 {
 		return Stream{}, fmt.Errorf("stream.video: want a height, or a ladder of heights, not both")
 	}

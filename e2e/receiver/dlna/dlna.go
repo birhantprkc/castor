@@ -19,7 +19,7 @@ const (
 	connectionManager = "urn:schemas-upnp-org:service:ConnectionManager:1"
 )
 
-// Pin is how castor finds the renderer without multicast discovery.
+// Pin is how castor finds the device without multicast discovery.
 type Pin string
 
 const (
@@ -29,7 +29,7 @@ const (
 	SSDP Pin = "ssdp"
 )
 
-// Settings are a renderer's own: what it advertises, what that means it decodes, and how castor pins it.
+// Settings are a DLNA device's own: what it advertises, what that means it decodes, and how castor pins it.
 type Settings struct {
 	Sink    string         `yaml:"sink"`
 	Decodes receiver.Plays `yaml:"decodes"`
@@ -55,7 +55,7 @@ func (Family) Build(raw yaml.Node) (receiver.Device, error) {
 		return nil, fmt.Errorf("dlna: %w", err)
 	}
 	if settings.Sink == "" || len(settings.Decodes.Video) == 0 {
-		return nil, errors.New("dlna: a renderer needs a sink and what it decodes")
+		return nil, errors.New("dlna: a device needs a sink and what it decodes")
 	}
 	if _, ok := pinners[settings.Pin]; !ok {
 		return nil, fmt.Errorf("dlna: pin %q: want %s or %s", settings.Pin, Description, SSDP)
@@ -72,11 +72,11 @@ func (device) Type() string { return "dlna" }
 
 func (d device) Start(t *testing.T, s *receiver.Session) (receiver.Endpoint, error) {
 	s.Check(streamHeaders)
-	r := &renderer{session: s, sink: d.Sink, locked: d.LockedFor, fetch: fetchers[d.Fetches]}
+	u := &upnp{session: s, sink: d.Sink, locked: d.LockedFor, fetch: fetchers[d.Fetches]}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /description.xml", r.description)
-	mux.HandleFunc("POST /control/{service}", r.control)
+	mux.HandleFunc("GET /description.xml", u.description)
+	mux.HandleFunc("POST /control/{service}", u.control)
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
 	host, err := pinners[d.Pin](t, server.URL+"/description.xml")

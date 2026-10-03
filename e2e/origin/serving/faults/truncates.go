@@ -49,6 +49,6 @@ func (t *truncate) Wrap(next http.Handler, p origin.Published) http.Handler {
 		w.WriteHeader(rec.Code)
 		body := rec.Body.Bytes()
 		_, _ = w.Write(body[:int(t.fraction*float64(len(body)))])
-		w.(http.Flusher).Flush()
+		_ = http.NewResponseController(w).Flush()
 	})
 }

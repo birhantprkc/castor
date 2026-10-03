@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// answerSearches answers unicast M-SEARCHes on a UDP port with the description's LOCATION, as a renderer's SSDP stack does.
+// answerSearches answers unicast M-SEARCHes on a UDP port with the description's LOCATION, as a device's SSDP stack does.
 func answerSearches(t *testing.T, description string) (string, error) {
 	conn, err := net.ListenPacket("udp4", "127.0.0.1:0")
 	if err != nil {

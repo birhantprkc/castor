@@ -47,6 +47,13 @@ func TestEveryCaseCastsWhatItsReceiverCanPlay(t *testing.T) {
 	}
 }
 
+const (
+	// castTimeout bounds one cast, well past the longest verdict castor waits for (two stall windows).
+	castTimeout = 8 * time.Minute
+	// handOff is how long a hand-off may land after castor exits: a detached Cast LOAD is still in flight.
+	handOff = 10 * time.Second
+)
+
 // cast runs one case under one layout and judges what the receiver played.
 func cast(t *testing.T, tools receiver.Tools, p plan, layout topology) {
 	src := origin.Start(t, tools.FFmpeg, p.stream, p.behaviours)

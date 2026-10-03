@@ -1,4 +1,4 @@
-// Package serving is what origin behaviours share: rewriting a document, buffering a body, numbering arrivals.
+// Package serving is what origin behaviours share: rewriting a document, buffering a body, numbering arrivals, reading playlists.
 package serving
 
 import (

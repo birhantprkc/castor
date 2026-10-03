@@ -14,7 +14,7 @@ import (
 	"github.com/stupside/castor/e2e/strategy"
 )
 
-// Playback is where a session is, in the terms every renderer protocol reports.
+// Playback is where a session is, in the terms every device protocol reports.
 type Playback int
 
 const (
@@ -27,6 +27,9 @@ const (
 
 // Over reports whether playback has ended either way.
 func (p Playback) Over() bool { return p == Ended || p == Stopped }
+
+// ResponseCheck holds the response to the receiver's fetch to a protocol's demands; it returns violations.
+type ResponseCheck func(declared string, h http.Header) []string
 
 // Setup is what a session plays with, bound at the composition root.
 type Setup struct {
@@ -70,7 +73,8 @@ type Session struct {
 }
 
 func NewSession(t *testing.T, setup Setup) *Session {
-	s := &Session{setup: setup, dir: t.TempDir(), ctx: t.Context(), first: make(chan struct{}), done: make(chan struct{})}
+	// The tape lands in the artifact directory, so `go test -artifacts` keeps what the receiver played.
+	s := &Session{setup: setup, dir: t.ArtifactDir(), ctx: t.Context(), first: make(chan struct{}), done: make(chan struct{})}
 	t.Cleanup(s.wg.Wait)
 	return s
 }

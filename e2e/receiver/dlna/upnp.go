@@ -12,7 +12,8 @@ import (
 	"github.com/stupside/castor/e2e/receiver"
 )
 
-type renderer struct {
+// upnp is the device's UPnP side: its description, ConnectionManager and AVTransport.
+type upnp struct {
 	session *receiver.Session
 	sink    string
 	fetch   func(s *receiver.Session, uri, declared string)
@@ -34,7 +35,7 @@ var transportStates = map[receiver.Playback]string{
 	receiver.Stopped: "STOPPED",
 }
 
-func (r *renderer) description(w http.ResponseWriter, _ *http.Request) {
+func (u *upnp) description(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", `text/xml; charset="utf-8"`)
 	fmt.Fprintf(w, `<?xml version="1.0"?>
 <root xmlns="urn:schemas-upnp-org:device-1-0">
@@ -51,7 +52,7 @@ func (r *renderer) description(w http.ResponseWriter, _ *http.Request) {
 </root>`, connectionManager, avTransport)
 }
 
-// envelope is a SOAP request body, read by local name as a renderer's stack does.
+// envelope is a SOAP request body, read by local name as a device's stack does.
 type envelope struct {
 	CurrentURI         string `xml:"Body>SetAVTransportURI>CurrentURI"`
 	CurrentURIMetaData string `xml:"Body>SetAVTransportURI>CurrentURIMetaData"`
@@ -60,55 +61,55 @@ type envelope struct {
 // transportLocked is UPnP AVTransport's fault for a transport that cannot take a new URI yet.
 const transportLocked = 705
 
-// actions answer each SOAP action this renderer implements with its response body, or a UPnP fault code.
-func (r *renderer) actions() map[string]func(envelope) (string, int) {
+// actions answer each SOAP action this device implements with its response body, or a UPnP fault code.
+func (u *upnp) actions() map[string]func(envelope) (string, int) {
 	return map[string]func(envelope) (string, int){
 		"GetProtocolInfo": func(envelope) (string, int) {
-			return "<Source></Source><Sink>" + html.EscapeString(r.sink) + "</Sink>", 0
+			return "<Source></Source><Sink>" + html.EscapeString(u.sink) + "</Sink>", 0
 		},
 		"SetAVTransportURI": func(in envelope) (string, int) {
-			r.mu.Lock()
-			defer r.mu.Unlock()
-			if r.locked > 0 {
-				r.locked--
+			u.mu.Lock()
+			defer u.mu.Unlock()
+			if u.locked > 0 {
+				u.locked--
 				return "", transportLocked
 			}
-			r.uri, r.meta = in.CurrentURI, in.CurrentURIMetaData
+			u.uri, u.meta = in.CurrentURI, in.CurrentURIMetaData
 			return "", 0
 		},
 		"Play": func(envelope) (string, int) {
-			r.mu.Lock()
-			uri, meta := r.uri, r.meta
-			r.mu.Unlock()
+			u.mu.Lock()
+			uri, meta := u.uri, u.meta
+			u.mu.Unlock()
 			if uri == "" {
-				r.session.Problem("Play before SetAVTransportURI")
+				u.session.Problem("Play before SetAVTransportURI")
 				return "", 0
 			}
-			r.fetch(r.session, uri, didlContentType(meta))
+			u.fetch(u.session, uri, didlContentType(meta))
 			return "", 0
 		},
 		"GetTransportInfo": func(envelope) (string, int) {
-			return "<CurrentTransportState>" + r.transportState() + "</CurrentTransportState><CurrentTransportStatus>OK</CurrentTransportStatus><CurrentSpeed>1</CurrentSpeed>", 0
+			return "<CurrentTransportState>" + u.transportState() + "</CurrentTransportState><CurrentTransportStatus>OK</CurrentTransportStatus><CurrentSpeed>1</CurrentSpeed>", 0
 		},
 	}
 }
 
-func (r *renderer) control(w http.ResponseWriter, req *http.Request) {
+func (u *upnp) control(w http.ResponseWriter, req *http.Request) {
 	service, name, ok := strings.Cut(strings.Trim(req.Header.Get("SOAPACTION"), `"`), "#")
 	if !ok {
 		http.Error(w, "no SOAPACTION", http.StatusBadRequest)
 		return
 	}
-	act, ok := r.actions()[name]
+	act, ok := u.actions()[name]
 	if !ok {
-		r.session.Problem("unexpected SOAP action %s#%s", service, name)
+		u.session.Problem("unexpected SOAP action %s#%s", service, name)
 		http.Error(w, "unimplemented action", http.StatusInternalServerError)
 		return
 	}
 	raw, _ := io.ReadAll(req.Body)
 	var in envelope
 	if err := xml.Unmarshal(raw, &in); err != nil {
-		r.session.Problem("%s: undecodable SOAP body: %v", name, err)
+		u.session.Problem("%s: undecodable SOAP body: %v", name, err)
 	}
 	body, fault := act(in)
 	w.Header().Set("Content-Type", `text/xml; charset="utf-8"`)
@@ -121,13 +122,13 @@ func (r *renderer) control(w http.ResponseWriter, req *http.Request) {
 		name, service, body, name)
 }
 
-func (r *renderer) transportState() string {
-	state := r.session.State()
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if state.Over() && !r.reportedPlaying {
+func (u *upnp) transportState() string {
+	state := u.session.State()
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if state.Over() && !u.reportedPlaying {
 		state = receiver.Playing
 	}
-	r.reportedPlaying = r.reportedPlaying || state == receiver.Playing
+	u.reportedPlaying = u.reportedPlaying || state == receiver.Playing
 	return transportStates[state]
 }

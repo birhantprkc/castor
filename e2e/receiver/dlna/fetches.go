@@ -7,7 +7,7 @@ import (
 	"github.com/stupside/castor/e2e/receiver"
 )
 
-// Fetches is how the renderer's HTTP stack opens the media Play names.
+// Fetches is how the device's HTTP stack opens the media Play names.
 type Fetches string
 
 const (
