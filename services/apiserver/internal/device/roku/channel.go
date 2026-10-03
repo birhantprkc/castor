@@ -13,35 +13,39 @@ import (
 
 // Launch parameter names the channel reads and the launcher must send.
 const (
-	rokuChannelParamURL    = "url"
-	rokuChannelParamFormat = "format"
+	paramURL    = "url"
+	paramFormat = "format"
 )
 
-const rokuChannelTitle = "Castor"
+const channelTitle = "Castor"
 
-//go:embed rokuassets
-var rokuChannelAssets embed.FS
+//go:embed channel
+var channelAssets embed.FS
 
-var rokuChannelData = struct {
+var channelData = struct {
 	Title       string
 	ParamURL    string
 	ParamFormat string
-}{rokuChannelTitle, rokuChannelParamURL, rokuChannelParamFormat}
+}{channelTitle, paramURL, paramFormat}
 
-// rokuChannelZip packs the rendered channel into a sideload archive with the manifest at the root.
-func rokuChannelZip() ([]byte, error) {
+// channelZip packs the rendered channel into a sideload archive with the manifest at the root.
+func channelZip() ([]byte, error) {
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 
-	err := fs.WalkDir(rokuChannelAssets, "rokuassets", func(p string, d fs.DirEntry, err error) error {
+	assets, err := fs.Sub(channelAssets, "channel")
+	if err != nil {
+		return nil, err
+	}
+	err = fs.WalkDir(assets, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
-		raw, err := rokuChannelAssets.ReadFile(p)
+		raw, err := fs.ReadFile(assets, p)
 		if err != nil {
 			return err
 		}
-		name, content, err := renderRokuAsset(strings.TrimPrefix(p, "rokuassets/"), raw)
+		name, content, err := renderAsset(p, raw)
 		if err != nil {
 			return err
 		}
@@ -61,9 +65,10 @@ func rokuChannelZip() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// renderRokuAsset expands a .tmpl source and drops the suffix; anything else passes through unchanged.
-func renderRokuAsset(name string, raw []byte) (string, []byte, error) {
-	if !strings.HasSuffix(name, ".tmpl") {
+// renderAsset expands a .tmpl source and drops the suffix; anything else passes through unchanged.
+func renderAsset(name string, raw []byte) (string, []byte, error) {
+	rendered, ok := strings.CutSuffix(name, ".tmpl")
+	if !ok {
 		return name, raw, nil
 	}
 	t, err := template.New(name).Option("missingkey=error").Parse(string(raw))
@@ -71,8 +76,8 @@ func renderRokuAsset(name string, raw []byte) (string, []byte, error) {
 		return "", nil, err
 	}
 	var out bytes.Buffer
-	if err := t.Execute(&out, rokuChannelData); err != nil {
+	if err := t.Execute(&out, channelData); err != nil {
 		return "", nil, err
 	}
-	return strings.TrimSuffix(name, ".tmpl"), out.Bytes(), nil
+	return rendered, out.Bytes(), nil
 }

@@ -4,7 +4,8 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/binary"
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -46,6 +47,9 @@ const (
 	// The Cast v2 protocol caps a message at 64 KiB.
 	maxFrame = 64 << 10
 )
+
+// wire encodes go-chromecast's payloads, tagged for v1, as devices have always been sent them: no zero requestId, nil slices as null.
+var wire = json.JoinOptions(jsonv1.OmitEmptyWithLegacySemantics(true), json.FormatNilSliceAsNull(true))
 
 // channel is one Cast v2 connection: its reader alone delivers what arrives, so closing it never races a send.
 type channel struct {
@@ -159,7 +163,7 @@ func (ch *channel) request(ctx context.Context, destination, namespace string, p
 }
 
 func (ch *channel) send(destination, namespace string, payload any) error {
-	body, err := json.Marshal(payload)
+	body, err := json.Marshal(payload, wire)
 	if err != nil {
 		return err
 	}

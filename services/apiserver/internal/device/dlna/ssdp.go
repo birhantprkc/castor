@@ -9,14 +9,14 @@ import (
 )
 
 const (
-	dlnaSearchTarget = "urn:schemas-upnp-org:device:MediaRenderer:1"
-	ssdpPort         = "1900"
+	searchTarget = "urn:schemas-upnp-org:device:MediaRenderer:1"
+	ssdpPort     = "1900"
 	// msearchTimeout bounds the unicast M-SEARCH when the caller sets no deadline.
 	msearchTimeout = 3 * time.Second
 )
 
-// searchDLNADescription: unicast M-SEARCH for description (no interface enumeration).
-func searchDLNADescription(ctx context.Context, host string) (string, error) {
+// searchDescription: unicast M-SEARCH for description (no interface enumeration).
+func searchDescription(ctx context.Context, host string) (string, error) {
 	target := host
 	if _, _, err := net.SplitHostPort(host); err != nil {
 		target = net.JoinHostPort(host, ssdpPort)
@@ -42,7 +42,7 @@ func searchDLNADescription(ctx context.Context, host string) (string, error) {
 		"HOST: " + target,
 		`MAN: "ssdp:discover"`,
 		"MX: 1",
-		"ST: " + dlnaSearchTarget,
+		"ST: " + searchTarget,
 		"", "",
 	}, "\r\n")
 	if _, err := conn.Write([]byte(msearch)); err != nil {

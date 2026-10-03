@@ -2,7 +2,7 @@ package chromecast
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"sync"
 
@@ -21,71 +21,72 @@ type ending struct {
 func newEnding() *ending { return &ending{done: make(chan struct{})} }
 
 // AwaitEnd observes the Cast channel rather than polling it.
-func (c *chromecastDevice) AwaitEnd(ctx context.Context) error {
-	c.watchMu.Lock()
-	e := c.ending
-	c.watchMu.Unlock()
+func (s *session) AwaitEnd(ctx context.Context) error {
+	s.watchMu.Lock()
+	e := s.ending
+	s.watchMu.Unlock()
 	select {
 	case <-e.done:
 		return e.err
-	case <-c.ch.gone:
+	case <-s.ch.gone:
 		// A status read before the connection dropped still decides the ending.
 		select {
 		case <-e.done:
 			return e.err
 		default:
 		}
-		return &device.Gone{Device: c.name, Observed: "the Cast connection closed while the cast was playing"}
+		return &device.Gone{Device: s.name, Observed: "the Cast connection closed while the cast was playing"}
 	case <-ctx.Done():
 		return context.Cause(ctx)
 	}
 }
 
-func (c *chromecastDevice) watchMessage(payload []byte) {
+func (s *session) watchMessage(payload []byte) {
 	var response castmedia.MediaStatusResponse
 	if err := json.Unmarshal(payload, &response); err != nil {
 		return
 	}
-	c.watchMu.Lock()
-	over, playErr := playbackOutcome(&c.watch, &response)
+	s.watchMu.Lock()
+	over, playErr := playbackOutcome(&s.watch, &response)
 	if over {
-		e := c.ending
+		e := s.ending
 		e.once.Do(func() {
 			e.err = playErr
 			close(e.done)
 		})
 	}
-	c.watchMu.Unlock()
+	s.watchMu.Unlock()
 }
 
-type chromecastPlayback struct {
-	armed   bool
-	content string
-	session int
-	active  bool
+// playback follows the one Play the device was last handed, from its load to its end.
+type playback struct {
+	armed        bool
+	content      string
+	mediaSession int
+	active       bool
 }
 
-func (w *chromecastPlayback) begin(content string) {
+func (w *playback) begin(content string) {
 	w.armed = true
 	w.content = content
-	w.session = 0
+	w.mediaSession = 0
 	w.active = false
 }
 
-func (w *chromecastPlayback) disarm() {
+func (w *playback) disarm() {
 	w.armed = false
 	w.content = ""
-	w.session = 0
+	w.mediaSession = 0
 	w.active = false
 }
 
-func (w *chromecastPlayback) observe(status castmedia.Media) (bool, error) {
-	if w.session == 0 {
+func (w *playback) observe(status castmedia.Media) (bool, error) {
+	if w.mediaSession == 0 {
 		if status.Media.ContentId != w.content || status.MediaSessionId == 0 {
 			return false, nil
 		}
-		w.session = status.MediaSessionId
-	} else if status.MediaSessionId != w.session {
+		w.mediaSession = status.MediaSessionId
+	} else if status.MediaSessionId != w.mediaSession {
 		return false, nil
 	}
 
@@ -106,7 +107,7 @@ func (w *chromecastPlayback) observe(status castmedia.Media) (bool, error) {
 	return false, nil
 }
 
-func playbackOutcome(w *chromecastPlayback, response *castmedia.MediaStatusResponse) (bool, error) {
+func playbackOutcome(w *playback, response *castmedia.MediaStatusResponse) (bool, error) {
 	if !w.armed {
 		return false, nil
 	}

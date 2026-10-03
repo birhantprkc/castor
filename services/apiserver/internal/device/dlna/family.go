@@ -16,7 +16,7 @@ import (
 // serviceVersions: UPnP service versions (newest first); many implement :3, not just :1.
 var serviceVersions = []int{3, 2, 1}
 
-// Family is the UPnP AVTransport strategy; its renderers do not fetch for themselves.
+// Family is the UPnP AVTransport strategy; its devices do not fetch for themselves.
 type Family struct{}
 
 // familyType is the type the contract names this family by.
@@ -27,7 +27,7 @@ func (Family) Type() device.Type { return familyType }
 var _ device.Family = Family{}
 
 func (Family) Discover(ctx context.Context) []device.Info {
-	results, err := goupnp.DiscoverDevicesCtx(ctx, dlnaSearchTarget)
+	results, err := goupnp.DiscoverDevicesCtx(ctx, searchTarget)
 	if err != nil {
 		slog.WarnContext(ctx, "dlna discovery error", "error", err)
 		return nil
@@ -35,14 +35,14 @@ func (Family) Discover(ctx context.Context) []device.Info {
 
 	var devices []device.Info
 	for _, result := range results {
-		if info, ok := dlnaInfo(result); ok {
+		if info, ok := info(result); ok {
 			devices = append(devices, info)
 		}
 	}
 	return devices
 }
 
-func dlnaInfo(result goupnp.MaybeRootDevice) (device.Info, bool) {
+func info(result goupnp.MaybeRootDevice) (device.Info, bool) {
 	if result.Root == nil || result.Location == nil {
 		return device.Info{}, false
 	}
@@ -61,7 +61,7 @@ func (Family) Locate(ctx context.Context, address string) (string, error) {
 		return address, nil
 	}
 
-	location, err := searchDLNADescription(ctx, address)
+	location, err := searchDescription(ctx, address)
 	if err != nil {
 		return "", fmt.Errorf(
 			"resolving DLNA description for %q (device did not answer a unicast SSDP search; "+
@@ -88,7 +88,7 @@ func (Family) Connect(ctx context.Context, info device.Info) (device.Device, err
 	}
 	caps := negotiateCaps(ctx, loc, u)
 	caps.ServedHeaders = servedHeaders(caps.ServedContainer)
-	return &dlnaDevice{transport: transport, caps: caps}, nil
+	return &session{transport: transport, caps: caps}, nil
 }
 
 // findService returns a client for the newest version of the named service the device publishes.

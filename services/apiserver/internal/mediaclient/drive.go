@@ -23,7 +23,7 @@ type Device interface {
 	Capabilities() *mediav1.Capabilities
 }
 
-// Drive lends device, named device, to cast id for the whole cast, playing what the media server asks until the cast ends or ctx does.
+// Drive lends lent, shown as named, to cast id for the whole cast, playing what the media server asks until the cast ends or ctx does.
 func (c *Client) Drive(parent context.Context, id string, lent Device, named *castorv1.Device) error {
 	// Leaving ends the stream and every call on the device; the cast plays on without it.
 	ctx, leave := context.WithCancelCause(parent)

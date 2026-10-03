@@ -466,11 +466,11 @@ func TestRequestPreferencesOverrideTheDefaultsFieldByField(t *testing.T) {
 	for _, tc := range []struct {
 		asked, want *castorv1.Preferences
 	}{
-		{nil, &castorv1.Preferences{Delivery: castorv1.Delivery_DELIVERY_AUTO.Enum(), MaxHeight: proto.Uint32(1080), Subtitles: new("")}},
-		{&castorv1.Preferences{MaxHeight: proto.Uint32(720)}, &castorv1.Preferences{Delivery: castorv1.Delivery_DELIVERY_AUTO.Enum(), MaxHeight: proto.Uint32(720), Subtitles: new("")}},
+		{nil, &castorv1.Preferences{Delivery: castorv1.Delivery_DELIVERY_AUTO.Enum(), MaxHeight: new(uint32(1080)), Subtitles: new("")}},
+		{&castorv1.Preferences{MaxHeight: new(uint32(720))}, &castorv1.Preferences{Delivery: castorv1.Delivery_DELIVERY_AUTO.Enum(), MaxHeight: new(uint32(720)), Subtitles: new("")}},
 		{
 			&castorv1.Preferences{Delivery: castorv1.Delivery_DELIVERY_SERVE.Enum(), Subtitles: new("fr")},
-			&castorv1.Preferences{Delivery: castorv1.Delivery_DELIVERY_SERVE.Enum(), MaxHeight: proto.Uint32(1080), Subtitles: new("fr")},
+			&castorv1.Preferences{Delivery: castorv1.Delivery_DELIVERY_SERVE.Enum(), MaxHeight: new(uint32(1080)), Subtitles: new("fr")},
 		},
 	} {
 		if _, err := c.casts.Resolve(t.Context(), &castorv1.ResolveRequest{Source: streamOf("https://cdn.example/direct"), Preferences: tc.asked}); err != nil {
@@ -489,7 +489,7 @@ func TestEveryCastAsksWhatTheCastSectionSaysAndNoSubtitlesUnlessItNamesALanguage
 	if _, err := c.casts.Resolve(t.Context(), &castorv1.ResolveRequest{Source: streamOf("https://cdn.example/direct")}); err != nil {
 		t.Fatal(err)
 	}
-	want := &castorv1.Preferences{Delivery: castorv1.Delivery_DELIVERY_SERVE.Enum(), MaxHeight: proto.Uint32(720), Subtitles: new("")}
+	want := &castorv1.Preferences{Delivery: castorv1.Delivery_DELIVERY_SERVE.Enum(), MaxHeight: new(uint32(720)), Subtitles: new("")}
 	if got := <-m.asked; !proto.Equal(got, want) {
 		t.Errorf("a cast asking nothing resolved as %v, want serve at 720p and no subtitles", got)
 	}

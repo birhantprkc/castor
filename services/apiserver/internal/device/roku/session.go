@@ -11,14 +11,15 @@ import (
 	"github.com/stupside/castor/services/apiserver/internal/device"
 )
 
-type rokuDevice struct {
+// session is a Roku driven over ECP, playing through the channel it launches.
+type session struct {
 	ecp   *url.URL
 	appID string
 	name  string
 	hc    *http.Client
 }
 
-var _ device.Device = (*rokuDevice)(nil)
+var _ device.Device = (*session)(nil)
 
 // get reads at most limit bytes of an ECP answer, refusing any status but 200.
 func get(ctx context.Context, hc *http.Client, u *url.URL, limit int64) ([]byte, error) {
@@ -37,43 +38,43 @@ func get(ctx context.Context, hc *http.Client, u *url.URL, limit int64) ([]byte,
 	return io.ReadAll(io.LimitReader(resp.Body, limit))
 }
 
-func (r *rokuDevice) Play(ctx context.Context, streamURL *url.URL, container mediav1.Container) error {
+func (s *session) Play(ctx context.Context, streamURL *url.URL, container mediav1.Container) error {
 	q := url.Values{}
-	q.Set(rokuChannelParamURL, streamURL.String())
-	q.Set(rokuChannelParamFormat, streamFormatFor(container))
+	q.Set(paramURL, streamURL.String())
+	q.Set(paramFormat, streamFormatFor(container))
 
-	u := r.ecp.JoinPath("launch", r.appID)
+	u := s.ecp.JoinPath("launch", s.appID)
 	u.RawQuery = q.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), nil)
 	if err != nil {
 		return err
 	}
-	resp, err := r.hc.Do(req)
+	resp, err := s.hc.Do(req)
 	if err != nil {
 		return fmt.Errorf("launching roku channel: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= http.StatusBadRequest {
-		return fmt.Errorf("roku launch: %s (channel %q installed?)", resp.Status, r.appID)
+		return fmt.Errorf("roku launch: %s (channel %q installed?)", resp.Status, s.appID)
 	}
 	return nil
 }
 
-const rokuMediaPlayerQuery = "/query/media-player"
+const mediaPlayerQuery = "/query/media-player"
 
 // AwaitEnd answers exactly ONE of the two things an ECP poll could establish.
-func (r *rokuDevice) AwaitEnd(ctx context.Context) error {
-	return device.AwaitPolledEnd(ctx, r.name, rokuMediaPlayerQuery, r.mediaPlayerAnswered)
+func (s *session) AwaitEnd(ctx context.Context) error {
+	return device.AwaitPolledEnd(ctx, s.name, mediaPlayerQuery, s.mediaPlayerAnswered)
 }
 
 // mediaPlayerAnswered reports only that somebody answered, never that playback is over (see AwaitEnd).
-func (r *rokuDevice) mediaPlayerAnswered(ctx context.Context) (bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.ecp.JoinPath(rokuMediaPlayerQuery).String(), nil)
+func (s *session) mediaPlayerAnswered(ctx context.Context) (bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.ecp.JoinPath(mediaPlayerQuery).String(), nil)
 	if err != nil {
 		return false, err
 	}
-	resp, err := r.hc.Do(req)
+	resp, err := s.hc.Do(req)
 	if err != nil {
 		return false, err
 	}
@@ -94,7 +95,7 @@ func streamFormatFor(container mediav1.Container) string {
 }
 
 // Capabilities describes what Castor's channel plays.
-func (r *rokuDevice) Capabilities() *mediav1.Capabilities {
+func (s *session) Capabilities() *mediav1.Capabilities {
 	return &mediav1.Capabilities{
 		SelfFetch:       true,
 		Containers:      []mediav1.Container{mediav1.Container_CONTAINER_HLS, mediav1.Container_CONTAINER_MP4, mediav1.Container_CONTAINER_MKV},
@@ -108,4 +109,4 @@ func (r *rokuDevice) Capabilities() *mediav1.Capabilities {
 	}
 }
 
-func (r *rokuDevice) Close() error { return nil }
+func (s *session) Close() error { return nil }

@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	chromecastPort = 8009
+	castPort = 8009
 
 	defaultMediaReceiver = "CC1AD845"
 )
@@ -33,10 +33,10 @@ func (Family) Type() device.Type { return familyType }
 var _ device.Family = Family{}
 
 func (Family) Connect(ctx context.Context, info device.Info) (device.Device, error) {
-	dev := &chromecastDevice{name: cmp.Or(info.Name, info.Address), ending: newEnding()}
+	dev := &session{name: cmp.Or(info.Name, info.Address), ending: newEnding()}
 	dialCtx, cancel := context.WithTimeout(ctx, answerWithin)
 	defer cancel()
-	ch, err := dial(dialCtx, chromecastAddress(info.Address), dev.watchMessage)
+	ch, err := dial(dialCtx, dialAddress(info.Address), dev.watchMessage)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to chromecast: %w", err)
 	}
@@ -52,12 +52,12 @@ func (Family) Connect(ctx context.Context, info device.Info) (device.Device, err
 	return dev, nil
 }
 
-// chromecastAddress completes a bare host with the Cast port.
-func chromecastAddress(address string) string {
+// dialAddress completes a bare host with the Cast port.
+func dialAddress(address string) string {
 	if _, _, err := net.SplitHostPort(address); err == nil {
 		return address
 	}
-	return net.JoinHostPort(strings.Trim(address, "[]"), strconv.Itoa(chromecastPort))
+	return net.JoinHostPort(strings.Trim(address, "[]"), strconv.Itoa(castPort))
 }
 
 // Locate passes the address straight through, Connect already accepting both of its forms.
@@ -75,15 +75,15 @@ func (Family) Discover(ctx context.Context) []device.Info {
 
 	var devices []device.Info
 	for entry := range entries {
-		if info, ok := chromecastInfo(entry); ok {
+		if info, ok := info(entry); ok {
 			devices = append(devices, info)
 		}
 	}
 	return devices
 }
 
-// chromecastInfo reports false when the entry advertises no usable IP address.
-func chromecastInfo(entry castdns.CastEntry) (device.Info, bool) {
+// info reports false when the entry advertises no usable IP address.
+func info(entry castdns.CastEntry) (device.Info, bool) {
 	var host string
 	switch {
 	case entry.AddrV4 != nil:
@@ -95,7 +95,7 @@ func chromecastInfo(entry castdns.CastEntry) (device.Info, bool) {
 	}
 
 	address := host
-	if entry.Port > 0 && entry.Port != chromecastPort {
+	if entry.Port > 0 && entry.Port != castPort {
 		address = net.JoinHostPort(host, strconv.Itoa(entry.Port))
 	}
 

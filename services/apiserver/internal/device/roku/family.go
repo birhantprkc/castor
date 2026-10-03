@@ -23,12 +23,12 @@ import (
 )
 
 const (
-	rokuSearchTarget   = "roku:ecp"
-	rokuDiscoverySends = 3
-	rokuDefaultAppID   = "dev"
-	rokuDefaultDevUser = "rokudev"
-	rokuHTTPTimeout    = 10 * time.Second
-	rokuECPPort        = "8060"
+	searchTarget   = "roku:ecp"
+	discoverySends = 3
+	devAppID       = "dev"
+	devUser        = "rokudev"
+	httpTimeout    = 10 * time.Second
+	ecpPort        = "8060"
 )
 
 // Config is the operator's Roku settings: a published channel to launch, or the developer password to sideload castor's.
@@ -58,7 +58,7 @@ func (Family) Discover(ctx context.Context) []device.Info {
 	}
 	defer hc.Close()
 
-	responses, err := ssdp.RawSearch(ctx, hc, rokuSearchTarget, rokuDiscoverySends)
+	responses, err := ssdp.RawSearch(ctx, hc, searchTarget, discoverySends)
 	if err != nil {
 		slog.WarnContext(ctx, "roku discovery", "error", err)
 		return nil
@@ -73,16 +73,16 @@ func (Family) Discover(ctx context.Context) []device.Info {
 	ids := slices.Sorted(maps.Keys(found))
 
 	// ONE window for every name, and the lookups run over it together.
-	nctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), rokuHTTPTimeout)
+	nctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), httpTimeout)
 	defer cancel()
 
-	client := &http.Client{Timeout: rokuHTTPTimeout}
+	client := &http.Client{Timeout: httpTimeout}
 	devices := make([]device.Info, len(ids))
 	var wg sync.WaitGroup
 	for i, id := range ids {
 		wg.Go(func() {
 			loc := found[id]
-			devices[i] = device.Info{ID: id, Name: rokuName(nctx, client, loc), Type: familyType, Address: loc.String()}
+			devices[i] = device.Info{ID: id, Name: deviceName(nctx, client, loc), Type: familyType, Address: loc.String()}
 		})
 	}
 	wg.Wait()
@@ -96,13 +96,13 @@ func (Family) Locate(_ context.Context, address string) (string, error) {
 		host = u.Host
 	}
 	if _, _, err := net.SplitHostPort(host); err != nil {
-		host = net.JoinHostPort(host, rokuECPPort)
+		host = net.JoinHostPort(host, ecpPort)
 	}
 	return (&url.URL{Scheme: "http", Host: host}).String(), nil
 }
 
-// rokuName reads the owner-set name from /query/device-info, falling back to the host on any failure.
-func rokuName(ctx context.Context, hc *http.Client, ecpRoot *url.URL) string {
+// deviceName reads the owner-set name from /query/device-info, falling back to the host on any failure.
+func deviceName(ctx context.Context, hc *http.Client, ecpRoot *url.URL) string {
 	body, err := get(ctx, hc, ecpRoot.JoinPath("query", "device-info"), 1<<16)
 	if err != nil {
 		return ecpRoot.Hostname()
@@ -127,14 +127,14 @@ func (f Family) Connect(ctx context.Context, info device.Info) (device.Device, e
 		return nil, fmt.Errorf("parsing roku address %q: %w", info.Address, err)
 	}
 
-	dev := &rokuDevice{
+	dev := &session{
 		ecp:   &url.URL{Scheme: "http", Host: root.Host},
-		appID: cmp.Or(f.Config.AppID, rokuDefaultAppID),
+		appID: cmp.Or(f.Config.AppID, devAppID),
 		name:  info.Name,
-		hc:    &http.Client{Timeout: rokuHTTPTimeout},
+		hc:    &http.Client{Timeout: httpTimeout},
 	}
 
-	if dev.appID == rokuDefaultAppID {
+	if dev.appID == devAppID {
 		if err := dev.ensureChannel(ctx, f.Config); err != nil {
 			return nil, err
 		}

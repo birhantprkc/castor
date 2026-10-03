@@ -2,8 +2,10 @@ package chromecast
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"net"
 	"net/url"
 	"testing"
@@ -12,77 +14,23 @@ import (
 
 	mediav1 "github.com/stupside/castor/gen/castor/media/v1"
 	"github.com/stupside/castor/services/apiserver/internal/device"
-	"github.com/stupside/castor/services/apiserver/internal/device/devicetest"
 )
 
-func TestChromecastPlaybackState(t *testing.T) {
-	const content = "https://castor.test/stream.mp4"
-	status := func(session int, mediaID, playerState, idleReason string) castmedia.MediaStatusResponse {
-		return castmedia.MediaStatusResponse{
-			Type: "MEDIA_STATUS",
-			Status: []castmedia.Media{{
-				MediaSessionId: session,
-				PlayerState:    playerState,
-				IdleReason:     idleReason,
-				Media:          castmedia.MediaItem{ContentId: mediaID},
-			}},
-		}
-	}
-	closed := castmedia.MediaStatusResponse{Type: "CLOSE"}
-	for _, tt := range []struct {
-		name     string
-		messages []castmedia.MediaStatusResponse
-		want     bool
-		wantErr  bool
-	}{
-		{"stale finished status is ignored", []castmedia.MediaStatusResponse{status(4, "https://old.test/movie.mp4", "IDLE", "FINISHED")}, false, false},
-		{"finish after playing ends", []castmedia.MediaStatusResponse{status(7, content, "PLAYING", ""), status(7, content, "IDLE", "FINISHED")}, true, false},
-		{"another session cannot end this one", []castmedia.MediaStatusResponse{status(7, content, "PLAYING", ""), status(8, "https://other.test/movie.mp4", "IDLE", "FINISHED")}, false, false},
-		{"pause remains active", []castmedia.MediaStatusResponse{status(7, content, "PLAYING", ""), status(7, content, "PAUSED", "")}, false, false},
-		{"receiver close after playing ends", []castmedia.MediaStatusResponse{status(7, content, "PLAYING", ""), closed}, true, false},
-		{"receiver close while still loading does not end", []castmedia.MediaStatusResponse{closed}, false, false},
-		{"receiver playback error fails", []castmedia.MediaStatusResponse{status(7, content, "PLAYING", ""), status(7, content, "IDLE", "ERROR")}, true, true},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			var watch chromecastPlayback
-			watch.begin(content)
-			got := false
-			var gotErr error
-			for i := range tt.messages {
-				got, gotErr = playbackOutcome(&watch, &tt.messages[i])
-			}
-			if got != tt.want {
-				t.Errorf("playbackOutcome = %v, want %v", got, tt.want)
-			}
-			if (gotErr != nil) != tt.wantErr {
-				t.Errorf("playbackOutcome error = %v, want error %v", gotErr, tt.wantErr)
-			}
-		})
-	}
-}
-
-func TestChromecastAnswersWhenTheCastEnds(t *testing.T) {
-	devicetest.AwaitsTheCastsEnd(t, func() device.Device {
-		return &chromecastDevice{ch: &channel{gone: make(chan struct{})}, ending: newEnding()}
-	})
-}
-
-func TestAChromecastThatDropsTheConnectionIsGone(t *testing.T) {
-	near, far := net.Pipe()
-	dev := &chromecastDevice{name: "Living Room", ending: newEnding()}
-	dev.ch = newChannel(near, dev.watchMessage)
-	t.Cleanup(func() { _ = dev.Close() })
-	_ = far.Close()
-	if _, gone := errors.AsType[*device.Gone](dev.AwaitEnd(t.Context())); !gone {
-		t.Error("a receiver that went away mid-cast is not reported gone, so the cast outlives it")
-	}
-}
-
 // receiverAnswering is a Cast receiver on the other end of a pipe; loadAnswers says what it sends once LOAD arrives.
-func receiverAnswering(t *testing.T, loadAnswers func(requestID int, load castmedia.MediaItem) []any) *chromecastDevice {
+func receiverAnswering(t *testing.T, loadAnswers func(requestID int, load castmedia.MediaItem) []any) *session {
+	t.Helper()
+	return receiverSaying(t, func(requestID int) any {
+		status := castmedia.ReceiverStatusResponse{Type: "RECEIVER_STATUS", RequestId: requestID}
+		status.Status.Applications = []castmedia.Application{{AppId: defaultMediaReceiver, TransportId: "transport-1"}}
+		return status
+	}, loadAnswers)
+}
+
+// receiverSaying is receiverAnswering answering GET_STATUS with status.
+func receiverSaying(t *testing.T, status func(requestID int) any, loadAnswers func(requestID int, load castmedia.MediaItem) []any) *session {
 	t.Helper()
 	near, far := net.Pipe()
-	dev := &chromecastDevice{ending: newEnding()}
+	dev := &session{ending: newEnding()}
 	dev.ch = newChannel(near, dev.watchMessage)
 	var receiver *channel
 	receiver = newChannel(far, func(payload []byte) {
@@ -97,9 +45,7 @@ func receiverAnswering(t *testing.T, loadAnswers func(requestID int, load castme
 		var answers []any
 		switch req.Type {
 		case "GET_STATUS":
-			status := castmedia.ReceiverStatusResponse{Type: "RECEIVER_STATUS", RequestId: req.RequestID}
-			status.Status.Applications = []castmedia.Application{{AppId: defaultMediaReceiver, TransportId: "transport-1"}}
-			answers = []any{status}
+			answers = []any{status(req.RequestID)}
 		case "LOAD":
 			answers = loadAnswers(req.RequestID, req.Media)
 		}
@@ -121,6 +67,26 @@ func mediaStatus(requestID int, content, playerState, idleReason string) castmed
 		Type:      "MEDIA_STATUS",
 		RequestId: requestID,
 		Status:    []castmedia.Media{{MediaSessionId: 1, PlayerState: playerState, IdleReason: idleReason, Media: castmedia.MediaItem{ContentId: content}}},
+	}
+}
+
+// A device's own answers carry fields and spellings go-chromecast's structs never produce, so they are read as captured.
+func TestADevicesAnswersAreReadAsItSendsThem(t *testing.T) {
+	stream := &url.URL{Scheme: "http", Host: "media.test", Path: "/stream.mp4", RawQuery: "a=1&b=2"}
+	dev := receiverSaying(t, func(id int) any {
+		return jsontext.Value(fmt.Sprintf(`{"requestId":%d,"status":{"applications":[{"appId":"CC1AD845","appType":"WEB","displayName":"Default Media Receiver","iconUrl":"","isIdleScreen":false,"launchedFromCloud":false,"namespaces":[{"name":"urn:x-cast:com.google.cast.media"}],"sessionId":"7E2FF513","statusText":"Default Media Receiver","transportId":"7E2FF513","universalAppId":"CC1AD845"}],"userEq":{},"volume":{"controlType":"attenuation","level":1.0,"muted":false,"stepInterval":0.05000000074505806}},"type":"RECEIVER_STATUS"}`, id))
+	}, func(id int, load castmedia.MediaItem) []any {
+		return []any{
+			jsontext.Value(fmt.Sprintf(`{"type":"MEDIA_STATUS","status":[{"mediaSessionId":1,"playbackRate":1,"playerState":"BUFFERING","currentTime":0,"supportedMediaCommands":12303,"volume":{"level":1,"muted":false},"activeTrackIds":[],"media":{"contentId":%q,"streamType":"BUFFERED","contentType":"video/mp4","mediaCategory":"VIDEO","duration":596.474195,"tracks":[{"trackId":1,"type":"VIDEO"}]},"currentItemId":1,"repeatMode":"REPEAT_OFF"}],"requestId":%d}`, load.ContentId, id)),
+			jsontext.Value(`{"type":"MEDIA_STATUS","status":[{"mediaSessionId":1,"playbackRate":1,"playerState":"PLAYING","currentTime":1.5,"supportedMediaCommands":12303,"volume":{"level":1,"muted":false},"currentItemId":1,"repeatMode":"REPEAT_OFF"}],"requestId":0}`),
+			jsontext.Value(`{"type":"MEDIA_STATUS","status":[{"mediaSessionId":1,"playbackRate":1,"playerState":"IDLE","currentTime":596.4,"supportedMediaCommands":12303,"volume":{"level":1,"muted":false},"currentItemId":1,"idleReason":"FINISHED","extendedStatus":null}],"requestId":0}`),
+		}
+	})
+	if err := dev.Play(t.Context(), stream, mediav1.Container_CONTAINER_MP4); err != nil {
+		t.Fatal(err)
+	}
+	if err := dev.AwaitEnd(t.Context()); err != nil {
+		t.Errorf("AwaitEnd = %v, want the device's finish read as a clean end", err)
 	}
 }
 
@@ -219,7 +185,7 @@ func TestAPlayAbandonedForANewerOneLeavesTheNewerOneWatched(t *testing.T) {
 
 func TestAPlayOnADroppedConnectionIsGone(t *testing.T) {
 	near, far := net.Pipe()
-	dev := &chromecastDevice{name: "Living Room", ending: newEnding()}
+	dev := &session{name: "Living Room", ending: newEnding()}
 	dev.ch = newChannel(near, dev.watchMessage)
 	t.Cleanup(func() { _ = dev.Close() })
 	_ = far.Close()

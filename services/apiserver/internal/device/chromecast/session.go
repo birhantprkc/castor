@@ -2,7 +2,7 @@ package chromecast
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/url"
@@ -14,23 +14,24 @@ import (
 	"github.com/stupside/castor/services/apiserver/internal/device"
 )
 
-type chromecastDevice struct {
+// session is one Cast connection to a device, following the Play it was last handed.
+type session struct {
 	ch   *channel
 	name string
 
 	watchMu sync.Mutex
-	watch   chromecastPlayback
+	watch   playback
 	ending  *ending
 }
 
-var _ device.Device = (*chromecastDevice)(nil)
+var _ device.Device = (*session)(nil)
 
 // Play returns the receiver's own verdict on the LOAD, so a refused URL fails the hand-off; a dropped connection is gone.
-func (c *chromecastDevice) Play(ctx context.Context, streamURL *url.URL, container mediav1.Container) error {
-	if err := c.play(ctx, streamURL, device.MIME(container)); err != nil {
+func (s *session) Play(ctx context.Context, streamURL *url.URL, container mediav1.Container) error {
+	if err := s.play(ctx, streamURL, device.MIME(container)); err != nil {
 		select {
-		case <-c.ch.gone:
-			return &device.Gone{Device: c.name, Observed: "the Cast connection closed before the media loaded", Err: err}
+		case <-s.ch.gone:
+			return &device.Gone{Device: s.name, Observed: "the Cast connection closed before the media loaded", Err: err}
 		default:
 			return err
 		}
@@ -38,21 +39,21 @@ func (c *chromecastDevice) Play(ctx context.Context, streamURL *url.URL, contain
 	return nil
 }
 
-func (c *chromecastDevice) play(ctx context.Context, streamURL *url.URL, contentType string) error {
-	transport, err := c.mediaReceiver(ctx)
+func (s *session) play(ctx context.Context, streamURL *url.URL, contentType string) error {
+	transport, err := s.mediaReceiver(ctx)
 	if err != nil {
 		return fmt.Errorf("starting the chromecast's media receiver: %w", err)
 	}
-	if err := c.ch.send(transport, nsConnection, &castmedia.PayloadHeader{Type: msgConnect}); err != nil {
+	if err := s.ch.send(transport, nsConnection, &castmedia.PayloadHeader{Type: msgConnect}); err != nil {
 		return fmt.Errorf("starting chromecast playback: %w", err)
 	}
 	// Each Play is awaited to its own end, so a retry after a refused one starts clean on the same connection.
 	mine := newEnding()
-	c.watchMu.Lock()
-	c.watch.begin(streamURL.String())
-	c.ending = mine
-	c.watchMu.Unlock()
-	reply, err := c.ch.request(ctx, transport, nsMedia, &castmedia.LoadMediaCommand{
+	s.watchMu.Lock()
+	s.watch.begin(streamURL.String())
+	s.ending = mine
+	s.watchMu.Unlock()
+	reply, err := s.ch.request(ctx, transport, nsMedia, &castmedia.LoadMediaCommand{
 		Type:     msgLoad,
 		Media:    castmedia.MediaItem{ContentId: streamURL.String(), ContentType: contentType, StreamType: "BUFFERED"},
 		Autoplay: true,
@@ -61,12 +62,12 @@ func (c *chromecastDevice) play(ctx context.Context, streamURL *url.URL, content
 		err = loadVerdict(reply)
 	}
 	if err != nil {
-		c.watchMu.Lock()
+		s.watchMu.Lock()
 		// A Play begun since owns the watch now; this one's failure is not its to clear.
-		if c.ending == mine {
-			c.watch.disarm()
+		if s.ending == mine {
+			s.watch.disarm()
 		}
-		c.watchMu.Unlock()
+		s.watchMu.Unlock()
 		return fmt.Errorf("starting chromecast playback: %w", err)
 	}
 	return nil
@@ -90,15 +91,15 @@ func loadVerdict(reply []byte) error {
 }
 
 // mediaReceiver returns the Default Media Receiver's transport, launching it unless it already runs.
-func (c *chromecastDevice) mediaReceiver(ctx context.Context) (string, error) {
-	status, err := c.receiverStatus(ctx, &castmedia.PayloadHeader{Type: msgGetStatus})
+func (s *session) mediaReceiver(ctx context.Context) (string, error) {
+	status, err := s.receiverStatus(ctx, &castmedia.PayloadHeader{Type: msgGetStatus})
 	if err != nil {
 		return "", err
 	}
 	if transport, ok := defaultMediaTransport(status); ok {
 		return transport, nil
 	}
-	status, err = c.receiverStatus(ctx, &castmedia.LaunchRequest{Type: "LAUNCH", AppId: defaultMediaReceiver})
+	status, err = s.receiverStatus(ctx, &castmedia.LaunchRequest{Type: "LAUNCH", AppId: defaultMediaReceiver})
 	if err != nil {
 		return "", err
 	}
@@ -108,9 +109,9 @@ func (c *chromecastDevice) mediaReceiver(ctx context.Context) (string, error) {
 	return "", errors.New("the chromecast answered the launch without the Default Media Receiver running")
 }
 
-func (c *chromecastDevice) receiverStatus(ctx context.Context, payload castmedia.Payload) (castmedia.ReceiverStatusResponse, error) {
+func (s *session) receiverStatus(ctx context.Context, payload castmedia.Payload) (castmedia.ReceiverStatusResponse, error) {
 	var status castmedia.ReceiverStatusResponse
-	reply, err := c.ch.request(ctx, receiverID, nsReceiver, payload)
+	reply, err := s.ch.request(ctx, receiverID, nsReceiver, payload)
 	if err != nil {
 		return status, err
 	}
@@ -132,11 +133,11 @@ func defaultMediaTransport(status castmedia.ReceiverStatusResponse) (string, boo
 	return "", false
 }
 
-func (c *chromecastDevice) Close() error {
-	return c.ch.Close()
+func (s *session) Close() error {
+	return s.ch.Close()
 }
 
-func (c *chromecastDevice) Capabilities() *mediav1.Capabilities {
+func (s *session) Capabilities() *mediav1.Capabilities {
 	return &mediav1.Capabilities{
 		SelfFetch:       true,
 		Containers:      []mediav1.Container{mediav1.Container_CONTAINER_HLS, mediav1.Container_CONTAINER_MPEGTS, mediav1.Container_CONTAINER_MP4, mediav1.Container_CONTAINER_WEBM},

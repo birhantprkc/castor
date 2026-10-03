@@ -95,18 +95,18 @@ func serve(t *testing.T, commands ...*mediav1.DeviceCommand) (*mediaclient.Clien
 	return mediaclient.New(api.Client(), api.URL), m
 }
 
-// screen is the device lent: it plays what it is handed, or refuses it with refusal.
-type screen struct {
+// lentDevice plays what it is handed, or refuses it with refusal.
+type lentDevice struct {
 	played  chan *url.URL
 	as      chan mediav1.Container
 	refusal error
 }
 
-func newScreen() *screen {
-	return &screen{played: make(chan *url.URL, 1), as: make(chan mediav1.Container, 1)}
+func newLentDevice() *lentDevice {
+	return &lentDevice{played: make(chan *url.URL, 1), as: make(chan mediav1.Container, 1)}
 }
 
-func (s *screen) Play(_ context.Context, u *url.URL, container mediav1.Container) error {
+func (s *lentDevice) Play(_ context.Context, u *url.URL, container mediav1.Container) error {
 	if s.refusal != nil {
 		return s.refusal
 	}
@@ -115,16 +115,16 @@ func (s *screen) Play(_ context.Context, u *url.URL, container mediav1.Container
 	return nil
 }
 
-func (*screen) AwaitEnd(ctx context.Context) error {
+func (*lentDevice) AwaitEnd(ctx context.Context) error {
 	<-ctx.Done()
 	return ctx.Err()
 }
 
-func (*screen) Capabilities() *mediav1.Capabilities {
+func (*lentDevice) Capabilities() *mediav1.Capabilities {
 	return &mediav1.Capabilities{SelfFetch: true, Video: []*mediav1.VideoSupport{{Codec: mediav1.Codec_CODEC_H264, MaxLevel: 42}}}
 }
 
-var asked = &castorv1.Preferences{Delivery: castorv1.Delivery_DELIVERY_AUTO.Enum(), MaxHeight: proto.Uint32(1080), Subtitles: new("")}
+var asked = &castorv1.Preferences{Delivery: castorv1.Delivery_DELIVERY_AUTO.Enum(), MaxHeight: new(uint32(1080)), Subtitles: new("")}
 
 var bedroom = &castorv1.Device{Id: "dlna:uuid-1", Name: "Bedroom", Type: "dlna", Address: "10.0.0.9"}
 
@@ -169,7 +169,7 @@ func taken[T any](t *testing.T, ch <-chan T) T {
 
 func TestADriveLendsItsDeviceForTheCastToPlayOn(t *testing.T) {
 	c, m := serve(t, play("https://cdn.example/direct", mediav1.Container_CONTAINER_HLS))
-	lent := newScreen()
+	lent := newLentDevice()
 
 	w, driven := cast(t, c, lent)
 	if driven != nil {
@@ -191,7 +191,7 @@ func TestADriveLendsItsDeviceForTheCastToPlayOn(t *testing.T) {
 
 func TestADeviceFailureWithoutAMessageFailsThePlayNotTheDrive(t *testing.T) {
 	c, m := serve(t, play("https://cdn.example/direct", mediav1.Container_CONTAINER_HLS))
-	lent := newScreen()
+	lent := newLentDevice()
 	lent.refusal = errors.New("")
 
 	if _, driven := cast(t, c, lent); driven != nil {
@@ -204,7 +204,7 @@ func TestADeviceFailureWithoutAMessageFailsThePlayNotTheDrive(t *testing.T) {
 
 func TestADeviceGoneIsAnsweredGoneSoTheCastsRecoveryReadsIt(t *testing.T) {
 	c, m := serve(t, play("https://cdn.example/direct", mediav1.Container_CONTAINER_HLS))
-	lent := newScreen()
+	lent := newLentDevice()
 	lent.refusal = &device.Gone{Device: "Bedroom", Observed: "stopped answering", Err: errors.New("connection refused")}
 
 	if _, driven := cast(t, c, lent); driven != nil {

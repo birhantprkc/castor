@@ -17,7 +17,7 @@ import (
 // capsTimeout: ConnectionManager timeout; degrades rather than stall.
 const capsTimeout = 3 * time.Second
 
-// negotiateCaps asks the renderer what it accepts over ConnectionManager GetProtocolInfo.
+// negotiateCaps asks the device what it accepts over ConnectionManager GetProtocolInfo.
 func negotiateCaps(ctx context.Context, loc *goupnp.RootDevice, u *url.URL) *mediav1.Capabilities {
 	manager, err := findService(loc, u, "ConnectionManager")
 	if err != nil {
@@ -36,16 +36,16 @@ func negotiateCaps(ctx context.Context, loc *goupnp.RootDevice, u *url.URL) *med
 	sink := response.Sink
 	caps := parseSinkProtocolInfo(sink)
 	if len(caps.Video) == 0 {
-		slog.WarnContext(ctx, "renderer advertised no known video codec; using conservative capabilities")
+		slog.WarnContext(ctx, "device advertised no known video codec; using conservative capabilities")
 		return fallbackCaps()
 	}
-	// A nil Audio is not a renderer that plays silence, it is one that said nothing about audio.
+	// A nil Audio is not a device that plays silence, it is one that said nothing about audio.
 	if len(caps.Audio) == 0 {
-		slog.WarnContext(ctx, "renderer advertised no known audio codec; assuming the conservative audio floor",
+		slog.WarnContext(ctx, "device advertised no known audio codec; assuming the conservative audio floor",
 			"codecs", codecs(caps.Video))
 		caps.Audio = fallbackCaps().Audio
 	}
-	slog.InfoContext(ctx, "negotiated renderer capabilities", "codecs", codecs(caps.Video), "containers", caps.Containers)
+	slog.InfoContext(ctx, "negotiated device capabilities", "codecs", codecs(caps.Video), "containers", caps.Containers)
 	return caps
 }
 
@@ -157,10 +157,11 @@ func containerFromMIME(mime string) (mediav1.Container, bool) {
 	return mediav1.Container_CONTAINER_UNSPECIFIED, false
 }
 
-func codecs(vs []*mediav1.VideoSupport) []mediav1.Codec {
-	out := make([]mediav1.Codec, len(vs))
-	for i, v := range vs {
-		out[i] = v.GetCodec()
+// codecs names the codec of each support, video or audio.
+func codecs[S interface{ GetCodec() mediav1.Codec }](supports []S) []mediav1.Codec {
+	out := make([]mediav1.Codec, len(supports))
+	for i, s := range supports {
+		out[i] = s.GetCodec()
 	}
 	return out
 }

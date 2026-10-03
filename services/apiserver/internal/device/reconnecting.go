@@ -10,30 +10,6 @@ import (
 	mediav1 "github.com/stupside/castor/gen/castor/media/v1"
 )
 
-// Connect opens target for one cast, which holds it to its end; a Play that finds it gone connects it again.
-func (d *Directory) Connect(ctx context.Context, target Info) (Device, error) {
-	dev, at, err := d.dial(ctx, target)
-	if err != nil {
-		return nil, err
-	}
-	return &reconnecting{dir: d, target: at, device: dev}, nil
-}
-
-// dial connects target, discovering it again once when a seen device no longer answers where it was found.
-func (d *Directory) dial(ctx context.Context, target Info) (Device, Info, error) {
-	dev, err := d.reach.Connect(ctx, target)
-	if err == nil || target.ID == "" {
-		return dev, target, err
-	}
-	d.discover(ctx)
-	moved, ok := d.lookup(target.id())
-	if !ok || moved.Address == target.Address {
-		return nil, target, err
-	}
-	dev, err = d.reach.Connect(ctx, moved)
-	return dev, moved, err
-}
-
 // reconnecting is the device a cast lends, so later attempts still reach it after its connection is gone.
 type reconnecting struct {
 	dir *Directory

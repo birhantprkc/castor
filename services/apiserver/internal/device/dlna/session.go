@@ -17,30 +17,30 @@ import (
 	"github.com/stupside/castor/services/apiserver/internal/device"
 )
 
-// actionTimeout: AVTransport action timeout (prevents wedging on unresponsive renderers).
+// actionTimeout keeps an unresponsive device from wedging an AVTransport action.
 const actionTimeout = 10 * time.Second
 
-// dlnaDevice: AVTransport renderer with generic client (avoid goupnp av1 :1 URN hardcoding).
-type dlnaDevice struct {
+// session is a device driven over AVTransport with a generic client, since goupnp av1 hardcodes the :1 URN.
+type session struct {
 	transport goupnp.ServiceClient
 	caps      *mediav1.Capabilities
 }
 
-func (d *dlnaDevice) Capabilities() *mediav1.Capabilities { return d.caps }
+func (s *session) Capabilities() *mediav1.Capabilities { return s.caps }
 
-// name: renderer name (FriendlyName, location, or fallback).
-func (d *dlnaDevice) name() string {
+// name is the device's FriendlyName, else its location.
+func (s *session) name() string {
 	var friendly, location string
-	if d.transport.RootDevice != nil {
-		friendly = d.transport.RootDevice.Device.FriendlyName
+	if s.transport.RootDevice != nil {
+		friendly = s.transport.RootDevice.Device.FriendlyName
 	}
-	if d.transport.Location != nil {
-		location = d.transport.Location.String()
+	if s.transport.Location != nil {
+		location = s.transport.Location.String()
 	}
-	return cmp.Or(friendly, location, "DLNA renderer")
+	return cmp.Or(friendly, location, "DLNA device")
 }
 
-var _ device.Device = (*dlnaDevice)(nil)
+var _ device.Device = (*session)(nil)
 
 const (
 	transportLockedRetries = 5
@@ -48,7 +48,7 @@ const (
 )
 
 // Play hands over one video resource with no caption track: subtitles are burned in upstream.
-func (d *dlnaDevice) Play(ctx context.Context, streamURL *url.URL, container mediav1.Container) error {
+func (s *session) Play(ctx context.Context, streamURL *url.URL, container mediav1.Container) error {
 	metadata, err := buildDIDLMetadata(streamURL, container)
 	if err != nil {
 		return fmt.Errorf("building DIDL-Lite metadata: %w", err)
@@ -61,7 +61,7 @@ func (d *dlnaDevice) Play(ctx context.Context, streamURL *url.URL, container med
 		CurrentURIMetaData string
 	}{"0", streamURL.String(), metadata}
 	if err := retryTransportLocked(ctx, func() error {
-		return d.action(ctx, "SetAVTransportURI", setURI)
+		return s.action(ctx, "SetAVTransportURI", setURI)
 	}); err != nil {
 		return fmt.Errorf("setting transport URI: %w", err)
 	}
@@ -71,7 +71,7 @@ func (d *dlnaDevice) Play(ctx context.Context, streamURL *url.URL, container med
 		Speed      string
 	}{"0", "1"}
 	if err := retryTransportLocked(ctx, func() error {
-		return d.action(ctx, "Play", play)
+		return s.action(ctx, "Play", play)
 	}); err != nil {
 		return fmt.Errorf("starting playback: %w", err)
 	}
@@ -101,16 +101,16 @@ func isTransportLocked(err error) bool {
 }
 
 // action performs a SOAP action namespaced to the service version the device published.
-func (d *dlnaDevice) action(ctx context.Context, name string, request any) error {
+func (s *session) action(ctx context.Context, name string, request any) error {
 	ctx, cancel := context.WithTimeout(ctx, actionTimeout)
 	defer cancel()
-	return d.transport.SOAPClient.PerformActionCtx(
-		ctx, d.transport.Service.ServiceType, name, request, nil)
+	return s.transport.SOAPClient.PerformActionCtx(
+		ctx, s.transport.Service.ServiceType, name, request, nil)
 }
 
 const transportQuery = "GetTransportInfo"
 
-// transportWatch holds the one thing that ends a cast from the renderer's side.
+// transportWatch holds the one thing that ends a cast from the device's side.
 type transportWatch struct {
 	active bool
 }
@@ -126,8 +126,8 @@ func (w *transportWatch) observe(state string) bool {
 }
 
 // AwaitEnd polls AVTransport because UPnP families share no dependable event subscription.
-func (d *dlnaDevice) AwaitEnd(ctx context.Context) error {
-	return awaitTransportEnd(ctx, d.name(), d.transportState)
+func (s *session) AwaitEnd(ctx context.Context) error {
+	return awaitTransportEnd(ctx, s.name(), s.transportState)
 }
 
 // awaitTransportEnd folds the AVTransport state machine over the shared poll loop.
@@ -143,11 +143,11 @@ func awaitTransportEnd(ctx context.Context, name string, poll func(context.Conte
 		})
 }
 
-func (d *dlnaDevice) transportState(ctx context.Context) (string, error) {
+func (s *session) transportState(ctx context.Context) (string, error) {
 	var response struct {
 		CurrentTransportState string
 	}
-	err := d.transport.SOAPClient.PerformActionCtx(ctx, d.transport.Service.ServiceType,
+	err := s.transport.SOAPClient.PerformActionCtx(ctx, s.transport.Service.ServiceType,
 		transportQuery, &struct{ InstanceID string }{"0"}, &response)
 	if err != nil {
 		return "", err
@@ -155,6 +155,6 @@ func (d *dlnaDevice) transportState(ctx context.Context) (string, error) {
 	return response.CurrentTransportState, nil
 }
 
-func (d *dlnaDevice) Close() error {
+func (s *session) Close() error {
 	return nil
 }
