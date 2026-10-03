@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
 
@@ -28,9 +27,9 @@ func Command() *cli.Command {
 			if err != nil {
 				return err
 			}
-			l, err := net.Listen("tcp", cfg.Server.Listen)
+			l, err := transport.Listen(ctx, cfg.Server.Listen, cfg.Server.Token, "server.token")
 			if err != nil {
-				return fmt.Errorf("listening on %s: %w", cfg.Server.Listen, err)
+				return err
 			}
 			// A detached media server keeps every line on its own output too; watchers get their casts' lines live.
 			h := slog.Default().Handler()
@@ -40,7 +39,6 @@ func Command() *cli.Command {
 				return fmt.Errorf("resolving where devices reach this server (set server.advertise): %w", err)
 			}
 			slog.InfoContext(ctx, "serving", "address", l.Addr().String(), "devices_reach", reach.String())
-			transport.WarnOpen(ctx, l, cfg.Server.Token, "server.token")
 			srv := cast.New(cfg.backend(), reach)
 			return transport.Serve(ctx, l, onePort(srv, cfg.Server.Token), srv.Shutdown)
 		},
@@ -66,19 +64,18 @@ func Embedded(ctx context.Context, cmd *cli.Command, lines slog.Handler) (transp
 	if err != nil {
 		return transport.Endpoint{}, nil, fmt.Errorf("opening where devices reach this machine: %w", err)
 	}
-	loop, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		_ = lan.Close()
-		return transport.Endpoint{}, nil, fmt.Errorf("embedded media server: %w", err)
-	}
 	reach := &url.URL{Scheme: "http", Host: lan.Addr().String()}
 	srv := cast.New(cfg.backend(), reach)
-	slog.InfoContext(ctx, "embedded media server ready", "api", loop.Addr().String(), "devices_reach", reach.String())
-	stopAPI := transport.Background(ctx, loop, transport.Authorized(srv.API, cfg.Server.Token), srv.Shutdown)
+	api, stopAPI, err := transport.Loopback(ctx, srv.API, cfg.Server.Token, srv.Shutdown)
+	if err != nil {
+		_ = lan.Close()
+		return transport.Endpoint{}, nil, err
+	}
+	slog.InfoContext(ctx, "embedded media server ready", "api", api.URL, "devices_reach", reach.String())
 	stopMedia := transport.Background(ctx, lan, srv.Media, srv.Shutdown)
 	stop := func() {
 		stopAPI()
 		stopMedia()
 	}
-	return transport.Endpoint{URL: "http://" + loop.Addr().String(), Token: cfg.Server.Token}, stop, nil
+	return api, stop, nil
 }

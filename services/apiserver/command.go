@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 
 	"github.com/urfave/cli/v3"
 
@@ -39,12 +38,11 @@ func Command(media Media) *cli.Command {
 			}
 			// It outlives the API server, which stops its casts through it.
 			defer stop()
-			l, err := net.Listen("tcp", cfg.API.Listen)
+			l, err := transport.Listen(ctx, cfg.API.Listen, cfg.API.Token, "api.token")
 			if err != nil {
-				return fmt.Errorf("listening on %s: %w", cfg.API.Listen, err)
+				return err
 			}
 			slog.InfoContext(ctx, "api serving", "address", l.Addr().String())
-			transport.WarnOpen(ctx, l, cfg.API.Token, "api.token")
 			return transport.Serve(ctx, l, transport.Authorized(srv, cfg.API.Token), srv.Shutdown)
 		},
 	}
@@ -61,17 +59,16 @@ func Embedded(media Media) func(ctx context.Context, cmd *cli.Command, lines slo
 		if err != nil {
 			return transport.Endpoint{}, false, nil, err
 		}
-		l, err := net.Listen("tcp", "127.0.0.1:0")
+		api, stopAPI, err := transport.Loopback(ctx, srv, cfg.API.Token, srv.Shutdown)
 		if err != nil {
 			stopMedia()
-			return transport.Endpoint{}, false, nil, fmt.Errorf("local api: %w", err)
+			return transport.Endpoint{}, false, nil, err
 		}
-		stopAPI := transport.Background(ctx, l, transport.Authorized(srv, cfg.API.Token), srv.Shutdown)
 		stop := func() {
 			stopAPI()
 			stopMedia()
 		}
-		return transport.Endpoint{URL: "http://" + l.Addr().String(), Token: cfg.API.Token}, cfg.Server.URL == "", stop, nil
+		return api, cfg.Server.URL == "", stop, nil
 	}
 }
 

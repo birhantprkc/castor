@@ -122,9 +122,24 @@ func (b bearing) RoundTrip(r *http.Request) (*http.Response, error) {
 	return b.next.RoundTrip(r)
 }
 
-// WarnOpen warns that a server listening on l beyond this machine answers anyone, when it has no token.
-func WarnOpen(ctx context.Context, l net.Listener, token, key string) {
+// Listen listens on addr, warning when it answers beyond this machine without a token; key names the token's setting.
+func Listen(ctx context.Context, addr, token, key string) (net.Listener, error) {
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("listening on %s: %w", addr, err)
+	}
 	if tcp, ok := l.Addr().(*net.TCPAddr); token == "" && (!ok || !tcp.IP.IsLoopback()) {
 		slog.WarnContext(ctx, "listening beyond this machine without a token: anyone on the network may use it", "address", l.Addr().String(), "set", key)
 	}
+	return l, nil
+}
+
+// Loopback serves h behind token on this machine only until stop, and is where it answers.
+func Loopback(ctx context.Context, h http.Handler, token string, drain func(context.Context)) (Endpoint, func(), error) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return Endpoint{}, nil, fmt.Errorf("listening on loopback: %w", err)
+	}
+	stop := Background(ctx, l, Authorized(h, token), drain)
+	return Endpoint{URL: "http://" + l.Addr().String(), Token: token}, stop, nil
 }
