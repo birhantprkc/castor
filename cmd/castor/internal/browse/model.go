@@ -1,9 +1,7 @@
-// Package browse asks the operator which device to cast to and which title to cast, browsing TMDB for it.
 package browse
 
 import (
 	"context"
-	"time"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
@@ -15,41 +13,6 @@ import (
 
 	"github.com/stupside/castor/cmd/castor/internal/browse/tmdb"
 	"github.com/stupside/castor/cmd/castor/internal/palette"
-)
-
-type Kind int
-
-const (
-	KindMovie Kind = iota
-	KindEpisode
-)
-
-// Selection is the title the operator chose to cast.
-type Selection struct {
-	Kind    Kind
-	TMDBID  string
-	Title   string
-	Season  uint
-	Episode uint
-}
-
-// title runs the browser until a title is chosen, or the operator leaves without one.
-func title(ctx context.Context, client Catalog, badge string) (Selection, bool, error) {
-	final, err := tea.NewProgram(newModel(ctx, client, badge), tea.WithContext(ctx)).Run()
-	if err != nil {
-		return Selection{}, false, err
-	}
-	if fm, ok := final.(model); ok && fm.sel != nil {
-		return *fm.sel, true, nil
-	}
-	return Selection{}, false, nil
-}
-
-const (
-	// Poster: 27×40 cells approximate 2:3 movie ratio (prevents pixterm horizontal stretch).
-	posterCols     = 27
-	posterRows     = 20
-	searchDebounce = 250 * time.Millisecond
 )
 
 type screen int

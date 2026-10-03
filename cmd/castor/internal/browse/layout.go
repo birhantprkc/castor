@@ -3,8 +3,21 @@ package browse
 import (
 	"slices"
 	"strings"
+
+	"charm.land/lipgloss/v2"
 )
 
+// Horizontal spacing: the inset of every row, and the gap between the results and the inspector.
+const (
+	spInline = 2
+	spGutter = 2
+)
+
+func headerPad(s string) string {
+	return lipgloss.NewStyle().Padding(0, spInline).Render(s)
+}
+
+// truncate fits s in width cells, ending it with an ellipsis when cut.
 func truncate(s string, width int) string {
 	if width <= 0 {
 		return ""

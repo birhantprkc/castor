@@ -14,6 +14,12 @@ import (
 	"github.com/stupside/castor/cmd/castor/internal/browse/tmdb"
 )
 
+// Poster: 27×40 cells approximate 2:3 movie ratio (prevents pixterm horizontal stretch).
+const (
+	posterCols = 27
+	posterRows = 20
+)
+
 // hoverDebounce collapses cursor movement bursts to avoid requests per row.
 const hoverDebounce = 120 * time.Millisecond
 

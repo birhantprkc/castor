@@ -9,6 +9,9 @@ import (
 	"github.com/stupside/castor/cmd/castor/internal/browse/tmdb"
 )
 
+// searchDebounce waits out a burst of keystrokes before searching.
+const searchDebounce = 250 * time.Millisecond
+
 type searchTickMsg struct {
 	tok   int
 	query string

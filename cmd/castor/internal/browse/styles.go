@@ -8,11 +8,6 @@ import (
 	"github.com/stupside/castor/cmd/castor/internal/palette"
 )
 
-const (
-	spInline = 2
-	spGutter = 2
-)
-
 type styles struct {
 	title     lipgloss.Style
 	titleText lipgloss.Style
@@ -50,10 +45,6 @@ func newStyles(p palette.Palette) styles {
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(p.Accent),
 	}
-}
-
-func headerPad(s string) string {
-	return lipgloss.NewStyle().Padding(0, spInline).Render(s)
 }
 
 func newHelpStyles(p palette.Palette) help.Styles {

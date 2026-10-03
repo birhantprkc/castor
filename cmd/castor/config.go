@@ -1,16 +1,11 @@
 package main
 
 import (
-	"context"
 	"errors"
-	"log/slog"
-
-	"github.com/urfave/cli/v3"
 
 	"github.com/stupside/castor/cmd/castor/internal/browse/tmdb"
 	"github.com/stupside/castor/cmd/castor/internal/cast"
 	"github.com/stupside/castor/cmd/castor/internal/sources"
-	"github.com/stupside/castor/internal/transport"
 )
 
 // Config is the command line's sections of castor's configuration.
@@ -26,9 +21,6 @@ type apiConfig struct {
 	URL   string `yaml:"url" validate:"omitempty,http_url"`
 	Token string `yaml:"token"`
 }
-
-// Local runs castor's API in this process, its servers' own lines going to lines; written reports that a cast's lines already reach them.
-type Local func(ctx context.Context, cmd *cli.Command, lines slog.Handler) (api transport.Endpoint, written bool, stop func(), err error)
 
 // browsable refuses an interactive cast that has no catalog to browse.
 func (c Config) browsable() error {

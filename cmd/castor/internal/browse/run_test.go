@@ -11,7 +11,7 @@ import (
 
 // A nil device client proves the pinned device is neither listed nor picked.
 func TestAPinnedDeviceIsCastToWithoutPicking(t *testing.T) {
-	to, name, typ, err := device(t.Context(), nil, cast.Device{Type: "dlna", Host: "http://10.0.0.9:9197/dmr"})
+	to, name, typ, err := pickDevice(t.Context(), nil, cast.Device{Type: "dlna", Host: "http://10.0.0.9:9197/dmr"})
 	if err != nil {
 		t.Fatal(err)
 	}
