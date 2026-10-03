@@ -43,6 +43,8 @@ const (
 	healthy
 	// Stalled is a producer silent for the stall window.
 	Stalled
+	// Starved is a device that took all the read had made, which was not all of the program.
+	Starved
 	// Dead is a producer that ended with nothing playable.
 	Dead
 	// Unfetched is a device that accepted the URL and never fetched it.
@@ -57,6 +59,8 @@ func (k Kind) String() string {
 		return "healthy"
 	case Stalled:
 		return "stalled"
+	case Starved:
+		return "starved"
 	case Dead:
 		return "dead"
 	case Unfetched:

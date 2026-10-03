@@ -20,6 +20,8 @@ const (
 	unreachable
 	// sourceStalled is a source that stopped delivering mid-cast.
 	sourceStalled
+	// starved is a device that took everything the read had made while the read was still running.
+	starved
 	// copyBrokeUpstream is a reader that exited on packets it was copying.
 	copyBrokeUpstream
 	// deviceGone is a device that crashed or switched off, not one that refused.
@@ -38,6 +40,8 @@ func (k kind) String() string {
 		return "unreachable"
 	case sourceStalled:
 		return "source-stalled"
+	case starved:
+		return "starved"
 	case copyBrokeUpstream:
 		return "copy-broke-upstream"
 	case deviceGone:
@@ -116,6 +120,10 @@ var verdictClasses = map[health.Kind]classRule{
 	health.Stalled: {
 		why:  "the source stopped delivering entirely while it was still supposed to be delivering",
 		kind: sourceStalled,
+	},
+	health.Starved: {
+		why:  "the device ran out of media before the upstream read finished, so the source delivers less than playback consumes",
+		kind: starved,
 	},
 }
 

@@ -22,6 +22,7 @@ func TestClassify(t *testing.T) {
 		{"dead having landed media is not unreachable", Evidence{Reached: health.Reading, Verdict: health.Dead, Vitals: health.Vitals{Landed: 33088}}, unclassified},
 		{"a reader exit on copied packets broke upstream", Evidence{Reached: health.Reading, Verdict: health.Dead, ReadExit: 183, Copied: media.Axes{Video: true}, Vitals: health.Vitals{Landed: 4 << 20, Samples: 12}}, copyBrokeUpstream},
 		{"a reader castor killed is a stall, not a broken copy", Evidence{Reached: health.Reading, Verdict: health.Stalled, ReadExit: -1, Copied: media.Axes{Video: true}, Vitals: health.Vitals{Landed: 4 << 20}}, sourceStalled},
+		{"a device that ran dry mid-film is starved, and never re-read", Evidence{Reached: health.Playing, Verdict: health.Starved}, starved},
 		{"a clean read that lost media before play is re-read", Evidence{Reached: health.Reading, ReadIncomplete: true, Copied: media.Axes{Video: true}}, sourceStalled},
 		{"a read that lost media after the hand-off is not re-read", Evidence{Reached: health.Playing, ReadIncomplete: true}, unclassified},
 		{"a device that stopped answering is gone", Evidence{Reached: health.Playing, DeviceGone: gone}, deviceGone},

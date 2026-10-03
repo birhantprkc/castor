@@ -15,6 +15,9 @@ var playbook = map[kind][]strategy{
 	// A link that went silent may have rate-limited the opening burst, so it is asked once more at playback pace.
 	sourceStalled: {relaxRead, switchCandidate},
 
+	// The device is gone from the cast already, and no attempt resumes mid-program.
+	starved: nil,
+
 	// Decoding comes first; a bitstream this one cannot copy may still copy from another link.
 	copyBrokeUpstream: {decodeAxis, switchCandidate},
 

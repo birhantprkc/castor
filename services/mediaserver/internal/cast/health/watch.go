@@ -69,6 +69,11 @@ type Fault struct {
 	Evidence []string
 }
 
+// DeviceStarved is the fault of a device that ended while the read behind it was still running, having taken everything that read had made.
+func DeviceStarved(subject string) *Fault {
+	return &Fault{Kind: Starved, why: "the device ran out of media before the upstream read finished", Subject: subject}
+}
+
 func (f *Fault) Error() string {
 	msg := fmt.Sprintf("%s: %s (%s)", f.Subject, f.why, f.Vitals)
 	if f.Err != nil {
