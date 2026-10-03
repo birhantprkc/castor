@@ -1,9 +1,9 @@
 module github.com/stupside/castor
 
-go 1.27.0
+go 1.27.1
 
 require (
-	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.1
+	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.2
 	buf.build/go/protovalidate v1.4.0
 	charm.land/bubbles/v2 v2.2.1
 	charm.land/bubbletea/v2 v2.0.10
@@ -19,7 +19,7 @@ require (
 	github.com/at-wat/ebml-go v0.19.4
 	github.com/charmbracelet/colorprofile v0.4.3
 	github.com/charmbracelet/x/ansi v0.11.8
-	github.com/charmbracelet/x/exp/golden v0.0.0-20251109135125-8916d276318f
+	github.com/charmbracelet/x/exp/golden v0.1.0
 	github.com/charmbracelet/x/exp/teatest/v2 v2.0.0-20261001101533-953920dd3285
 	github.com/chromedp/cdproto v0.0.0-20260922220944-a19bff23514f
 	github.com/chromedp/chromedp v0.16.0
@@ -34,7 +34,7 @@ require (
 	github.com/knadh/koanf/providers/file v1.2.1
 	github.com/knadh/koanf/v2 v2.3.7
 	github.com/looplab/fsm v1.0.4
-	github.com/urfave/cli/v3 v3.13.0
+	github.com/urfave/cli/v3 v3.14.0
 	github.com/vishen/go-chromecast v0.3.4
 	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/net v0.59.0
