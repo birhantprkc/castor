@@ -1,6 +1,7 @@
 package execute
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -54,6 +55,9 @@ func (s *pipeline) serve(work string, f feed, burn Burn) (health.Phase, error) {
 	slog.InfoContext(s.ctx, "streaming to device")
 	delivered, err := supervising(s.ctx, s.cast.Device, d, f)
 	if err != nil || !delivered {
+		if err == nil && starved(f, d) {
+			return health.Playing, errStarved
+		}
 		return health.Playing, err
 	}
 	return health.Playing, d.sink.Settled()
@@ -135,9 +139,34 @@ func (s *pipeline) relay(o deliver.Opening, reader *pull) (delivery, error) {
 	return delivery{sink: sk, output: reader}, nil
 }
 
+// errStarved is a device that ended on a read still downloading, having played everything it had landed.
+var errStarved = errors.New("the device ran out of media before the upstream read finished")
+
+// starved reports whether the device ended on an unfinished read that had nothing left ahead of the encoder.
+func starved(f feed, d delivery) bool {
+	if f.buffered == nil {
+		return false
+	}
+	r := f.buffered.reader
+	select {
+	case <-r.Done():
+		return false
+	default:
+	}
+	// A relay serves the read itself, so there is no encoder behind it to measure the lead against.
+	if d.output == producer(r) {
+		return false
+	}
+	return r.Progress().Position-d.output.Progress().Position < starvedLead
+}
+
 const (
+
 	// idleGrace is how long a device that stopped asking is waited for before the delivery is done.
 	idleGrace = 30 * time.Second
+
+	// starvedLead is the media the read must hold ahead of the encoder for a device end to be the viewer's own.
+	starvedLead = 10 * time.Second
 
 	// writeDeadline outlasts a stall verdict, so the watch judges a quiet device before a write gives up.
 	writeDeadline = health.StallWindow + idleGrace
