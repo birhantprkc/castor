@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime/debug"
+	"sync"
 	"syscall"
 
 	"charm.land/log/v2"
@@ -80,10 +82,33 @@ func info() *cli.Command {
 	}
 }
 
+// logFile is where every castor process also writes its log lines, kept open for the process's life.
+var logFile = sync.OnceValue(func() *os.File {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return nil
+	}
+	dir = filepath.Join(dir, "castor")
+	if os.MkdirAll(dir, 0o700) != nil {
+		return nil
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "castor.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil
+	}
+	return f
+})
+
 func logger(level log.Level) *slog.Logger {
-	return slog.New(log.NewWithOptions(os.Stderr, log.Options{
+	screen := log.NewWithOptions(os.Stderr, log.Options{
 		ReportTimestamp: true,
 		TimeFormat:      "15:04:05.000",
 		Level:           level,
-	}))
+	})
+	f := logFile()
+	if f == nil {
+		return slog.New(screen)
+	}
+	file := slog.NewTextHandler(f, &slog.HandlerOptions{Level: slog.Level(level)})
+	return slog.New(slog.NewMultiHandler(screen, file))
 }
