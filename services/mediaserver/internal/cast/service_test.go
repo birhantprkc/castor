@@ -20,12 +20,12 @@ import (
 
 func TestACastNobodyLendsADeviceIsAbandonedAfterItsGrace(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		c := &casts{ctx: t.Context(), caster: func(*castorv1.Preferences) Caster { return nil }, reach: &url.URL{Scheme: "http", Host: "127.0.0.1:8410"}, sessions: newSessions()}
-		started, err := c.Start(t.Context(), &mediav1.StartRequest{})
+		svc := New(nil, func(*castorv1.Preferences) Caster { return nil }, &url.URL{Scheme: "http", Host: "127.0.0.1:8410"})
+		started, err := svc.Start(t.Context(), &mediav1.StartRequest{})
 		if err != nil {
 			t.Fatal(err)
 		}
-		s, err := find(c.sessions, started.GetCastId())
+		s, err := svc.find(started.GetCastId())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -63,7 +63,7 @@ func (retrying) Play(ctx context.Context, _ execute.Device, _ deliver.Listeners,
 func TestALentCastOutlivesItsGraceAndShowsNothingAfterItsEnd(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		stream := &castorv1.Source{Source: &castorv1.Source_Stream{Stream: &castorv1.Stream{Url: "https://cdn.example/direct"}}}
-		s := newSession(t.Context(), "cast", &url.URL{Scheme: "http", Host: "127.0.0.1:8410"}, nil, retrying{}, stream)
+		s := newCast(t.Context(), "cast", &url.URL{Scheme: "http", Host: "127.0.0.1:8410"}, nil, retrying{}, stream)
 		if err := s.lend(media.Capabilities{}); err != nil {
 			t.Fatal(err)
 		}

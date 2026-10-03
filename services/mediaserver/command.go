@@ -1,4 +1,3 @@
-// Package mediaserver is the media server's entry point: it reads its configuration, binds its engine and runs it as `castor server`, as castor-media, or inside castor itself.
 package mediaserver
 
 import (
@@ -12,7 +11,6 @@ import (
 
 	"github.com/stupside/castor/internal/settings"
 	"github.com/stupside/castor/internal/transport"
-	"github.com/stupside/castor/services/mediaserver/internal/cast"
 	"github.com/stupside/castor/services/mediaserver/internal/castlog"
 	"github.com/stupside/castor/services/mediaserver/internal/mediaroute"
 )
@@ -39,14 +37,14 @@ func Command() *cli.Command {
 				return fmt.Errorf("resolving where devices reach this server (set server.advertise): %w", err)
 			}
 			slog.InfoContext(ctx, "serving", "address", l.Addr().String(), "devices_reach", reach.String())
-			srv := cast.New(cfg.backend(), reach)
+			srv := New(cfg.backend(), reach)
 			return transport.Serve(ctx, l, onePort(srv, cfg.Server.Token), srv.Shutdown)
 		},
 	}
 }
 
 // onePort serves the media server's API behind token and its media route beside it, which devices fetch without the token they never have.
-func onePort(srv *cast.Server, token string) http.Handler {
+func onePort(srv *Server, token string) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/", transport.Authorized(srv.API, token))
 	mux.Handle(mediaroute.Pattern, srv.Media)
@@ -65,7 +63,7 @@ func Embedded(ctx context.Context, cmd *cli.Command, lines slog.Handler) (transp
 		return transport.Endpoint{}, nil, fmt.Errorf("opening where devices reach this machine: %w", err)
 	}
 	reach := &url.URL{Scheme: "http", Host: lan.Addr().String()}
-	srv := cast.New(cfg.backend(), reach)
+	srv := New(cfg.backend(), reach)
 	api, stopAPI, err := transport.Loopback(ctx, srv.API, cfg.Server.Token, srv.Shutdown)
 	if err != nil {
 		_ = lan.Close()

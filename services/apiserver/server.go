@@ -1,4 +1,4 @@
-// Package apiserver is castor's public API, run as `castor api`, as castor-api, or inside castor itself.
+// Package apiserver is castor's API server, run as `castor api`, as castor-api, or inside castor itself.
 package apiserver
 
 import (
@@ -21,14 +21,14 @@ type Backend struct {
 	Media   *mediaclient.Client
 }
 
-// Server is the public API.
+// Server is the API server: the public API, for UIs and integrations.
 type Server struct {
 	http.Handler
 	casts *cast.Service
 }
 
-// New serves the public API with b, every cast asking what cfg says unless its request says otherwise.
-func New(cfg CastConfig, b Backend) (*Server, error) {
+// New serves the public contract with b, every cast asking what cfg says unless its request says otherwise.
+func New(b Backend, cfg CastConfig) (*Server, error) {
 	defaults := cfg.preferences()
 	// The contract alone states what a cast may ask, so the defaults are held to it before the first cast.
 	if err := protovalidate.Validate(defaults); err != nil {

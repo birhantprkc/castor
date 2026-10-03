@@ -11,28 +11,25 @@ import (
 	"github.com/stupside/castor/services/mediaserver/internal/wire"
 )
 
-// devices takes the device lent to a cast, and its answers to what the cast asks of it.
-type devices struct{ sessions *sessions }
-
 // Drive is the line to the lent device until the cast ends or its lender leaves; the cast plays on without it.
-func (d devices) Drive(ctx context.Context, req *mediav1.DriveRequest, out *connect.ServerStream[mediav1.DriveResponse]) error {
-	s, err := find(d.sessions, req.GetCastId())
+func (s *Service) Drive(ctx context.Context, req *mediav1.DriveRequest, out *connect.ServerStream[mediav1.DriveResponse]) error {
+	c, err := s.find(req.GetCastId())
 	if err != nil {
 		return err
 	}
-	if err := s.lend(wire.FromCapabilities(req.GetCapabilities())); err != nil {
+	if err := c.lend(wire.FromCapabilities(req.GetCapabilities())); err != nil {
 		return err
 	}
-	defer s.line.Leave()
+	defer c.line.Leave()
 	lent := req.GetDevice()
-	slog.InfoContext(s.ctx, "device lent", "id", lent.GetId(), "name", lent.GetName(), "type", lent.GetType(), "address", lent.GetAddress())
+	slog.InfoContext(c.ctx, "device lent", "id", lent.GetId(), "name", lent.GetName(), "type", lent.GetType(), "address", lent.GetAddress())
 	for {
 		select {
-		case cmd := <-s.line.Outbox():
+		case cmd := <-c.line.Outbox():
 			if err := out.Send(&mediav1.DriveResponse{Command: cmd}); err != nil {
 				return err
 			}
-		case <-s.done:
+		case <-c.done:
 			return nil
 		case <-ctx.Done():
 			return ctx.Err()
@@ -40,12 +37,12 @@ func (d devices) Drive(ctx context.Context, req *mediav1.DriveRequest, out *conn
 	}
 }
 
-func (d devices) Answer(_ context.Context, req *mediav1.AnswerRequest) (*mediav1.AnswerResponse, error) {
-	s, err := find(d.sessions, req.GetCastId())
+func (s *Service) Answer(_ context.Context, req *mediav1.AnswerRequest) (*mediav1.AnswerResponse, error) {
+	c, err := s.find(req.GetCastId())
 	if err != nil {
 		return nil, err
 	}
-	if !s.line.Answer(req) {
+	if !c.line.Answer(req) {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no device command %q awaits an answer", req.GetCommandId()))
 	}
 	return &mediav1.AnswerResponse{}, nil

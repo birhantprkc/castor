@@ -5,9 +5,6 @@ import (
 	"time"
 
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
-	"github.com/stupside/castor/services/apiserver/internal/device"
-	"github.com/stupside/castor/services/apiserver/internal/device/chromecast"
-	"github.com/stupside/castor/services/apiserver/internal/device/dlna"
 	"github.com/stupside/castor/services/apiserver/internal/device/roku"
 )
 
@@ -64,13 +61,5 @@ func (c CastConfig) preferences() *castorv1.Preferences {
 		Delivery:  castorv1.Delivery(castorv1.Delivery_value["DELIVERY_"+strings.ToUpper(c.Delivery)]).Enum(),
 		MaxHeight: new(c.MaxHeight),
 		Subtitles: new(c.Subtitles),
-	}
-}
-
-// registry is every device family castor casts to, bound to this config's family settings.
-func (c *Config) registry() device.Registry {
-	return device.Registry{
-		Families: []device.Family{dlna.Family{}, chromecast.Family{}, roku.Family{Config: c.Devices.Roku}},
-		Timeout:  c.Network.Timeout,
 	}
 }

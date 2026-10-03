@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/looplab/fsm"
-	"google.golang.org/protobuf/proto"
 
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
 	"github.com/stupside/castor/internal/latest"
@@ -25,8 +24,8 @@ var (
 // undriven is how long a cast waits for a device before it gives up.
 const undriven = time.Minute
 
-// session is one cast: where it stands, its line to the device, what it serves, and who reads its lines.
-type session struct {
+// cast is one cast: where it stands, its line to the device, what it serves, and who reads its lines.
+type cast struct {
 	ctx       context.Context
 	id        string
 	cancel    context.CancelCauseFunc
@@ -36,7 +35,7 @@ type session struct {
 
 	// machine moves only inside an update of now, so each move is taken and published as one.
 	machine *fsm.FSM
-	now     *latest.Value[snapshot]
+	now     *latest.Value[view]
 	done    chan struct{} // closes once the cast has ended
 
 	line       *lend.Line
@@ -44,10 +43,10 @@ type session struct {
 	logs       *castlog.Feed
 }
 
-// newSession awaits its device for undriven, and no longer than parent lasts; lending it one starts the cast.
-func newSession(parent context.Context, id string, reach *url.URL, extractor Extractor, caster Caster, src *castorv1.Source) *session {
+// newCast awaits its device for undriven, and no longer than parent lasts; lending it one starts the cast.
+func newCast(parent context.Context, id string, reach *url.URL, extractor Extractor, caster Caster, src *castorv1.Source) *cast {
 	ctx, cancel := context.WithCancelCause(parent)
-	s := &session{
+	c := &cast{
 		id:         id,
 		cancel:     cancel,
 		extractor:  extractor,
@@ -59,32 +58,32 @@ func newSession(parent context.Context, id string, reach *url.URL, extractor Ext
 		logs:       castlog.NewFeed(),
 	}
 	// Everything the cast logs carries its feed, so its lines reach the watchers who asked for them.
-	s.ctx = castlog.Into(ctx, s.logs)
-	s.machine = s.lifecycle()
-	s.now = latest.New(snapshot{status: &castorv1.CastStatus{Phase: s.source.phase()}})
-	time.AfterFunc(undriven, func() { s.end(eventAbandon, errUndriven) })
-	context.AfterFunc(ctx, func() { s.end(eventAbandon, outcome(ctx, nil)) })
-	return s
+	c.ctx = castlog.Into(ctx, c.logs)
+	c.machine = c.lifecycle()
+	c.now = latest.New(view{status: &castorv1.CastStatus{Phase: c.source.phase()}})
+	time.AfterFunc(undriven, func() { c.end(eventAbandon, errUndriven) })
+	context.AfterFunc(ctx, func() { c.end(eventAbandon, outcome(ctx, nil)) })
+	return c
 }
 
 // run finds the source's streams, readies them and casts them on the lent device, then ends with how that went.
-func (s *session) run(caps media.Capabilities) {
-	s.end(eventEnd, outcome(s.ctx, s.cast(caps)))
+func (c *cast) run(caps media.Capabilities) {
+	c.end(eventEnd, outcome(c.ctx, c.cast(caps)))
 }
 
-func (s *session) cast(caps media.Capabilities) error {
-	streams, err := s.source.streams(s.ctx, s.extractor)
+func (c *cast) cast(caps media.Capabilities) error {
+	streams, err := c.source.streams(c.ctx, c.extractor)
 	if err != nil {
 		return err
 	}
-	s.fire(eventMeasure, func(next *snapshot) { next.status.Streams = uint32(len(streams)) })
-	ready, err := s.source.ready(s.ctx, s.caster, streams)
+	c.fire(eventMeasure, func(next *view) { next.status.Streams = uint32(len(streams)) })
+	ready, err := c.source.ready(c.ctx, c.caster, streams)
 	if err != nil {
 		return err
 	}
-	s.fire(eventRank, func(next *snapshot) { next.status.Castable = uint32(len(ready)) })
-	device := lend.NewDevice(s.line, caps, s.deliveries.Reached, func() { s.cancel(lend.ErrLenderLeft) })
-	return s.caster.Play(s.ctx, device, s.deliveries, ready, s)
+	c.fire(eventRank, func(next *view) { next.status.Castable = uint32(len(ready)) })
+	device := lend.NewDevice(c.line, caps, c.deliveries.Reached, func() { c.cancel(lend.ErrLenderLeft) })
+	return c.caster.Play(c.ctx, device, c.deliveries, ready, c)
 }
 
 // outcome is how a cast that returned err ended: why its context ended if it did, stopped when nobody said why.
@@ -99,46 +98,12 @@ func outcome(ctx context.Context, err error) error {
 	}
 }
 
-// watch sends the status at once and on every change, live log lines from logs on (nil asks none), and how the cast ended last; it never drives.
-func (s *session) watch(ctx context.Context, logs *castorv1.LogLevel, send func(*castorv1.WatchResponse) error) error {
-	lines := s.logs.Subscribe(logs)
-	defer s.logs.Unsubscribe(lines)
-	var sent *castorv1.CastStatus
-	for {
-		now, changed := s.now.Load()
-		if !proto.Equal(now.status, sent) {
-			if err := send(&castorv1.WatchResponse{Update: &castorv1.WatchResponse_Status{Status: now.status}}); err != nil {
-				return err
-			}
-			sent = now.status
-		}
-		if now.ended != nil {
-			// Lines queued before the end were logged before it, so they go out before it does.
-			for len(lines) > 0 {
-				if err := send(<-lines); err != nil {
-					return err
-				}
-			}
-			return send(&castorv1.WatchResponse{Update: &castorv1.WatchResponse_Ended{Ended: now.ended}})
-		}
-		select {
-		case <-changed:
-		case line := <-lines:
-			if err := send(line); err != nil {
-				return err
-			}
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
+func (c *cast) Attempting(try int) {
+	c.fire(eventAttempt, func(next *view) { next.status.Attempt = uint32(try) })
 }
 
-func (s *session) Attempting(try int) {
-	s.fire(eventAttempt, func(next *snapshot) { next.status.Attempt = uint32(try) })
-}
-
-func (s *session) Revising(strategy, why string) {
-	s.fire(eventRevise, func(next *snapshot) {
+func (c *cast) Revising(strategy, why string) {
+	c.fire(eventRevise, func(next *view) {
 		next.status.Revision = &castorv1.Revision{Strategy: strategy, Why: why}
 	})
 }

@@ -319,10 +319,10 @@ func serve(t *testing.T, s setup) api {
 		handler = s.guard(handler)
 	}
 	mediaAPI := httptest.NewTestServer(t, handler)
-	srv, err := apiserver.New(cmp.Or(s.cast, shipped), apiserver.Backend{
+	srv, err := apiserver.New(apiserver.Backend{
 		Devices: device.Registry{Families: []device.Family{s.family}, Timeout: time.Second},
 		Media:   mediaclient.New(mediaAPI.Client(), mediaAPI.URL),
-	})
+	}, cmp.Or(s.cast, shipped))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -501,7 +501,7 @@ func TestACastSectionTheContractRefusesIsRefusedBeforeTheFirstCast(t *testing.T)
 		"a picture no device shows":                 {Delivery: "auto", MaxHeight: 1},
 		"a subtitle language whisper does not name": {Delivery: "auto", MaxHeight: 1080, Subtitles: "english"},
 	} {
-		if _, err := apiserver.New(cast, apiserver.Backend{}); err == nil {
+		if _, err := apiserver.New(apiserver.Backend{}, cast); err == nil {
 			t.Errorf("%s was taken as every cast's default", name)
 		}
 	}

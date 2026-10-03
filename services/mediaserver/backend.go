@@ -27,7 +27,7 @@ import (
 var formats = source.Formats{hls.Format{}, dash.Format{}}
 
 // backend is the machinery the media server casts with, bound to c.
-func (c *Config) backend() cast.Backend {
+func (c *Config) backend() Backend {
 	// One origin session for the engine, so every cast and identification share its cookies.
 	client := web.Client(c.Resolver.PlaylistTimeout)
 	e := &engine{
@@ -43,7 +43,7 @@ func (c *Config) backend() cast.Backend {
 			InputArgs: formats.InputArgs,
 		},
 	}
-	return cast.Backend{
+	return Backend{
 		Extractor: extract.New(extract.Config{Browser: c.Browser, Capture: c.Capture, Documents: formats}),
 		Caster: func(asked *castorv1.Preferences) cast.Caster {
 			return caster{

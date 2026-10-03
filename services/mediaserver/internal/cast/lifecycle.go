@@ -38,14 +38,14 @@ var phases = map[string]castorv1.Phase{
 	stateCasting:    castorv1.Phase_PHASE_CASTING,
 }
 
-// snapshot is a cast's status at one moment, and how it ended once it has.
-type snapshot struct {
+// view is a cast's status at one moment, and how it ended once it has.
+type view struct {
 	status *castorv1.CastStatus
 	ended  *castorv1.Ended
 }
 
 // lifecycle is the moves a cast may make; reaching its end releases the device and everything the cast holds.
-func (s *session) lifecycle() *fsm.FSM {
+func (c *cast) lifecycle() *fsm.FSM {
 	return fsm.NewFSM(stateAwaiting, fsm.Events{
 		{Name: eventLendPages, Src: []string{stateAwaiting}, Dst: stateExtracting},
 		{Name: eventLendStream, Src: []string{stateAwaiting}, Dst: stateMeasuring},
@@ -58,23 +58,23 @@ func (s *session) lifecycle() *fsm.FSM {
 		{Name: eventAbandon, Src: []string{stateAwaiting}, Dst: stateEnded},
 	}, fsm.Callbacks{
 		"enter_" + stateEnded: func(context.Context, *fsm.Event) {
-			close(s.done)
-			s.cancel(nil)
+			close(c.done)
+			c.cancel(nil)
 		},
 	})
 }
 
 // fire takes event if the cast's state allows it, then publishes what change makes of its snapshot; it reports whether it took it.
-func (s *session) fire(event string, change func(*snapshot)) bool {
+func (c *cast) fire(event string, change func(*view)) bool {
 	taken := false
-	s.now.Update(func(now snapshot) (snapshot, bool) {
+	c.now.Update(func(now view) (view, bool) {
 		// Never the cast's context: a cancelled one would abort the transition that ends it.
-		err := s.machine.Event(context.Background(), event)
+		err := c.machine.Event(context.Background(), event)
 		if _, stayed := errors.AsType[fsm.NoTransitionError](err); err != nil && !stayed {
 			return now, false
 		}
-		next := snapshot{status: proto.CloneOf(now.status), ended: now.ended}
-		if phase, ok := phases[s.machine.Current()]; ok {
+		next := view{status: proto.CloneOf(now.status), ended: now.ended}
+		if phase, ok := phases[c.machine.Current()]; ok {
 			next.status.Phase = phase
 		}
 		change(&next)
@@ -85,19 +85,19 @@ func (s *session) fire(event string, change func(*snapshot)) bool {
 }
 
 // lend gives the cast its device, as its lender connected it, and starts the cast; a cast takes one device, and none once it is over.
-func (s *session) lend(caps media.Capabilities) error {
-	if !s.fire(s.source.lent(), func(*snapshot) {}) {
-		if s.machine.Is(stateEnded) {
+func (c *cast) lend(caps media.Capabilities) error {
+	if !c.fire(c.source.lent(), func(*view) {}) {
+		if c.machine.Is(stateEnded) {
 			return connect.NewError(connect.CodeFailedPrecondition, errors.New("this cast is over"))
 		}
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("this cast already has its device"))
 	}
-	go s.run(caps)
+	go c.run(caps)
 	return nil
 }
 
 // end ends the cast by event with outcome: nil ended, errStopped stopped, else why it failed.
-func (s *session) end(event string, outcome error) {
+func (c *cast) end(event string, outcome error) {
 	ended := &castorv1.Ended{Outcome: castorv1.Outcome_OUTCOME_ENDED}
 	switch {
 	case errors.Is(outcome, errStopped):
@@ -105,5 +105,5 @@ func (s *session) end(event string, outcome error) {
 	case outcome != nil:
 		ended.Outcome, ended.Reason = castorv1.Outcome_OUTCOME_FAILED, outcome.Error()
 	}
-	s.fire(event, func(next *snapshot) { next.ended = ended })
+	c.fire(event, func(next *view) { next.ended = ended })
 }

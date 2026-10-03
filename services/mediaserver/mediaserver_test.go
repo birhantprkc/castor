@@ -1,5 +1,5 @@
 // The media contract end to end: a real media server, its generated clients, and a fake lender with its fake device.
-package cast_test
+package mediaserver_test
 
 import (
 	"context"
@@ -24,6 +24,7 @@ import (
 	mediav1 "github.com/stupside/castor/gen/castor/media/v1"
 	"github.com/stupside/castor/gen/castor/media/v1/mediav1connect"
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
+	"github.com/stupside/castor/services/mediaserver"
 	"github.com/stupside/castor/services/mediaserver/internal/cast"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/attempt"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/deliver"
@@ -47,8 +48,8 @@ func machinery(p play) *engine {
 	return &engine{play: p, asked: make(chan *castorv1.Preferences, 4), measured: make(chan *source.Stream, 1), ranked: make(chan []*source.Stream, 1)}
 }
 
-func (e *engine) backend() cast.Backend {
-	return cast.Backend{Extractor: links{}, Caster: e.caster}
+func (e *engine) backend() mediaserver.Backend {
+	return mediaserver.Backend{Extractor: links{}, Caster: e.caster}
 }
 
 func (e *engine) caster(asked *castorv1.Preferences) cast.Caster {
@@ -169,10 +170,10 @@ type server struct {
 	streams mediav1connect.StreamServiceClient
 	api     string
 	media   string
-	running *cast.Server
+	running *mediaserver.Server
 }
 
-func serve(t *testing.T, b cast.Backend) server {
+func serve(t *testing.T, b mediaserver.Backend) server {
 	t.Helper()
 	lan, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -180,7 +181,7 @@ func serve(t *testing.T, b cast.Backend) server {
 	}
 	media := "http://" + lan.Addr().String()
 	reach, _ := url.Parse(media)
-	srv := cast.New(b, reach)
+	srv := mediaserver.New(b, reach)
 	devices := httptest.NewUnstartedServer(srv.Media)
 	devices.Listener.Close()
 	devices.Listener = lan

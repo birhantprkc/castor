@@ -10,7 +10,6 @@ import (
 
 	"github.com/stupside/castor/internal/settings"
 	"github.com/stupside/castor/internal/transport"
-	"github.com/stupside/castor/services/apiserver/internal/mediaclient"
 )
 
 // Media runs a media server in this process, for an API server that names none, its own lines going to lines.
@@ -80,7 +79,7 @@ func (c *Config) server(ctx context.Context, cmd *cli.Command, media Media, line
 			return nil, nil, err
 		}
 	}
-	if srv, err = New(c.Cast, Backend{Devices: c.registry(), Media: mediaclient.New(at.Client(), at.URL)}); err != nil {
+	if srv, err = New(c.backend(at), c.Cast); err != nil {
 		stop()
 		return nil, nil, fmt.Errorf("validating config: %w", err)
 	}

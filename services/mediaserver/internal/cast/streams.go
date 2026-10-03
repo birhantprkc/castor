@@ -9,25 +9,20 @@ import (
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
 )
 
-// streams readies a source's streams as a cast asked the same would, casting nothing.
-type streams struct {
-	extractor Extractor
-	caster    func(asked *castorv1.Preferences) Caster
-}
-
-func (r streams) Rank(ctx context.Context, req *mediav1.RankRequest) (*mediav1.RankResponse, error) {
+// Rank readies a source's streams as a cast asked the same would, casting nothing.
+func (s *Service) Rank(ctx context.Context, req *mediav1.RankRequest) (*mediav1.RankResponse, error) {
 	src := originOf(req.GetSource())
-	found, err := src.streams(ctx, r.extractor)
+	found, err := src.streams(ctx, s.extractor)
 	if err != nil {
 		return nil, failed(ctx, connect.CodeNotFound, err)
 	}
-	ranked, err := src.ready(ctx, r.caster(req.GetPreferences()), found)
+	ranked, err := src.ready(ctx, s.caster(req.GetPreferences()), found)
 	if err != nil {
 		return nil, failed(ctx, connect.CodeFailedPrecondition, err)
 	}
 	out := &mediav1.RankResponse{Ranked: make([]*castorv1.RankedStream, len(ranked))}
-	for i, s := range ranked {
-		out.Ranked[i] = &castorv1.RankedStream{Url: s.URL.String(), Bitrate: uint64(s.Bitrate()), LastResort: s.LastResort}
+	for i, r := range ranked {
+		out.Ranked[i] = &castorv1.RankedStream{Url: r.URL.String(), Bitrate: uint64(r.Bitrate()), LastResort: r.LastResort}
 	}
 	return out, nil
 }

@@ -18,11 +18,10 @@ import (
 	"github.com/stupside/castor/gen/castor/media/v1/mediav1connect"
 	"github.com/stupside/castor/internal/settings"
 	"github.com/stupside/castor/internal/transport"
-	"github.com/stupside/castor/services/mediaserver/internal/cast"
 )
 
 func TestAServerWithATokenAnswersOnlyThoseCarryingItButHealthChecksAndDevices(t *testing.T) {
-	srv := cast.New(cast.Backend{}, &url.URL{Scheme: "http", Host: "127.0.0.1:9"})
+	srv := New(Backend{}, &url.URL{Scheme: "http", Host: "127.0.0.1:9"})
 	ts := httptest.NewServer(onePort(srv, "secret"))
 	t.Cleanup(ts.Close)
 
