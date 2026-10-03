@@ -4,8 +4,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/stupside/castor/services/mediaserver/internal/cast/codec"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/container"
-	"github.com/stupside/castor/services/mediaserver/internal/cast/plan"
 	"github.com/stupside/castor/services/mediaserver/internal/ffmpeg"
 	"github.com/stupside/castor/services/mediaserver/internal/media"
 )
@@ -15,8 +15,8 @@ const statsPeriod = 500 * time.Millisecond
 
 var SpoolFormat = spoolFormat()
 
-func spoolFormat() container.FormatInfo {
-	f, ok := container.FormatForContentType(media.MPEGTS)
+func spoolFormat() container.Format {
+	f, ok := container.For(media.MPEGTS)
 	if !ok {
 		panic("the format registry has no entry for " + media.MPEGTS)
 	}
@@ -31,8 +31,8 @@ type PullOptions struct {
 	Probe media.ProbeInfo
 
 	// Video and Audio are the two halves of the read.
-	Video plan.Track[plan.VideoEncode]
-	Audio plan.Track[plan.AudioEncode]
+	Video codec.Track[codec.VideoEncode]
+	Audio codec.Track[codec.AudioEncode]
 
 	Verbose bool
 

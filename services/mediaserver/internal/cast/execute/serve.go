@@ -1,7 +1,6 @@
 package execute
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -49,11 +48,11 @@ func (s *pipeline) serve(work string, f feed, burn Burn) (health.Phase, error) {
 	if err := awaitArtifact(s.ctx, d); err != nil {
 		return health.Opening, err
 	}
-	if err := hand(s.ctx, s.cfg.Device, d.sink.URL(), opts.Format.ContentType, false); err != nil {
+	if err := hand(s.ctx, s.cast.Device, d.sink.URL(), opts.Format.ContentType, false); err != nil {
 		return health.Opening, err
 	}
 	slog.InfoContext(s.ctx, "streaming to device")
-	delivered, err := supervising(s.ctx, s.cfg.Device, d, f)
+	delivered, err := supervising(s.ctx, s.cast.Device, d, f)
 	if err != nil || !delivered {
 		return health.Playing, err
 	}
@@ -63,8 +62,8 @@ func (s *pipeline) serve(work string, f feed, burn Burn) (health.Phase, error) {
 func (s *pipeline) produce(work string, f feed, opts transcode.EncodeOptions, burn Burn) (delivery, error) {
 	o := deliver.Opening{
 		Format:        opts.Format,
-		Listeners:     s.cfg.Listeners,
-		Headers:       s.cfg.Device.Capabilities().ServedHeaders,
+		Listeners:     s.cast.Listeners,
+		Headers:       s.cast.Device.Capabilities().ServedHeaders,
 		IdleGrace:     idleGrace,
 		WriteDeadline: writeDeadline,
 	}
@@ -143,15 +142,3 @@ const (
 	// writeDeadline outlasts a stall verdict, so the watch judges a quiet device before a write gives up.
 	writeDeadline = health.StallWindow + idleGrace
 )
-
-// awaitArtifact waits for the artifact the device will fetch to exist.
-func awaitArtifact(ctx context.Context, d delivery) error {
-	artifact := d.sink.Artifact()
-	return health.Watch(ctx, health.Monitor{
-		Subject:  artifact.Subject,
-		Phase:    health.Opening,
-		Producer: d.output,
-		Landed:   artifact.Landed,
-		Grace:    artifact.Grace,
-	})
-}

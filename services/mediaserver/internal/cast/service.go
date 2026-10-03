@@ -14,9 +14,9 @@ import (
 	mediav1 "github.com/stupside/castor/gen/castor/media/v1"
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
 	"github.com/stupside/castor/internal/registry"
-	"github.com/stupside/castor/services/mediaserver/internal/cast/attempt"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/deliver"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/execute"
+	"github.com/stupside/castor/services/mediaserver/internal/cast/recovery"
 	"github.com/stupside/castor/services/mediaserver/internal/source"
 )
 
@@ -34,7 +34,7 @@ type Extractor interface {
 type Caster interface {
 	Rank(ctx context.Context, streams []*source.Stream) ([]*source.Stream, error)
 	Measure(ctx context.Context, stream *source.Stream) (*source.Stream, error)
-	Play(ctx context.Context, device execute.Device, listeners deliver.Listeners, streams []*source.Stream, turns attempt.Turns) error
+	Play(ctx context.Context, device execute.Device, listeners deliver.Listeners, streams []*source.Stream, turns recovery.Turns) error
 }
 
 // Service runs every cast behind the media contract: it starts, stops and follows them, takes the device each is lent, and ranks streams without casting.

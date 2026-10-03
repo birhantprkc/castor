@@ -18,7 +18,7 @@ type Adaptation struct {
 }
 
 // Adapt sums every adaptation a track of kind landing as codec in into needs; copying tells a pass-through from an encode.
-func Adapt(kind media.TrackKind, codec media.Codec, into FormatInfo, copying bool) Adaptation {
+func Adapt(kind media.TrackKind, codec media.Codec, into Format, copying bool) Adaptation {
 	s := subject{codec: codec, into: into, copying: copying}
 	table := videoAdaptations
 	if kind == media.TrackAudio {
@@ -39,7 +39,7 @@ func Adapt(kind media.TrackKind, codec media.Codec, into FormatInfo, copying boo
 // subject is what a row matches on; deliberately not the source container, which a spool re-frames.
 type subject struct {
 	codec   media.Codec
-	into    FormatInfo
+	into    Format
 	copying bool
 }
 

@@ -54,8 +54,8 @@ const (
 	DeliverSegmented
 )
 
-// FormatInfo describes container castor produces: MIME type, extension, muxer, etc.
-type FormatInfo struct {
+// Format is a container castor produces: its type, extension, muxer, and how it is delivered.
+type Format struct {
 	ContentType string
 	Extension   string
 	Muxer       string
@@ -76,8 +76,8 @@ type Tuning struct {
 	Output string
 }
 
-// formatRegistry: castor's producible containers; one row = one format with tuning.
-var formatRegistry = map[string]FormatInfo{
+// formats is every container castor produces, keyed by content type.
+var formats = map[string]Format{
 	media.MPEGTS: {
 		ContentType: media.MPEGTS, Extension: ".ts", Muxer: ffmpeg.FormatMPEGTS, Delivery: DeliverStream, Framing: media.FramingInBand,
 		Tuning: Tuning{
@@ -110,8 +110,8 @@ var formatRegistry = map[string]FormatInfo{
 	},
 }
 
-// FormatForContentType returns the FormatInfo for a content type, ok=false if castor cannot produce it.
-func FormatForContentType(ct string) (FormatInfo, bool) {
-	f, ok := formatRegistry[ct]
+// For is the format castor produces for contentType, ok false for one it cannot.
+func For(contentType string) (Format, bool) {
+	f, ok := formats[contentType]
 	return f, ok
 }

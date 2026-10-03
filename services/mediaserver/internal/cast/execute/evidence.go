@@ -4,14 +4,14 @@ import (
 	"context"
 	"errors"
 
-	"github.com/stupside/castor/services/mediaserver/internal/cast/attempt"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/health"
+	"github.com/stupside/castor/services/mediaserver/internal/cast/recovery"
 	"github.com/stupside/castor/services/mediaserver/internal/media"
 )
 
 // evidence is what an attempt left behind, read from how far it ran and how it ended.
-func evidence(r ran, err error, cancelled bool) attempt.Evidence {
-	e := attempt.Evidence{Reached: r.reached, Cancelled: cancelled}
+func evidence(r ran, err error, cancelled bool) recovery.Evidence {
+	e := recovery.Evidence{Reached: r.reached, Cancelled: cancelled}
 	if err == nil {
 		e.Reached = health.Delivered
 	}
@@ -43,7 +43,7 @@ func evidence(r ran, err error, cancelled bool) attempt.Evidence {
 		e.DeviceGone = gone
 	}
 	if verdict, ok := errors.AsType[*health.Fault](err); ok {
-		e.Verdict, e.Health = verdict.Kind, verdict.Health
+		e.Verdict, e.Vitals = verdict.Kind, verdict.Vitals
 		if len(e.Lines) == 0 {
 			e.Lines = verdict.Evidence
 		}

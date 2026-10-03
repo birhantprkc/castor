@@ -8,10 +8,10 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/stupside/castor/services/mediaserver/internal/cast/codec"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/deliver"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/fetch"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/health"
-	"github.com/stupside/castor/services/mediaserver/internal/cast/plan"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/transcode"
 	"github.com/stupside/castor/services/mediaserver/internal/ffmpeg"
 	"github.com/stupside/castor/services/mediaserver/internal/media"
@@ -23,7 +23,7 @@ type pull struct {
 	pcmOut *io.PipeWriter
 
 	pace  float64
-	floor plan.Plan
+	floor codec.Plan
 	spool *deliver.Spool
 	proc  *ffmpeg.Process
 
@@ -42,7 +42,7 @@ type pullSpec struct {
 	source     transcode.ProgramSource
 	probe      media.ProbeInfo
 	spoolPath  string
-	floor      plan.Plan
+	floor      codec.Plan
 	// pcmRate is the rate of the PCM tee a transcription reads, zero for none.
 	pcmRate int
 }

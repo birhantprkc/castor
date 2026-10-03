@@ -43,7 +43,7 @@ type mechanism struct {
 // opened builds a sink the way a cast does, for the format named.
 func opened(t *testing.T, contentType string) (sink, *io.PipeWriter) {
 	t.Helper()
-	format, ok := container.FormatForContentType(contentType)
+	format, ok := container.For(contentType)
 	if !ok {
 		t.Fatalf("castor produces no %s", contentType)
 	}

@@ -12,8 +12,8 @@ import (
 	"github.com/stupside/castor/services/mediaserver/internal/source/dash"
 	"github.com/stupside/castor/services/mediaserver/internal/source/hls"
 
+	"github.com/stupside/castor/services/mediaserver/internal/cast/codec"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/fetch"
-	"github.com/stupside/castor/services/mediaserver/internal/cast/plan"
 	"github.com/stupside/castor/services/mediaserver/internal/ffmpeg"
 	"github.com/stupside/castor/services/mediaserver/internal/media"
 )
@@ -89,7 +89,7 @@ func TestOffsetsAndEndPolicyAreRendered(t *testing.T) {
 	source := mustProgramSource(t, program, nil)
 	for name, args := range map[string][]string{
 		"pull":   mustPullArgs(t, copyingPull(source)),
-		"encode": mustEncodeArgs(t, EncodeOptions{Input: FromSource(source), Format: mp4Format, Video: plan.CopyVideo(), Audio: aacAudio}),
+		"encode": mustEncodeArgs(t, EncodeOptions{Input: FromSource(source), Format: mp4Format, Video: codec.CopyVideo(), Audio: aacAudio}),
 	} {
 		if !containsSequence(args, []string{"-itsoffset", "1.25", "-i", "https://media.test/audio.m4a"}) {
 			t.Errorf("%s: audio offset is not attached to its input: %q", name, args)

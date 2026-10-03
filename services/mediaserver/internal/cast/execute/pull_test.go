@@ -3,7 +3,7 @@ package execute
 import (
 	"testing"
 
-	"github.com/stupside/castor/services/mediaserver/internal/cast/attempt"
+	"github.com/stupside/castor/services/mediaserver/internal/cast/recovery"
 	"github.com/stupside/castor/services/mediaserver/internal/media"
 	"github.com/stupside/castor/services/mediaserver/internal/probe"
 )
@@ -14,12 +14,11 @@ func TestTheReadsFloorEncodeIsCappedAtTheCastsCeiling(t *testing.T) {
 	origin := serveFixture(t, ffmpegPath)
 
 	// The fixture is 240p; the ceiling sits under it.
-	cfg := castConfig(&fakeDevice{}, ffmpegPath, ffprobePath)
-	cfg.MaxHeight = 120
-	cfg.Subtitles = noStage
+	c := realCast(&fakeDevice{}, ffmpegPath, ffprobePath)
+	c.MaxHeight = 120
 	program := programFromStream(t, origin.stream())
 
-	s := readingPipeline(t, cfg, attempt.Attempt{Program: program, Fetch: sourceFetchPlan(t, program, testReadDeadline), Decode: media.Axes{Video: true}})
+	s := readingPipeline(t, c, recovery.Attempt{Program: program, Fetch: sourceFetchPlan(t, program, testReadDeadline), Decode: media.Axes{Video: true}})
 	followed, err := s.follow(program)
 	if err != nil {
 		t.Fatal(err)

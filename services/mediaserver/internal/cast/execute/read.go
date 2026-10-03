@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"path/filepath"
 
-	"github.com/stupside/castor/services/mediaserver/internal/cast/plan"
+	"github.com/stupside/castor/services/mediaserver/internal/cast/codec"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/transcode"
 	"github.com/stupside/castor/services/mediaserver/internal/media"
 )
@@ -19,26 +19,26 @@ type buffered struct {
 // read buffers program under its own context, so releasing it stops the read and its transcription before the work dir goes.
 func (s *pipeline) read(work string, program media.Program) (*buffered, error) {
 	ctx, stop := context.WithCancel(s.ctx)
-	source, err := transcode.NewProgramSource(program, s.attempt.Fetch, s.cfg.Binary, s.cfg.InputArgs)
+	source, err := transcode.NewProgramSource(program, s.attempt.Fetch, s.cast.Binary, s.cast.InputArgs)
 	if err != nil {
 		stop()
 		return nil, err
 	}
-	facts := measure(ctx, "the source this cast buffers", s.cfg.Probes.Source(program, source.ProbeInputs()))
+	facts := measure(ctx, "the source this cast buffers", s.cast.Probes.Source(program, source.ProbeInputs()))
 	program = aligned(program, facts.probe.InputStarts)
-	if source, err = transcode.NewProgramSource(program, s.attempt.Fetch, s.cfg.Binary, s.cfg.InputArgs); err != nil {
+	if source, err = transcode.NewProgramSource(program, s.attempt.Fetch, s.cast.Binary, s.cast.InputArgs); err != nil {
 		stop()
 		return nil, err
 	}
 
 	burn := s.transcription(ctx, work, facts, program)
-	floor, err := plan.Floor(ctx, plan.Inputs{
+	floor, err := codec.Floor(ctx, codec.Inputs{
 		Probe:     facts.probe,
 		Into:      transcode.SpoolFormat,
 		Decode:    s.attempt.Decode,
-		MaxHeight: s.cfg.MaxHeight,
+		MaxHeight: s.cast.MaxHeight,
 		Spliced:   program.Seamed(),
-		Encoders:  s.cfg.Encoders,
+		Encoders:  s.cast.Encoders,
 	})
 	if err != nil {
 		stop()
@@ -51,7 +51,7 @@ func (s *pipeline) read(work string, program media.Program) (*buffered, error) {
 		pcmRate = burn.SampleRate()
 	}
 	reader, err := startPull(ctx, pullSpec{
-		ffmpegPath: s.cfg.FFmpegPath,
+		ffmpegPath: s.cast.FFmpegPath,
 		program:    program,
 		policy:     s.attempt.Fetch,
 		source:     source,
@@ -83,12 +83,12 @@ func (s *pipeline) read(work string, program media.Program) (*buffered, error) {
 
 // transcription is the burn-in this read feeds, nil where subtitles are off or nothing shows the source has sound.
 func (s *pipeline) transcription(ctx context.Context, work string, facts facts, program media.Program) Burn {
-	if s.cfg.Subtitles == nil {
+	if s.cast.Subtitles == nil {
 		return nil
 	}
 	if !facts.sounds(program) {
 		slog.InfoContext(ctx, "no subtitles for this cast: nothing shows the source carries sound")
 		return nil
 	}
-	return s.cfg.Subtitles(ctx, work)
+	return s.cast.Subtitles(ctx, work)
 }

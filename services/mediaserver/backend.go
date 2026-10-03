@@ -6,9 +6,9 @@ import (
 
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
 	"github.com/stupside/castor/services/mediaserver/internal/cast"
-	"github.com/stupside/castor/services/mediaserver/internal/cast/attempt"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/deliver"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/execute"
+	"github.com/stupside/castor/services/mediaserver/internal/cast/recovery"
 	"github.com/stupside/castor/services/mediaserver/internal/extract"
 	"github.com/stupside/castor/services/mediaserver/internal/ffmpeg"
 	"github.com/stupside/castor/services/mediaserver/internal/media"
@@ -100,15 +100,16 @@ func (k caster) Measure(ctx context.Context, s *source.Stream) (*source.Stream, 
 	return k.Ranker.Measure(ctx, s)
 }
 
-func (k caster) Play(ctx context.Context, device execute.Device, listeners deliver.Listeners, streams []*source.Stream, turns attempt.Turns) error {
-	run := execute.NewExecutor(k.engine.machinery, execute.Cast{
+func (k caster) Play(ctx context.Context, device execute.Device, listeners deliver.Listeners, streams []*source.Stream, turns recovery.Turns) error {
+	run := execute.Cast{
+		Machinery: k.engine.machinery,
 		Device:    device,
 		Listeners: listeners,
 		Subtitles: k.subs,
 		MaxHeight: media.HeightCap(k.asked.GetMaxHeight()),
-	})
+	}
 	// The ranked streams, head first; the rest are what recovery switches to.
-	return attempt.Cast(ctx, attempt.Intent{
+	return recovery.Cast(ctx, recovery.Intent{
 		Candidates: streams,
 		Deadline:   k.engine.cfg.Transcode.RWTimeout,
 		Delivery:   wire.FromDelivery(k.asked.GetDelivery()),

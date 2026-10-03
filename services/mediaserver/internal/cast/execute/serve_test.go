@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stupside/castor/services/mediaserver/internal/cast/codec"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/container"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/deliver"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/fetch"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/health"
-	"github.com/stupside/castor/services/mediaserver/internal/cast/plan"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/transcode"
 	"github.com/stupside/castor/services/mediaserver/internal/ffmpeg"
 	"github.com/stupside/castor/services/mediaserver/internal/media"
@@ -86,8 +86,8 @@ func TestAPlayingRemuxIsWatchedOverItsEncoder(t *testing.T) {
 	if !ok {
 		t.Fatal("a remux whose device took nothing was never judged in flight")
 	}
-	if fault.Kind != health.Unfetched || fault.Health.Headroom != 0 {
-		t.Errorf("verdict %s at %gx headroom, want %s judged on castor's own encoder", fault.Kind, fault.Health.Headroom, health.Unfetched)
+	if fault.Kind != health.Unfetched || fault.Vitals.Headroom != 0 {
+		t.Errorf("verdict %s at %gx headroom, want %s judged on castor's own encoder", fault.Kind, fault.Vitals.Headroom, health.Unfetched)
 	}
 }
 
@@ -162,7 +162,7 @@ func TestARelayedCastIsOpenedOverItsRead(t *testing.T) {
 	s, buf := servingPipeline(t, ""), gateFixture(t, 0)
 	buf.reader.spool.CloseWrite(nil)
 	close(buf.reader.done)
-	s.cfg.Device = observedDevice{wait: blocking}
+	s.cast.Device = observedDevice{wait: blocking}
 	d, err := s.produce(t.TempDir(), feed{buffered: buf}, verbatim(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -184,7 +184,7 @@ func TestARelayedCastFailsWithItsRead(t *testing.T) {
 	buf.reader.err = failed
 	buf.reader.spool.CloseWrite(failed)
 	close(buf.reader.done)
-	s.cfg.Device = observedDevice{wait: blocking}
+	s.cast.Device = observedDevice{wait: blocking}
 	if _, err := s.produce(t.TempDir(), feed{buffered: buf}, verbatim(), nil); err != nil {
 		t.Fatal(err)
 	}
@@ -198,8 +198,8 @@ func verbatim() transcode.EncodeOptions {
 	return transcode.EncodeOptions{
 		Input:  transcode.FromPipe(fetch.Pace{}),
 		Format: transcode.SpoolFormat,
-		Video:  plan.CopyVideo(),
-		Audio:  plan.CopyAudio(),
+		Video:  codec.CopyVideo(),
+		Audio:  codec.CopyAudio(),
 	}
 }
 
@@ -221,7 +221,7 @@ func statusOf(t *testing.T, u *url.URL) int {
 // TestTeardownStopsAnEncoderParkedOnAnInputThatWentQuiet: castor's own kill is not an encoder failure.
 func TestTeardownStopsAnEncoderParkedOnAnInputThatWentQuiet(t *testing.T) {
 	ffmpegPath, _ := requireFFmpegTools(t)
-	format, ok := container.FormatForContentType(media.MPEGTS)
+	format, ok := container.For(media.MPEGTS)
 	if !ok {
 		t.Fatal("the format registry cannot produce mpegts")
 	}
@@ -231,8 +231,8 @@ func TestTeardownStopsAnEncoderParkedOnAnInputThatWentQuiet(t *testing.T) {
 			Format: format,
 			Input:  input,
 			Probe:  media.ProbeInfo{VideoCodec: media.CodecH264, AudioCodec: media.CodecAAC},
-			Video:  plan.CopyVideo(),
-			Audio:  plan.CopyAudio(),
+			Video:  codec.CopyVideo(),
+			Audio:  codec.CopyAudio(),
 		}
 	}
 
@@ -252,7 +252,7 @@ func TestTeardownStopsAnEncoderParkedOnAnInputThatWentQuiet(t *testing.T) {
 			}
 			opts := copying(transcode.FromPipe(fetch.Pace{}))
 			// A buffer copied whole into its own container is served with no encoder at all.
-			opts.Audio = plan.Encode(plan.AudioEncode{Codec: media.CodecAAC})
+			opts.Audio = codec.Encode(codec.AudioEncode{Codec: media.CodecAAC})
 			return feed{buffered: &buffered{reader: &pull{spool: sp, done: make(chan struct{})}}}, opts
 		},
 	}, {
@@ -263,7 +263,7 @@ func TestTeardownStopsAnEncoderParkedOnAnInputThatWentQuiet(t *testing.T) {
 	}} {
 		t.Run(tt.name, func(t *testing.T) {
 			s, work := servingPipeline(t, ffmpegPath), t.TempDir()
-			s.cfg.Device = probingDevice{}
+			s.cast.Device = probingDevice{}
 			f, opts := tt.setup(t, s, work)
 			d, err := s.produce(work, f, opts, nil)
 			if err != nil {
@@ -272,7 +272,7 @@ func TestTeardownStopsAnEncoderParkedOnAnInputThatWentQuiet(t *testing.T) {
 			if err := awaitArtifact(t.Context(), d); err != nil {
 				t.Fatal(err)
 			}
-			if err := hand(t.Context(), s.cfg.Device, d.sink.URL(), opts.Format.ContentType, false); err != nil {
+			if err := hand(t.Context(), s.cast.Device, d.sink.URL(), opts.Format.ContentType, false); err != nil {
 				t.Fatal(err)
 			}
 
@@ -327,7 +327,7 @@ func programHead(t *testing.T, ffmpegPath string) []byte {
 func servingPipeline(t *testing.T, ffmpegPath string) *pipeline {
 	t.Helper()
 	s := &pipeline{
-		cfg:      config{FFmpegPath: ffmpegPath, Encoders: ffmpeg.Encoders(ffmpegPath), Timelines: direct{}, InputArgs: formats.InputArgs, Listeners: loopback{}},
+		cast:     Cast{FFmpegPath: ffmpegPath, Encoders: ffmpeg.Encoders(ffmpegPath), Timelines: direct{}, InputArgs: formats.InputArgs, Listeners: loopback{}},
 		ctx:      t.Context(),
 		releases: &releases{},
 	}
@@ -341,7 +341,7 @@ func openFixture(t *testing.T, contentType, workDir string) delivery {
 	ffmpegPath, _ := requireFFmpegTools(t)
 	origin := serveFixture(t, ffmpegPath)
 	s := servingPipeline(t, ffmpegPath)
-	format, ok := container.FormatForContentType(contentType)
+	format, ok := container.For(contentType)
 	if !ok {
 		t.Fatalf("the format registry cannot produce %s", contentType)
 	}
@@ -349,10 +349,10 @@ func openFixture(t *testing.T, contentType, workDir string) delivery {
 		Format: format,
 		Input:  transcode.FromSource(programSourceWithin(t, origin.stream().URL, media.MP4, 30*time.Second)),
 		Probe:  media.ProbeInfo{VideoCodec: media.CodecH264},
-		Video:  plan.CopyVideo(),
-		Audio:  plan.Encode(plan.AudioEncode{Codec: media.CodecAAC}),
+		Video:  codec.CopyVideo(),
+		Audio:  codec.Encode(codec.AudioEncode{Codec: media.CodecAAC}),
 	}
-	s.cfg.Device = probingDevice{}
+	s.cast.Device = probingDevice{}
 	d, err := s.produce(workDir, feed{}, opts, nil)
 	if err != nil {
 		t.Fatal(err)

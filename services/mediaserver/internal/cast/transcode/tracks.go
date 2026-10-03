@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/stupside/castor/services/mediaserver/internal/cast/codec"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/container"
-	"github.com/stupside/castor/services/mediaserver/internal/cast/plan"
 	"github.com/stupside/castor/services/mediaserver/internal/media"
 )
 
@@ -26,7 +26,7 @@ type axis struct {
 	encode []string
 }
 
-func videoAxis(probe media.ProbeInfo, video plan.Track[plan.VideoEncode], refused media.Axes) axis {
+func videoAxis(probe media.ProbeInfo, video codec.Track[codec.VideoEncode], refused media.Axes) axis {
 	a := axis{spec: "v", kind: media.TrackVideo, name: video.Name(), codec: probe.VideoCodec, copying: true, refused: refused.Video}
 	if venc, ok := video.Encode(); ok {
 		a.codec, a.copying, a.encode = venc.Encoder.Codec, false, videoEncodeArgs(venc)
@@ -34,7 +34,7 @@ func videoAxis(probe media.ProbeInfo, video plan.Track[plan.VideoEncode], refuse
 	return a
 }
 
-func audioAxis(probe media.ProbeInfo, audio plan.Track[plan.AudioEncode], refused media.Axes) axis {
+func audioAxis(probe media.ProbeInfo, audio codec.Track[codec.AudioEncode], refused media.Axes) axis {
 	a := axis{spec: "a", kind: media.TrackAudio, name: audio.Name(), codec: probe.AudioCodec, copying: true, refused: refused.Audio}
 	if aenc, ok := audio.Encode(); ok {
 		a.codec, a.copying, a.encode = aenc.Codec, false, audioEncodeArgs(aenc)
@@ -42,7 +42,7 @@ func audioAxis(probe media.ProbeInfo, audio plan.Track[plan.AudioEncode], refuse
 	return a
 }
 
-func decidedTracks(video plan.Track[plan.VideoEncode], audio plan.Track[plan.AudioEncode]) error {
+func decidedTracks(video codec.Track[codec.VideoEncode], audio codec.Track[codec.AudioEncode]) error {
 	if !video.Decided() || !audio.Decided() {
 		return fmt.Errorf("encode has an undecided axis (video decided: %t, audio decided: %t); a copy is a decision, not a default",
 			video.Decided(), audio.Decided())
@@ -53,7 +53,7 @@ func decidedTracks(video plan.Track[plan.VideoEncode], audio plan.Track[plan.Aud
 	return nil
 }
 
-func videoEncodeArgs(venc plan.VideoEncode) []string {
+func videoEncodeArgs(venc codec.VideoEncode) []string {
 	args := slices.Clone(venc.Encoder.Flags)
 	if venc.ToneMap {
 		args = append(args, "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709")
@@ -78,7 +78,7 @@ func videoEncodeArgs(venc plan.VideoEncode) []string {
 	return args
 }
 
-func hardwareInitArgs(video plan.Track[plan.VideoEncode]) []string {
+func hardwareInitArgs(video codec.Track[codec.VideoEncode]) []string {
 	venc, ok := video.Encode()
 	if !ok {
 		return nil
@@ -93,7 +93,7 @@ type axisArgs struct {
 }
 
 // args renders the axis into format; an encode takes its output's adaptations too (omitting them breaks E-AC-3).
-func (a axis) args(format container.FormatInfo) (axisArgs, error) {
+func (a axis) args(format container.Format) (axisArgs, error) {
 	cp := container.Adapt(a.kind, a.codec, format, a.copying)
 	// A copy the tables already refuse must not be buildable.
 	if a.copying && a.refused {
@@ -113,7 +113,7 @@ func (a axis) args(format container.FormatInfo) (axisArgs, error) {
 	return out, nil
 }
 
-func audioEncodeArgs(aenc plan.AudioEncode) []string {
+func audioEncodeArgs(aenc codec.AudioEncode) []string {
 	var args []string
 	if aenc.Resync {
 		// The filter graph rebuilds at a seam and replays timestamps; each packet must follow the one before.
@@ -132,8 +132,8 @@ func audioEncodeArgs(aenc plan.AudioEncode) []string {
 }
 
 // trackArgs renders both decided axes into format: codecs first, then the output options their adaptations add.
-func trackArgs(probe media.ProbeInfo, format container.FormatInfo, video plan.Track[plan.VideoEncode], audio plan.Track[plan.AudioEncode]) (codecs, output []string, err error) {
-	refused := container.Known(probe, format)
+func trackArgs(probe media.ProbeInfo, format container.Format, video codec.Track[codec.VideoEncode], audio codec.Track[codec.AudioEncode]) (codecs, output []string, err error) {
+	refused := container.Uncarried(probe, format)
 	v, err := videoAxis(probe, video, refused).args(format)
 	if err != nil {
 		return nil, nil, err

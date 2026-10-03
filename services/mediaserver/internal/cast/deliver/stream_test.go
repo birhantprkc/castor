@@ -137,7 +137,7 @@ func TestASpoolAnotherWritesIsServedWithoutBeingOwned(t *testing.T) {
 	}
 	drained := make(chan struct{})
 	srv, err := OpenSpooledStream(t.Context(), Opening{
-		Format:        container.FormatInfo{ContentType: media.MPEGTS, Extension: ".ts"},
+		Format:        container.Format{ContentType: media.MPEGTS, Extension: ".ts"},
 		Listeners:     loopback{},
 		WriteDeadline: time.Minute,
 	}, sp, drained)
@@ -200,7 +200,7 @@ func payload(size int) []byte {
 func spooled(t *testing.T, o Opening, body []byte) *Stream {
 	t.Helper()
 	o.Listeners = loopback{}
-	o.Format = container.FormatInfo{ContentType: "video/mp4", Extension: ".mp4"}
+	o.Format = container.Format{ContentType: "video/mp4", Extension: ".mp4"}
 	o.WriteDeadline = cmp.Or(o.WriteDeadline, time.Minute)
 	o.IdleGrace = cmp.Or(o.IdleGrace, 30*time.Second)
 	srv, err := OpenStream(t.Context(), o, t.TempDir(), bytes.NewReader(body))
@@ -221,7 +221,7 @@ func producing(t *testing.T, head []byte) *Stream {
 	t.Helper()
 	pr, pw := io.Pipe()
 	srv, err := OpenStream(t.Context(), Opening{
-		Format:        container.FormatInfo{ContentType: "video/mp4", Extension: ".mp4"},
+		Format:        container.Format{ContentType: "video/mp4", Extension: ".mp4"},
 		Listeners:     loopback{},
 		WriteDeadline: time.Minute,
 	}, t.TempDir(), pr)

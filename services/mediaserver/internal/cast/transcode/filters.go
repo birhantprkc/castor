@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/stupside/castor/services/mediaserver/internal/cast/plan"
+	"github.com/stupside/castor/services/mediaserver/internal/cast/codec"
 	"github.com/stupside/castor/services/mediaserver/internal/media"
 )
 
@@ -23,7 +23,7 @@ func scaleFilter(maxHeight media.HeightCap) string {
 const toneMap = "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
 
 // videoFilters is a re-encode's -vf chain, in the order the frames pass through it.
-func videoFilters(venc plan.VideoEncode) []string {
+func videoFilters(venc codec.VideoEncode) []string {
 	var filters []string
 	if venc.Deinterlace {
 		filters = append(filters, "bwdif=mode=send_frame")
@@ -43,7 +43,7 @@ func videoFilters(venc plan.VideoEncode) []string {
 	return append(filters, venc.Encoder.Filters...)
 }
 
-func videoFilterArgs(video plan.Track[plan.VideoEncode]) []string {
+func videoFilterArgs(video codec.Track[codec.VideoEncode]) []string {
 	venc, ok := video.Encode()
 	if !ok {
 		// A copy skips the filter chain entirely: there is nothing to filter in a copied bitstream.

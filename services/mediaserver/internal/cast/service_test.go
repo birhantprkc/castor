@@ -11,9 +11,9 @@ import (
 
 	mediav1 "github.com/stupside/castor/gen/castor/media/v1"
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
-	"github.com/stupside/castor/services/mediaserver/internal/cast/attempt"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/deliver"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/execute"
+	"github.com/stupside/castor/services/mediaserver/internal/cast/recovery"
 	"github.com/stupside/castor/services/mediaserver/internal/media"
 	"github.com/stupside/castor/services/mediaserver/internal/source"
 )
@@ -52,7 +52,7 @@ func (retrying) Measure(_ context.Context, stream *source.Stream) (*source.Strea
 	return stream, nil
 }
 
-func (retrying) Play(ctx context.Context, _ execute.Device, _ deliver.Listeners, _ []*source.Stream, turns attempt.Turns) error {
+func (retrying) Play(ctx context.Context, _ execute.Device, _ deliver.Listeners, _ []*source.Stream, turns recovery.Turns) error {
 	turns.Attempting(1)
 	turns.Attempting(2)
 	turns.Revising("remux", "stalled")

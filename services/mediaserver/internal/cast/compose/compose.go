@@ -44,8 +44,8 @@ var remux = Row{
 	Kind: Remux,
 }
 
-// Compose answers the row for shape.
-func Compose(s Shape) Row {
+// For is the composition shape s calls for.
+func For(s Shape) Row {
 	for _, row := range compositions {
 		if row.when(s) {
 			return row

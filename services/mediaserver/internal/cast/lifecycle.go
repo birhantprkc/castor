@@ -38,12 +38,6 @@ var phases = map[string]castorv1.Phase{
 	stateCasting:    castorv1.Phase_PHASE_CASTING,
 }
 
-// view is a cast's status at one moment, and how it ended once it has.
-type view struct {
-	status *castorv1.CastStatus
-	ended  *castorv1.Ended
-}
-
 // lifecycle is the moves a cast may make; reaching its end releases the device and everything the cast holds.
 func (c *cast) lifecycle() *fsm.FSM {
 	return fsm.NewFSM(stateAwaiting, fsm.Events{

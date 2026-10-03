@@ -6,9 +6,9 @@ import (
 	"github.com/stupside/castor/services/mediaserver/internal/media"
 )
 
-func format(t *testing.T, contentType string) FormatInfo {
+func format(t *testing.T, contentType string) Format {
 	t.Helper()
-	f, ok := FormatForContentType(contentType)
+	f, ok := For(contentType)
 	if !ok {
 		t.Fatalf("castor cannot produce %q", contentType)
 	}
@@ -16,13 +16,13 @@ func format(t *testing.T, contentType string) FormatInfo {
 }
 
 // Carriage is codec plus container, not either alone.
-func TestKnownMatrix(t *testing.T) {
+func TestUncarriedMatrix(t *testing.T) {
 	mpegts, mp4 := format(t, media.MPEGTS), format(t, media.MP4)
 
 	for _, tt := range []struct {
 		name         string
 		probe        media.ProbeInfo
-		into         FormatInfo
+		into         Format
 		video, audio bool
 	}{
 		{"what travels everywhere needs nothing", media.ProbeInfo{VideoCodec: media.CodecH264, AudioCodec: media.CodecAAC}, mpegts, false, false},
@@ -33,9 +33,9 @@ func TestKnownMatrix(t *testing.T) {
 		{"truehd beside video is correct", media.ProbeInfo{VideoCodec: media.CodecH264, AudioCodec: media.CodecTrueHD}, mp4, false, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			got := Known(tt.probe, tt.into)
+			got := Uncarried(tt.probe, tt.into)
 			if got.Video != tt.video || got.Audio != tt.audio {
-				t.Errorf("Known(%+v -> %s) = %s, want video=%v audio=%v", tt.probe, tt.into.ContentType, got, tt.video, tt.audio)
+				t.Errorf("Uncarried(%+v -> %s) = %s, want video=%v audio=%v", tt.probe, tt.into.ContentType, got, tt.video, tt.audio)
 			}
 		})
 	}

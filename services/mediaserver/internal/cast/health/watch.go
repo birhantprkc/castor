@@ -11,36 +11,6 @@ import (
 	"github.com/stupside/castor/services/mediaserver/internal/media"
 )
 
-// Monitor is one subject under watch.
-type Monitor struct {
-	// Subject is what's being waited on (e.g. "playback gate", "HLS playlist").
-	Subject string
-
-	// Phase is how far the cast has got, which decides what each verdict asks for.
-	Phase Phase
-
-	// Producer is the source read or encoder; a nil port is unmeasured, not absent.
-	Producer Producer
-
-	// Telemetry is the producer's pace (nil where rate is not judged).
-	Telemetry Telemetry
-
-	// Audience is the device side (nil until device holds URL).
-	Audience Audience
-
-	// Lead is the transcription frontier (nil if no burn-in).
-	Lead Lead
-
-	// Landed is the artifact's own size, so the gate opens on the artifact rather than the producer.
-	Landed func() int64
-
-	// Headroom is the pace the read was allowed (zero if not a source read).
-	Headroom float64
-
-	// Grace is how long the artifact may take; zero waits on it alone.
-	Grace time.Duration
-}
-
 // Watch polls one subject until a rule ends the wait: nil to proceed, a *Fault to end.
 func Watch(ctx context.Context, m Monitor) error {
 	t := &tracker{m: m, start: time.Now(), grew: time.Now()}
@@ -89,8 +59,8 @@ type Fault struct {
 	// Subject is what was watched (gate, output, or cast).
 	Subject string
 
-	// Health is the measurements the verdict was reached on.
-	Health Health
+	// Vitals is the measurements the verdict was reached on.
+	Vitals Vitals
 
 	// Err is the producer's terminal error (so errors.Is still finds cancellation).
 	Err error
@@ -100,7 +70,7 @@ type Fault struct {
 }
 
 func (f *Fault) Error() string {
-	msg := fmt.Sprintf("%s: %s (%s)", f.Subject, f.why, f.Health)
+	msg := fmt.Sprintf("%s: %s (%s)", f.Subject, f.why, f.Vitals)
 	if f.Err != nil {
 		return msg + ": " + f.Err.Error()
 	}
@@ -133,8 +103,8 @@ type tracker struct {
 }
 
 // read takes one reading of every port.
-func (t *tracker) read() Health {
-	h := Health{Headroom: t.m.Headroom, subtitles: t.m.Lead != nil}
+func (t *tracker) read() Vitals {
+	h := Vitals{Headroom: t.m.Headroom, subtitles: t.m.Lead != nil}
 
 	if t.m.Landed != nil {
 		h.Landed = t.m.Landed()
@@ -217,13 +187,13 @@ func (t *tracker) keepsPace(now time.Time, position time.Duration) bool {
 }
 
 // fault ends the watch in the producer's own words, logged only while it still runs.
-func (t *tracker) fault(ctx context.Context, r rule, act action, h Health) error {
+func (t *tracker) fault(ctx context.Context, r rule, act action, h Vitals) error {
 	f := &Fault{
 		Kind:    r.kind,
 		why:     r.why,
 		Revise:  act == revise,
 		Subject: t.m.Subject,
-		Health:  h,
+		Vitals:  h,
 	}
 	if r.blames == theProducer && t.m.Producer != nil {
 		if tm := t.m.Telemetry; tm != nil {
@@ -252,7 +222,7 @@ func (t *tracker) fault(ctx context.Context, r rule, act action, h Health) error
 }
 
 // report says what the watch is waiting on, at once for a fresh deficit.
-func (t *tracker) report(ctx context.Context, r rule, h Health) {
+func (t *tracker) report(ctx context.Context, r rule, h Vitals) {
 	deficit := t.fresh && h.Headroom > 1 && h.Speed > 0 && h.Speed < playbackRate
 	if !deficit && time.Since(t.reported) < reportInterval {
 		return
@@ -270,6 +240,6 @@ func (t *tracker) report(ctx context.Context, r rule, h Health) {
 		"speed_samples", h.Samples,
 		"under_playback_rate_for", h.sinceDeficit.Round(time.Second),
 		"transcribed_lead_seconds", int(h.lead),
-		"need_lead_seconds", transcriptionLeadSeconds,
+		"need_lead_seconds", transcriptionLead.Seconds(),
 	)
 }

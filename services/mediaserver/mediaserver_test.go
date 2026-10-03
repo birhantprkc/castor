@@ -2,6 +2,7 @@
 package mediaserver_test
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"io"
@@ -26,15 +27,15 @@ import (
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
 	"github.com/stupside/castor/services/mediaserver"
 	"github.com/stupside/castor/services/mediaserver/internal/cast"
-	"github.com/stupside/castor/services/mediaserver/internal/cast/attempt"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/deliver"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/execute"
+	"github.com/stupside/castor/services/mediaserver/internal/cast/recovery"
 	"github.com/stupside/castor/services/mediaserver/internal/castlog"
 	"github.com/stupside/castor/services/mediaserver/internal/media"
 	"github.com/stupside/castor/services/mediaserver/internal/source"
 )
 
-type play func(ctx context.Context, device execute.Device, listeners deliver.Listeners, streams []*source.Stream, turns attempt.Turns) error
+type play func(ctx context.Context, device execute.Device, listeners deliver.Listeners, streams []*source.Stream, turns recovery.Turns) error
 
 // engine is the server's machinery: it ranks by reversing, so the order cast in proves ranking ran.
 type engine struct {
@@ -74,7 +75,7 @@ func (e *engine) Measure(_ context.Context, stream *source.Stream) (*source.Stre
 	return stream, nil
 }
 
-func (e *engine) Play(ctx context.Context, device execute.Device, l deliver.Listeners, streams []*source.Stream, turns attempt.Turns) error {
+func (e *engine) Play(ctx context.Context, device execute.Device, l deliver.Listeners, streams []*source.Stream, turns recovery.Turns) error {
 	return e.play(ctx, device, l, streams, turns)
 }
 
@@ -99,8 +100,8 @@ func (links) ExtractAll(_ context.Context, pages []string) ([]*source.Stream, er
 	return found, nil
 }
 
-// screen is the lent Device: it fetches what it is told to play.
-type screen struct {
+// lentDevice is the device the fake lender lends: it fetches what it is told to play.
+type lentDevice struct {
 	caps   *mediav1.Capabilities
 	handed chan *url.URL
 	as     chan mediav1.Container
@@ -109,8 +110,8 @@ type screen struct {
 	end *mediav1.DeviceError
 }
 
-func newScreen() *screen {
-	return &screen{
+func newLentDevice() *lentDevice {
+	return &lentDevice{
 		caps: &mediav1.Capabilities{
 			SelfFetch:     true,
 			Containers:    []mediav1.Container{mediav1.Container_CONTAINER_MPEGTS},
@@ -123,15 +124,15 @@ func newScreen() *screen {
 	}
 }
 
-func (s *screen) play(ctx context.Context, play *mediav1.DeviceCommand_Play) error {
+func (d *lentDevice) play(ctx context.Context, play *mediav1.DeviceCommand_Play) error {
 	u, err := url.Parse(play.GetUrl())
 	if err != nil {
 		return err
 	}
-	s.handed <- u
-	s.as <- play.GetContainer()
+	d.handed <- u
+	d.as <- play.GetContainer()
 	if u.Scheme == "https" {
-		s.played <- []byte(u.String())
+		d.played <- []byte(u.String())
 		return nil
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
@@ -147,13 +148,13 @@ func (s *screen) play(ctx context.Context, play *mediav1.DeviceCommand_Play) err
 		return errors.New(resp.Status)
 	}
 	body, err := io.ReadAll(resp.Body)
-	s.played <- body
+	d.played <- body
 	return err
 }
 
-func (s *screen) awaitEnd(ctx context.Context) *mediav1.DeviceError {
-	if s.end != nil {
-		return s.end
+func (d *lentDevice) awaitEnd(ctx context.Context) *mediav1.DeviceError {
+	if d.end != nil {
+		return d.end
 	}
 	<-ctx.Done()
 	return failure(ctx.Err())
@@ -168,7 +169,6 @@ type server struct {
 	casts   mediav1connect.CastServiceClient
 	devices mediav1connect.DeviceServiceClient
 	streams mediav1connect.StreamServiceClient
-	api     string
 	media   string
 	running *mediaserver.Server
 }
@@ -186,19 +186,17 @@ func serve(t *testing.T, b mediaserver.Backend) server {
 	devices.Listener.Close()
 	devices.Listener = lan
 	devices.Start()
-	api := httptest.NewServer(srv.API)
+	api := httptest.NewTestServer(t, srv.API)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		srv.Shutdown(ctx)
-		api.Close()
 		devices.Close()
 	})
 	return server{
-		casts:   mediav1connect.NewCastServiceClient(http.DefaultClient, api.URL),
-		devices: mediav1connect.NewDeviceServiceClient(http.DefaultClient, api.URL),
-		streams: mediav1connect.NewStreamServiceClient(http.DefaultClient, api.URL),
-		api:     api.URL,
+		casts:   mediav1connect.NewCastServiceClient(api.Client(), api.URL),
+		devices: mediav1connect.NewDeviceServiceClient(api.Client(), api.URL),
+		streams: mediav1connect.NewStreamServiceClient(api.Client(), api.URL),
 		media:   media,
 		running: srv,
 	}
@@ -225,7 +223,7 @@ func start(t *testing.T, c server, source *castorv1.Source) string {
 }
 
 // lend lends device to cast id as the API server would, running each command it is sent, until the drive ends.
-func lend(ctx context.Context, c server, id string, device *screen) error {
+func lend(ctx context.Context, c server, id string, device *lentDevice) error {
 	stream, err := c.devices.Drive(ctx, &mediav1.DriveRequest{
 		CastId:       id,
 		Device:       &castorv1.Device{Name: "Bedroom", Type: "dlna", Address: "10.0.0.9"},
@@ -311,21 +309,14 @@ func watching(t *testing.T, c server, id string, logs *castorv1.LogLevel) <-chan
 				return
 			}
 		}
-		w.err = cmp(stream.Err(), errors.New("the watch ended without saying how the cast did"))
+		w.err = cmp.Or(stream.Err(), errors.New("the watch ended without saying how the cast did"))
 		out <- w
 	}()
 	return out
 }
 
-func cmp(a, b error) error {
-	if a != nil {
-		return a
-	}
-	return b
-}
-
 // castOn starts a cast of source, lends it device and follows it to its end.
-func castOn(t *testing.T, c server, source *castorv1.Source, device *screen) watched {
+func castOn(t *testing.T, c server, source *castorv1.Source, device *lentDevice) watched {
 	t.Helper()
 	id := start(t, c, source)
 	w := watching(t, c, id, nil)
@@ -339,15 +330,15 @@ func castOn(t *testing.T, c server, source *castorv1.Source, device *screen) wat
 }
 
 // handoff is a cast the device fetches the head stream of for itself.
-func handoff(ctx context.Context, device execute.Device, _ deliver.Listeners, streams []*source.Stream, turns attempt.Turns) error {
+func handoff(ctx context.Context, device execute.Device, _ deliver.Listeners, streams []*source.Stream, turns recovery.Turns) error {
 	turns.Attempting(1)
 	return device.Play(ctx, streams[0].URL, streams[0].ContentType)
 }
 
 func TestPagesStreamsAreRankedThenHandedToTheLentDeviceAsTheyAre(t *testing.T) {
-	device := newScreen()
+	device := newLentDevice()
 	var caps media.Capabilities
-	c := serve(t, machinery(func(ctx context.Context, lent execute.Device, l deliver.Listeners, streams []*source.Stream, turns attempt.Turns) error {
+	c := serve(t, machinery(func(ctx context.Context, lent execute.Device, l deliver.Listeners, streams []*source.Stream, turns recovery.Turns) error {
 		caps = lent.Capabilities()
 		return handoff(ctx, lent, l, streams, turns)
 	}).backend())
@@ -369,7 +360,7 @@ func TestPagesStreamsAreRankedThenHandedToTheLentDeviceAsTheyAre(t *testing.T) {
 
 func TestALentDevicesCapabilitiesReachTheEngineWithoutWhatThisServerDoesNotKnow(t *testing.T) {
 	const unknown = 99
-	device := newScreen()
+	device := newLentDevice()
 	device.caps = &mediav1.Capabilities{
 		Containers:      []mediav1.Container{mediav1.Container_CONTAINER_MPEGTS, unknown},
 		ServedContainer: mediav1.Container_CONTAINER_MP4,
@@ -383,7 +374,7 @@ func TestALentDevicesCapabilitiesReachTheEngineWithoutWhatThisServerDoesNotKnow(
 		Audio: []*mediav1.AudioSupport{{Codec: mediav1.Codec_CODEC_AAC, MaxChannels: 2}, {Codec: unknown}},
 	}
 	seen := make(chan media.Capabilities, 1)
-	c := serve(t, machinery(func(ctx context.Context, lent execute.Device, l deliver.Listeners, streams []*source.Stream, turns attempt.Turns) error {
+	c := serve(t, machinery(func(ctx context.Context, lent execute.Device, l deliver.Listeners, streams []*source.Stream, turns recovery.Turns) error {
 		seen <- lent.Capabilities()
 		return handoff(ctx, lent, l, streams, turns)
 	}).backend())
@@ -410,7 +401,7 @@ func TestAStreamSourceIsMeasuredNotRanked(t *testing.T) {
 	e := machinery(handoff)
 	c := serve(t, e.backend())
 
-	if err := castOn(t, c, streamOf("https://cdn.example/direct"), newScreen()).outcome(); err != nil {
+	if err := castOn(t, c, streamOf("https://cdn.example/direct"), newLentDevice()).outcome(); err != nil {
 		t.Fatal(err)
 	}
 	if got := <-e.asked; !proto.Equal(got, asked) {
@@ -491,7 +482,7 @@ func statusOf(t *testing.T, c server, id string) *castorv1.CastStatus {
 func TestACastOfPagesShowsExtractingWhileItsPagesAreSearchedThenMeasuring(t *testing.T) {
 	pages := heldPages{looking: make(chan struct{}), release: make(chan struct{})}
 	measuring := make(chan struct{})
-	b := machinery(func(ctx context.Context, _ execute.Device, _ deliver.Listeners, _ []*source.Stream, _ attempt.Turns) error {
+	b := machinery(func(ctx context.Context, _ execute.Device, _ deliver.Listeners, _ []*source.Stream, _ recovery.Turns) error {
 		<-measuring
 		return nil
 	}).backend()
@@ -499,7 +490,7 @@ func TestACastOfPagesShowsExtractingWhileItsPagesAreSearchedThenMeasuring(t *tes
 	c := serve(t, b)
 
 	id := start(t, c, pagesOf("https://cdn.example/a.m3u8"))
-	go func() { _ = lend(t.Context(), c, id, newScreen()) }()
+	go func() { _ = lend(t.Context(), c, id, newLentDevice()) }()
 	<-pages.looking
 	if got := statusOf(t, c, id); got.GetPhase() != castorv1.Phase_PHASE_EXTRACTING {
 		t.Errorf("while its pages were searched the cast showed %v, want extracting", got)
@@ -516,14 +507,14 @@ func TestACastOfPagesShowsExtractingWhileItsPagesAreSearchedThenMeasuring(t *tes
 }
 
 func TestAStreamCastNeverShowsExtractingAndItsPhaseNeverGoesBack(t *testing.T) {
-	c := serve(t, machinery(func(ctx context.Context, device execute.Device, _ deliver.Listeners, streams []*source.Stream, turns attempt.Turns) error {
+	c := serve(t, machinery(func(ctx context.Context, device execute.Device, _ deliver.Listeners, streams []*source.Stream, turns recovery.Turns) error {
 		turns.Attempting(1)
 		turns.Revising("remux", "refused")
 		turns.Attempting(2)
 		return device.Play(ctx, streams[0].URL, streams[0].ContentType)
 	}).backend())
 
-	w := castOn(t, c, streamOf("https://cdn.example/direct"), newScreen())
+	w := castOn(t, c, streamOf("https://cdn.example/direct"), newLentDevice())
 	if err := w.outcome(); err != nil {
 		t.Fatal(err)
 	}
@@ -540,7 +531,7 @@ func TestAStreamCastNeverShowsExtractingAndItsPhaseNeverGoesBack(t *testing.T) {
 	}
 }
 
-func logging(ctx context.Context, _ execute.Device, _ deliver.Listeners, _ []*source.Stream, _ attempt.Turns) error {
+func logging(ctx context.Context, _ execute.Device, _ deliver.Listeners, _ []*source.Stream, _ recovery.Turns) error {
 	slog.InfoContext(ctx, "engine at work", "try", 1)
 	return nil
 }
@@ -592,7 +583,7 @@ func TestTheServersLinesForACastReachOnlyTheWatchersThatAskedForThem(t *testing.
 	} {
 		id := start(t, c, pagesOf("https://cdn.example/a.m3u8"))
 		w := watching(t, c, id, tc.logs)
-		go func() { _ = lend(t.Context(), c, id, newScreen()) }()
+		go func() { _ = lend(t.Context(), c, id, newLentDevice()) }()
 		got := <-w
 		if err := got.outcome(); err != nil {
 			t.Fatal(err)
@@ -626,9 +617,9 @@ func TestTheServersOwnLinesStayOffTheProcessThatEmbedsIt(t *testing.T) {
 }
 
 func TestWhatTheServerServesTheDeviceFetchesFromTheServerItself(t *testing.T) {
-	device := newScreen()
+	device := newLentDevice()
 	delivered, delivery := make(chan string, 1), make(chan string, 1)
-	c := serve(t, machinery(func(ctx context.Context, lent execute.Device, listeners deliver.Listeners, _ []*source.Stream, _ attempt.Turns) error {
+	c := serve(t, machinery(func(ctx context.Context, lent execute.Device, listeners deliver.Listeners, _ []*source.Stream, _ recovery.Turns) error {
 		// The delivery the engine opens, through the listeners the server binds it to.
 		l, err := listeners.Listen(ctx)
 		if err != nil {
@@ -666,7 +657,7 @@ func TestWhatTheServerServesTheDeviceFetchesFromTheServerItself(t *testing.T) {
 }
 
 func TestASourceOnLoopbackIsHandedToTheDeviceAsItIs(t *testing.T) {
-	device := newScreen()
+	device := newLentDevice()
 	c := serve(t, machinery(handoff).backend())
 
 	if err := castOn(t, c, streamOf("http://127.0.0.1:9/movie.mp4"), device).outcome(); err == nil {
@@ -679,14 +670,14 @@ func TestASourceOnLoopbackIsHandedToTheDeviceAsItIs(t *testing.T) {
 
 func TestDevicesReachOnlyThePortsACastServesNeverTheAPI(t *testing.T) {
 	released := make(chan struct{})
-	c := serve(t, machinery(func(context.Context, execute.Device, deliver.Listeners, []*source.Stream, attempt.Turns) error {
+	c := serve(t, machinery(func(context.Context, execute.Device, deliver.Listeners, []*source.Stream, recovery.Turns) error {
 		<-released
 		return nil
 	}).backend())
 
 	id := start(t, c, streamOf("https://cdn.example/direct"))
 	w := watching(t, c, id, nil)
-	go func() { _ = lend(t.Context(), c, id, newScreen()) }()
+	go func() { _ = lend(t.Context(), c, id, newLentDevice()) }()
 	for what, path := range map[string]string{
 		"a port the cast never served": "/media/" + id + "/22/etc/passwd",
 		"the API":                      "/" + mediav1connect.CastServiceName + "/Stop",
@@ -707,10 +698,10 @@ func TestDevicesReachOnlyThePortsACastServesNeverTheAPI(t *testing.T) {
 }
 
 func TestADeviceGoneOnItsNetworkIsGoneToTheCastsRecovery(t *testing.T) {
-	device := newScreen()
+	device := newLentDevice()
 	device.end = &mediav1.DeviceError{Error: &mediav1.DeviceError_Gone_{Gone: &mediav1.DeviceError_Gone{Device: "Bedroom", Observed: "stopped answering", Cause: "connection refused"}}}
 	seen := make(chan error, 1)
-	c := serve(t, machinery(func(ctx context.Context, lent execute.Device, _ deliver.Listeners, _ []*source.Stream, _ attempt.Turns) error {
+	c := serve(t, machinery(func(ctx context.Context, lent execute.Device, _ deliver.Listeners, _ []*source.Stream, _ recovery.Turns) error {
 		err := lent.AwaitEnd(ctx)
 		seen <- err
 		return err
@@ -727,7 +718,7 @@ func TestADeviceGoneOnItsNetworkIsGoneToTheCastsRecovery(t *testing.T) {
 
 func TestACastHasOneDeviceAndPlaysOnWhenItsLenderLeaves(t *testing.T) {
 	playing, ended := make(chan struct{}), make(chan struct{})
-	c := serve(t, machinery(func(ctx context.Context, device execute.Device, _ deliver.Listeners, streams []*source.Stream, _ attempt.Turns) error {
+	c := serve(t, machinery(func(ctx context.Context, device execute.Device, _ deliver.Listeners, streams []*source.Stream, _ recovery.Turns) error {
 		if err := device.Play(ctx, streams[0].URL, streams[0].ContentType); err != nil {
 			return err
 		}
@@ -740,10 +731,10 @@ func TestACastHasOneDeviceAndPlaysOnWhenItsLenderLeaves(t *testing.T) {
 	id := start(t, c, streamOf("https://cdn.example/direct"))
 	w := watching(t, c, id, nil)
 	lending, leave := context.WithCancel(t.Context())
-	go func() { _ = lend(lending, c, id, newScreen()) }()
+	go func() { _ = lend(lending, c, id, newLentDevice()) }()
 	<-playing
 
-	if err := lend(t.Context(), c, id, newScreen()); connect.CodeOf(err) != connect.CodeFailedPrecondition {
+	if err := lend(t.Context(), c, id, newLentDevice()); connect.CodeOf(err) != connect.CodeFailedPrecondition {
 		t.Errorf("a second device was met with %v, want it refused", err)
 	}
 	leave()
@@ -762,7 +753,7 @@ func TestACastHasOneDeviceAndPlaysOnWhenItsLenderLeaves(t *testing.T) {
 
 func TestACastThatNeedsItsDeviceAgainOnceItsLenderLeftEndsThere(t *testing.T) {
 	lent, again := make(chan struct{}), make(chan struct{})
-	c := serve(t, machinery(func(ctx context.Context, device execute.Device, _ deliver.Listeners, streams []*source.Stream, _ attempt.Turns) error {
+	c := serve(t, machinery(func(ctx context.Context, device execute.Device, _ deliver.Listeners, streams []*source.Stream, _ recovery.Turns) error {
 		close(lent)
 		<-again
 		// Recovery revising the attempt, each revision playing again, until the cast is ended.
@@ -777,7 +768,7 @@ func TestACastThatNeedsItsDeviceAgainOnceItsLenderLeftEndsThere(t *testing.T) {
 	id := start(t, c, streamOf("https://cdn.example/direct"))
 	w := watching(t, c, id, nil)
 	lending, leave := context.WithCancel(t.Context())
-	go func() { _ = lend(lending, c, id, newScreen()) }()
+	go func() { _ = lend(lending, c, id, newLentDevice()) }()
 	<-lent
 	leave()
 	close(again)
@@ -787,7 +778,7 @@ func TestACastThatNeedsItsDeviceAgainOnceItsLenderLeftEndsThere(t *testing.T) {
 }
 
 func TestWatchingNeverDrivesAndTheCastStartsWithItsLender(t *testing.T) {
-	device := newScreen()
+	device := newLentDevice()
 	c := serve(t, machinery(handoff).backend())
 
 	id := start(t, c, streamOf("https://cdn.example/direct"))
@@ -850,7 +841,7 @@ func TestAPageThatPlaysNothingIsNotFound(t *testing.T) {
 	if connect.CodeOf(err) != connect.CodeNotFound {
 		t.Errorf("ranking a page that plays nothing answered %v, want not found", err)
 	}
-	if err := castOn(t, c, pagesOf("https://site.example/empty"), newScreen()).outcome(); err == nil || !strings.Contains(err.Error(), "finding streams") {
+	if err := castOn(t, c, pagesOf("https://site.example/empty"), newLentDevice()).outcome(); err == nil || !strings.Contains(err.Error(), "finding streams") {
 		t.Errorf("casting a page that plays nothing ended with %v, want it failed for finding no stream", err)
 	}
 }
@@ -858,7 +849,7 @@ func TestAPageThatPlaysNothingIsNotFound(t *testing.T) {
 func TestAServerShuttingDownFailsItsCastsSayingSoAndTakesNoMore(t *testing.T) {
 	playing := make(chan struct{})
 	var tornDown atomic.Bool
-	c := serve(t, machinery(func(ctx context.Context, _ execute.Device, _ deliver.Listeners, _ []*source.Stream, _ attempt.Turns) error {
+	c := serve(t, machinery(func(ctx context.Context, _ execute.Device, _ deliver.Listeners, _ []*source.Stream, _ recovery.Turns) error {
 		close(playing)
 		<-ctx.Done()
 		// Teardown that takes a while, which shutting down waits for.
@@ -869,7 +860,7 @@ func TestAServerShuttingDownFailsItsCastsSayingSoAndTakesNoMore(t *testing.T) {
 
 	id := start(t, c, streamOf("https://cdn.example/direct"))
 	w := watching(t, c, id, nil)
-	go func() { _ = lend(t.Context(), c, id, newScreen()) }()
+	go func() { _ = lend(t.Context(), c, id, newLentDevice()) }()
 	<-playing
 	c.running.Shutdown(t.Context())
 	if !tornDown.Load() {

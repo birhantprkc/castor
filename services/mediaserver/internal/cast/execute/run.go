@@ -9,37 +9,30 @@ import (
 	"net/url"
 	"os"
 
-	"github.com/stupside/castor/services/mediaserver/internal/cast/attempt"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/compose"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/health"
+	"github.com/stupside/castor/services/mediaserver/internal/cast/recovery"
 	"github.com/stupside/castor/services/mediaserver/internal/media"
 )
 
-// Executor runs each attempt of one cast over real machinery.
-type Executor struct {
-	cfg config
-}
-
-func NewExecutor(m Machinery, c Cast) *Executor { return &Executor{cfg: config{Machinery: m, Cast: c}} }
-
-var _ attempt.Runner = (*Executor)(nil)
+var _ recovery.Runner = Cast{}
 
 // Run casts a end to end; everything it acquired is released before its outcome is read.
-func (e *Executor) Run(parent context.Context, a attempt.Attempt) attempt.Outcome {
+func (c Cast) Run(parent context.Context, a recovery.Attempt) recovery.Outcome {
 	if err := a.Program.Validate(); err != nil {
 		err = fmt.Errorf("attempt has no valid media program: %w", err)
-		return attempt.Outcome{Err: err, Evidence: evidence(ran{}, err, parent.Err() != nil)}
+		return recovery.Outcome{Err: err, Evidence: evidence(ran{}, err, parent.Err() != nil)}
 	}
-	s := open(parent, e.cfg, a)
+	s := open(parent, c, a)
 	r, err := s.play()
 	err = errors.Join(err, s.releases.release())
-	return attempt.Outcome{Err: err, Evidence: evidence(r, err, parent.Err() != nil)}
+	return recovery.Outcome{Err: err, Evidence: evidence(r, err, parent.Err() != nil)}
 }
 
 // pipeline is what one attempt runs on and never changes once opened; every step returns what it established.
 type pipeline struct {
-	cfg     config
-	attempt attempt.Attempt
+	cast    Cast
+	attempt recovery.Attempt
 
 	ctx context.Context
 	// releases undoes everything the attempt acquired, once it ends.
@@ -52,12 +45,12 @@ type ran struct {
 	reader  *pull
 }
 
-func open(parent context.Context, cfg config, a attempt.Attempt) *pipeline {
+func open(parent context.Context, c Cast, a recovery.Attempt) *pipeline {
 	ctx, cancel := context.WithCancel(parent)
 	rel := &releases{}
 	// Released last: whatever the attempt started stops before it is over.
 	rel.push(func() error { cancel(); return nil })
-	return &pipeline{cfg: cfg, attempt: a, ctx: ctx, releases: rel}
+	return &pipeline{cast: c, attempt: a, ctx: ctx, releases: rel}
 }
 
 func (s *pipeline) play() (ran, error) {
@@ -77,7 +70,7 @@ func (s *pipeline) play() (ran, error) {
 func (s *pipeline) handoff() (ran, error) {
 	// Present because run validated this program before the composition ran.
 	primary, _ := s.attempt.Program.PrimaryInput()
-	if err := hand(s.ctx, s.cfg.Device, primary.URL, primary.ContentType, true); err != nil {
+	if err := hand(s.ctx, s.cast.Device, primary.URL, primary.ContentType, true); err != nil {
 		return ran{}, err
 	}
 	slog.InfoContext(s.ctx, "playback handed off to the device")
@@ -120,13 +113,13 @@ func (s *pipeline) readOnce() (ran, error) {
 
 func (s *pipeline) compose() compose.Row {
 	shape := compose.Shape{
-		Device:    s.cfg.Device.Capabilities(),
+		Device:    s.cast.Device.Capabilities(),
 		Program:   s.attempt.Program,
 		Delivery:  s.attempt.Delivery,
 		Height:    s.attempt.SelfFetchHeight(),
-		MaxHeight: s.cfg.MaxHeight,
+		MaxHeight: s.cast.MaxHeight,
 	}
-	row := compose.Compose(shape)
+	row := compose.For(shape)
 	slog.InfoContext(s.ctx, "cast composition", "composition", row.Name, "why", row.Why, "shape", shape.String())
 	return row
 }
@@ -143,7 +136,7 @@ func (s *pipeline) workdir() (string, error) {
 
 // follow points the inputs whose timelines castor keeps at castor's republished playlists.
 func (s *pipeline) follow(program media.Program) (media.Program, error) {
-	followed, unfollow, err := s.cfg.Timelines.Republish(s.ctx, program)
+	followed, unfollow, err := s.cast.Timelines.Republish(s.ctx, program)
 	if err != nil {
 		return media.Program{}, &timelineUnreadable{err: err}
 	}

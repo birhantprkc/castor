@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stupside/castor/services/mediaserver/internal/cast/codec"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/container"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/fetch"
-	"github.com/stupside/castor/services/mediaserver/internal/cast/plan"
 	"github.com/stupside/castor/services/mediaserver/internal/ffmpeg"
 	"github.com/stupside/castor/services/mediaserver/internal/media"
 )
@@ -21,11 +21,11 @@ import (
 var (
 	mpegtsFormat = testFormat(media.MPEGTS)
 	mp4Format    = testFormat(media.MP4)
-	aacAudio     = plan.Encode(plan.AudioEncode{Codec: media.CodecAAC})
+	aacAudio     = codec.Encode(codec.AudioEncode{Codec: media.CodecAAC})
 )
 
-func testFormat(contentType string) container.FormatInfo {
-	f, ok := container.FormatForContentType(contentType)
+func testFormat(contentType string) container.Format {
+	f, ok := container.For(contentType)
 	if !ok {
 		panic("no producible format for " + contentType)
 	}
@@ -42,8 +42,8 @@ func TestTheArgvRendersTheDecision(t *testing.T) {
 		Filters:  []string{"format=nv12", "hwupload"},
 		Flags:    []string{"-preset", "fast"},
 	}
-	copyInto := func(format container.FormatInfo, probe media.ProbeInfo) []string {
-		return mustEncodeArgs(t, EncodeOptions{Input: piped, Format: format, Probe: probe, Video: plan.CopyVideo(), Audio: plan.CopyAudio()})
+	copyInto := func(format container.Format, probe media.ProbeInfo) []string {
+		return mustEncodeArgs(t, EncodeOptions{Input: piped, Format: format, Probe: probe, Video: codec.CopyVideo(), Audio: codec.CopyAudio()})
 	}
 	baseMov := "+frag_keyframe+empty_moov+default_base_moof"
 
@@ -60,7 +60,7 @@ func TestTheArgvRendersTheDecision(t *testing.T) {
 		absent: []string{"-vf", "-bsf:a"},
 	}, {
 		name: "a software floor pull scales to the ceiling under a quality target",
-		args: mustPullArgs(t, PullOptions{Source: src, Audio: plan.CopyAudio(), Video: plan.Encode(plan.VideoEncode{
+		args: mustPullArgs(t, PullOptions{Source: src, Audio: codec.CopyAudio(), Video: codec.Encode(codec.VideoEncode{
 			Encoder: libx264, Quality: 23, Maxrate: "4M", Bufsize: "8M", MaxHeight: 1080,
 		})}),
 		want: []string{
@@ -69,7 +69,7 @@ func TestTheArgvRendersTheDecision(t *testing.T) {
 		},
 	}, {
 		name: "a hardware encode uploads after the scale and runs at a bitrate",
-		args: mustEncodeArgs(t, EncodeOptions{Input: piped, Format: mpegtsFormat, Audio: aacAudio, Video: plan.Encode(plan.VideoEncode{
+		args: mustEncodeArgs(t, EncodeOptions{Input: piped, Format: mpegtsFormat, Audio: aacAudio, Video: codec.Encode(codec.VideoEncode{
 			Encoder: hardware, Bitrate: "4M", MaxHeight: 1080, KeyframeIntervalSec: 2,
 		})}),
 		want: []string{
@@ -78,16 +78,16 @@ func TestTheArgvRendersTheDecision(t *testing.T) {
 		},
 	}, {
 		name:   "a copied picture beside an encoded sound, codecs before -strict, reporting on pipe 3",
-		args:   mustEncodeArgs(t, EncodeOptions{Input: piped, Format: mpegtsFormat, Video: plan.CopyVideo(), Audio: plan.Encode(plan.AudioEncode{Codec: media.CodecAAC, Bitrate: "256k", Channels: 2})}),
+		args:   mustEncodeArgs(t, EncodeOptions{Input: piped, Format: mpegtsFormat, Video: codec.CopyVideo(), Audio: codec.Encode(codec.AudioEncode{Codec: media.CodecAAC, Bitrate: "256k", Channels: 2})}),
 		want:   []string{"-c:v", "copy", "-c:a", "aac", "-ac", "2", "-b:a", "256k", "-strict", "-2", "-progress", "pipe:3"},
 		absent: []string{"-vf", "-preset", "-b:v", "-readrate", "-stats_period"},
 	}, {
 		name: "a piped encode renders its pace ahead of the pipe input",
-		args: mustEncodeArgs(t, EncodeOptions{Input: FromPipe(fetch.Pace{Realtime: 1, Burst: 32 * time.Second}), Format: mpegtsFormat, Video: plan.CopyVideo(), Audio: aacAudio}),
+		args: mustEncodeArgs(t, EncodeOptions{Input: FromPipe(fetch.Pace{Realtime: 1, Burst: 32 * time.Second}), Format: mpegtsFormat, Video: codec.CopyVideo(), Audio: aacAudio}),
 		want: slices.Concat([]string{"-readrate", "1.0", "-readrate_initial_burst", "32"}, demuxFlags, []string{"-f", SpoolFormat.Muxer, "-i", "pipe:0"}),
 	}, {
 		name: "a burn-in draws text and reports every tenth of a second",
-		args: mustEncodeArgs(t, EncodeOptions{Input: piped, Format: mpegtsFormat, Audio: aacAudio, Video: plan.Encode(plan.VideoEncode{Encoder: libx264, SubtitleTextFile: "/tmp/cue.txt"})}),
+		args: mustEncodeArgs(t, EncodeOptions{Input: piped, Format: mpegtsFormat, Audio: aacAudio, Video: codec.Encode(codec.VideoEncode{Encoder: libx264, SubtitleTextFile: "/tmp/cue.txt"})}),
 		want: []string{"-stats_period", "0.1"},
 		vf:   "drawtext=textfile=/tmp/cue.txt",
 	}, {
@@ -132,19 +132,19 @@ func TestOnlyAnEncodeThatWouldRewriteItsSpoolUnchangedIsVerbatim(t *testing.T) {
 	segmentedTS := mpegtsFormat
 	segmentedTS.Delivery = container.DeliverSegmented
 	src := muxedSource(t, mustURL(t, "http://example.test/in.ts"), media.MPEGTS, fetch.Policy{})
-	h264 := plan.Encode(plan.VideoEncode{Encoder: libx264})
+	h264 := codec.Encode(codec.VideoEncode{Encoder: libx264})
 
 	for _, tt := range []struct {
 		name string
 		opts EncodeOptions
 		want bool
 	}{
-		{"both axes copied from the spool into its own container", EncodeOptions{Input: piped, Format: mpegtsFormat, Video: plan.CopyVideo(), Audio: plan.CopyAudio()}, true},
-		{"an encoded picture", EncodeOptions{Input: piped, Format: mpegtsFormat, Video: h264, Audio: plan.CopyAudio()}, false},
-		{"an encoded sound", EncodeOptions{Input: piped, Format: mpegtsFormat, Video: plan.CopyVideo(), Audio: aacAudio}, false},
-		{"another container", EncodeOptions{Input: piped, Format: mp4Format, Video: plan.CopyVideo(), Audio: plan.CopyAudio()}, false},
-		{"a segmented delivery", EncodeOptions{Input: piped, Format: segmentedTS, Video: plan.CopyVideo(), Audio: plan.CopyAudio()}, false},
-		{"the source rather than the spool", EncodeOptions{Input: FromSource(src), Format: mpegtsFormat, Video: plan.CopyVideo(), Audio: plan.CopyAudio()}, false},
+		{"both axes copied from the spool into its own container", EncodeOptions{Input: piped, Format: mpegtsFormat, Video: codec.CopyVideo(), Audio: codec.CopyAudio()}, true},
+		{"an encoded picture", EncodeOptions{Input: piped, Format: mpegtsFormat, Video: h264, Audio: codec.CopyAudio()}, false},
+		{"an encoded sound", EncodeOptions{Input: piped, Format: mpegtsFormat, Video: codec.CopyVideo(), Audio: aacAudio}, false},
+		{"another container", EncodeOptions{Input: piped, Format: mp4Format, Video: codec.CopyVideo(), Audio: codec.CopyAudio()}, false},
+		{"a segmented delivery", EncodeOptions{Input: piped, Format: segmentedTS, Video: codec.CopyVideo(), Audio: codec.CopyAudio()}, false},
+		{"the source rather than the spool", EncodeOptions{Input: FromSource(src), Format: mpegtsFormat, Video: codec.CopyVideo(), Audio: codec.CopyAudio()}, false},
 		{"no decision", EncodeOptions{Input: piped, Format: mpegtsFormat}, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -161,10 +161,10 @@ func TestIllegalCommandsAreRefused(t *testing.T) {
 		name string
 		opts EncodeOptions
 	}{
-		{"no input", EncodeOptions{Format: mpegtsFormat, Video: plan.CopyVideo(), Audio: aacAudio}},
-		{"an undecided axis", EncodeOptions{Input: piped, Format: mpegtsFormat, Video: plan.CopyVideo()}},
-		{"a re-encode naming no encoder", EncodeOptions{Input: piped, Format: mpegtsFormat, Audio: aacAudio, Video: plan.Encode(plan.VideoEncode{Maxrate: "4M"})}},
-		{"a copy the container refuses", EncodeOptions{Input: piped, Format: mpegtsFormat, Probe: media.ProbeInfo{VideoCodec: media.CodecH264, AudioCodec: media.CodecFLAC}, Video: plan.CopyVideo(), Audio: plan.CopyAudio()}},
+		{"no input", EncodeOptions{Format: mpegtsFormat, Video: codec.CopyVideo(), Audio: aacAudio}},
+		{"an undecided axis", EncodeOptions{Input: piped, Format: mpegtsFormat, Video: codec.CopyVideo()}},
+		{"a re-encode naming no encoder", EncodeOptions{Input: piped, Format: mpegtsFormat, Audio: aacAudio, Video: codec.Encode(codec.VideoEncode{Maxrate: "4M"})}},
+		{"a copy the container refuses", EncodeOptions{Input: piped, Format: mpegtsFormat, Probe: media.ProbeInfo{VideoCodec: media.CodecH264, AudioCodec: media.CodecFLAC}, Video: codec.CopyVideo(), Audio: codec.CopyAudio()}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if _, err := EncodeArgs(tt.opts); err == nil {
@@ -224,7 +224,7 @@ func argValue(args []string, flag string) string {
 }
 
 func containsSequence(args, want []string) bool {
-	for i := 0; i+len(want) <= len(args); i++ {
+	for i := range len(args) - len(want) + 1 {
 		if slices.Equal(args[i:i+len(want)], want) {
 			return true
 		}
@@ -242,7 +242,7 @@ func mustEncodeArgs(t *testing.T, opts EncodeOptions) []string {
 }
 
 func copyingPull(source ProgramSource) PullOptions {
-	return PullOptions{Source: source, Video: plan.CopyVideo(), Audio: plan.CopyAudio()}
+	return PullOptions{Source: source, Video: codec.CopyVideo(), Audio: codec.CopyAudio()}
 }
 
 func mustPullArgs(t *testing.T, opts PullOptions) []string {

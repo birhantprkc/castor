@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stupside/castor/services/mediaserver/internal/cast/attempt"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/health"
+	"github.com/stupside/castor/services/mediaserver/internal/cast/recovery"
 	"github.com/stupside/castor/services/mediaserver/internal/media"
 	"github.com/stupside/castor/services/mediaserver/internal/probe"
 	"github.com/stupside/castor/services/mediaserver/internal/source"
@@ -36,8 +36,8 @@ func handoffStream() *source.Stream {
 func TestAHandoffBuildsNoLocalMachinery(t *testing.T) {
 	var asked atomic.Int64
 	dev := &fakeDevice{caps: chromecastLike(media.MP4)}
-	got := NewExecutor(Machinery{Timelines: direct{}}, Cast{MaxHeight: 1080, Device: dev, Listeners: countedListeners{asked: &asked}}).Run(t.Context(),
-		attempt.Attempt{Program: programFromStream(t, handoffStream())})
+	got := Cast{Timelines: direct{}, MaxHeight: 1080, Device: dev, Listeners: countedListeners{asked: &asked}}.Run(t.Context(),
+		recovery.Attempt{Program: programFromStream(t, handoffStream())})
 	if got.Err != nil {
 		t.Fatalf("a handoff depended on local relay resources: %v", got.Err)
 	}
@@ -52,8 +52,8 @@ func TestAHandoffBuildsNoLocalMachinery(t *testing.T) {
 func TestADeviceThatRefusesPlayIsBlamed(t *testing.T) {
 	refused := errors.New("SOAP SetAVTransportURI: 714")
 	dev := &fakeDevice{caps: chromecastLike(media.MP4), refuse: refused}
-	out := newExecutor(castConfig(dev, "", ""), noStage).
-		Run(t.Context(), attempt.Attempt{Try: 1, Program: programFromStream(t, handoffStream())})
+	out := realCast(dev, "", "").
+		Run(t.Context(), recovery.Attempt{Try: 1, Program: programFromStream(t, handoffStream())})
 
 	if out.Err == nil {
 		t.Fatal("the cast reported success though the device refused the URL")
@@ -85,10 +85,10 @@ func TestEveryAttemptOwnsAFreshWorkDirectoryAndLeavesNoneBehind(t *testing.T) {
 		for i := range program.Tracks {
 			program.Tracks[i].Optional = false
 		}
-		out := NewExecutor(
-			Machinery{Probes: probe.FFprobe(""), Timelines: direct{}, InputArgs: formats.InputArgs},
-			Cast{Device: &fakeDevice{caps: dlnaLike()}, Subtitles: watchDir, Listeners: loopback{}},
-		).Run(t.Context(), attempt.Attempt{Program: program, Fetch: sourceFetchPlan(t, program, 30*time.Second)})
+		out := Cast{
+			Probes: probe.FFprobe(""), Timelines: direct{}, InputArgs: formats.InputArgs,
+			Device: &fakeDevice{caps: dlnaLike()}, Subtitles: watchDir, Listeners: loopback{},
+		}.Run(t.Context(), recovery.Attempt{Program: program, Fetch: sourceFetchPlan(t, program, 30*time.Second)})
 		if out.Err == nil {
 			t.Fatal("a cast with no ffmpeg to read with reported success")
 		}
@@ -110,13 +110,12 @@ func TestABufferCopiedWholeIsServedAsItIs(t *testing.T) {
 	origin := serveFixture(t, ffmpegPath)
 
 	dev := &fakeDevice{caps: dlnaLike(), drain: true}
-	cfg := castConfig(dev, ffmpegPath, ffprobePath)
-	cfg.Listeners = loopback{}
+	c := realCast(dev, ffmpegPath, ffprobePath)
 	program := programFromStream(t, origin.stream())
 
 	ctx, cancel := context.WithTimeout(t.Context(), castTimeout)
 	defer cancel()
-	s := open(ctx, cfg, attempt.Attempt{Try: 1, Program: program, Fetch: sourceFetchPlan(t, program, testReadDeadline)})
+	s := open(ctx, c, recovery.Attempt{Try: 1, Program: program, Fetch: sourceFetchPlan(t, program, testReadDeadline)})
 	t.Cleanup(func() { _ = s.releases.release() })
 	r, err := s.play()
 	if err != nil {

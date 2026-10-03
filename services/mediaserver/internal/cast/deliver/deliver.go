@@ -11,6 +11,7 @@ import (
 // settleInterval is how often a delivery's Wait re-reads whether it still has anything to do.
 const settleInterval = 500 * time.Millisecond
 
+// Artifact is what a delivery hands the device, which the watch that opens it waits on.
 type Artifact struct {
 	// Subject names it in a log line and in a fault ("the stream output", "the HLS playlist").
 	Subject string
@@ -22,7 +23,7 @@ type Artifact struct {
 
 // Opening is everything a delivery mechanism is opened with.
 type Opening struct {
-	Format    container.FormatInfo
+	Format    container.Format
 	Listeners Listeners
 	Headers   map[string]string
 

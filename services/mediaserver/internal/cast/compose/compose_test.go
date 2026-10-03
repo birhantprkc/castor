@@ -37,7 +37,7 @@ func TestTheCompositionADeviceGets(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if row := Compose(Shape{Device: tt.device, Program: program, Delivery: tt.preference}); row.Name != tt.want {
+			if row := For(Shape{Device: tt.device, Program: program, Delivery: tt.preference}); row.Name != tt.want {
 				t.Errorf("composed %q, want %q", row.Name, tt.want)
 			}
 		})

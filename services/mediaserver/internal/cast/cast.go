@@ -12,7 +12,6 @@ import (
 	"github.com/stupside/castor/internal/latest"
 	"github.com/stupside/castor/services/mediaserver/internal/castlog"
 	"github.com/stupside/castor/services/mediaserver/internal/lend"
-	"github.com/stupside/castor/services/mediaserver/internal/media"
 	"github.com/stupside/castor/services/mediaserver/internal/mediaroute"
 )
 
@@ -66,44 +65,8 @@ func newCast(parent context.Context, id string, reach *url.URL, extractor Extrac
 	return c
 }
 
-// run finds the source's streams, readies them and casts them on the lent device, then ends with how that went.
-func (c *cast) run(caps media.Capabilities) {
-	c.end(eventEnd, outcome(c.ctx, c.cast(caps)))
-}
-
-func (c *cast) cast(caps media.Capabilities) error {
-	streams, err := c.source.streams(c.ctx, c.extractor)
-	if err != nil {
-		return err
-	}
-	c.fire(eventMeasure, func(next *view) { next.status.Streams = uint32(len(streams)) })
-	ready, err := c.source.ready(c.ctx, c.caster, streams)
-	if err != nil {
-		return err
-	}
-	c.fire(eventRank, func(next *view) { next.status.Castable = uint32(len(ready)) })
-	device := lend.NewDevice(c.line, caps, c.deliveries.Reached, func() { c.cancel(lend.ErrLenderLeft) })
-	return c.caster.Play(c.ctx, device, c.deliveries, ready, c)
-}
-
-// outcome is how a cast that returned err ended: why its context ended if it did, stopped when nobody said why.
-func outcome(ctx context.Context, err error) error {
-	switch cause := context.Cause(ctx); {
-	case cause == nil:
-		return err
-	case errors.Is(cause, context.Canceled):
-		return errStopped
-	default:
-		return cause
-	}
-}
-
-func (c *cast) Attempting(try int) {
-	c.fire(eventAttempt, func(next *view) { next.status.Attempt = uint32(try) })
-}
-
-func (c *cast) Revising(strategy, why string) {
-	c.fire(eventRevise, func(next *view) {
-		next.status.Revision = &castorv1.Revision{Strategy: strategy, Why: why}
-	})
+// view is a cast's status at one moment, and how it ended once it has.
+type view struct {
+	status *castorv1.CastStatus
+	ended  *castorv1.Ended
 }

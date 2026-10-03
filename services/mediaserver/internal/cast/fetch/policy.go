@@ -8,10 +8,13 @@ import (
 	"github.com/stupside/castor/services/mediaserver/internal/cast/container"
 )
 
+// BackoffMax is the longest ffmpeg waits before it reconnects to a source.
 const BackoffMax = 60 * time.Second
 
-const EncodeBurstSeconds = 10
+// EncodeBurst is how much media a subtitle-burning encode reads ahead at wire speed.
+const EncodeBurst = 10 * time.Second
 
+// Pace is how fast a read may consume its source.
 type Pace struct {
 	// Realtime is the media seconds per wall-clock second the read is allowed.
 	Realtime float64
@@ -46,7 +49,7 @@ var (
 )
 
 // paceBurning keeps the subtitle-burning encoder just above realtime.
-var paceBurning = Pace{Realtime: 1.15, Burst: EncodeBurstSeconds * time.Second}
+var paceBurning = Pace{Realtime: 1.15, Burst: EncodeBurst}
 
 // paceSegmentWindow is a client draining a segment window at 1x.
 var paceSegmentWindow = Pace{Realtime: 1.0, Burst: container.HLSWindow}
@@ -63,8 +66,10 @@ func Ceiling(output container.DeliveryKind, burning bool) Pace {
 	}
 }
 
+// segmentOpenRetries is how many times a segment that would not open is asked for again.
 const segmentOpenRetries = 3
 
+// Policy is how one input is fetched: how long a read may stall, how often a segment is retried, and how fast.
 type Policy struct {
 	// Name and Why identify the row this came from.
 	Name string

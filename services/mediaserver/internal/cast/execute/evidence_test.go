@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stupside/castor/services/mediaserver/internal/cast/attempt"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/health"
+	"github.com/stupside/castor/services/mediaserver/internal/cast/recovery"
 	"github.com/stupside/castor/services/mediaserver/internal/media"
 )
 
@@ -31,8 +31,8 @@ func TestTheOutcomeCarriesWhatTheRecoveryLoopClassifies(t *testing.T) {
 	})
 
 	t.Run("a watch verdict", func(t *testing.T) {
-		verdict := &health.Fault{Kind: health.Dead, Health: health.Health{Speed: 0.159}, Evidence: []string{"404"}}
-		if e := evidence(playing, verdict, false); e.Verdict != health.Dead || e.Health.Speed != 0.159 || len(e.Lines) != 1 {
+		verdict := &health.Fault{Kind: health.Dead, Vitals: health.Vitals{Speed: 0.159}, Evidence: []string{"404"}}
+		if e := evidence(playing, verdict, false); e.Verdict != health.Dead || e.Vitals.Speed != 0.159 || len(e.Lines) != 1 {
 			t.Errorf("evidence = %+v, want the verdict, its measurements and its lines", e)
 		}
 	})
@@ -46,22 +46,22 @@ func TestTheEvidenceIsWhatThePipelineReturned(t *testing.T) {
 		name string
 		r    ran
 		err  error
-		want func(attempt.Evidence) bool
+		want func(recovery.Evidence) bool
 	}{
 		{"a cast that ended cleanly was delivered", ran{reached: health.Playing}, nil,
-			func(e attempt.Evidence) bool { return e.Reached == health.Delivered }},
+			func(e recovery.Evidence) bool { return e.Reached == health.Delivered }},
 		{"a device refusing the source itself was handed it", ran{}, &playRefused{err: refusal, source: true},
-			func(e attempt.Evidence) bool { return e.Handoff && errors.Is(e.PlayErr, refusal) }},
+			func(e recovery.Evidence) bool { return e.Handoff && errors.Is(e.PlayErr, refusal) }},
 		{"a device refusing what castor serves was not handed the source", ran{reached: health.Opening}, &playRefused{err: refusal},
-			func(e attempt.Evidence) bool { return !e.Handoff && e.PlayErr != nil }},
+			func(e recovery.Evidence) bool { return !e.Handoff && e.PlayErr != nil }},
 		{"a timeline castor could not read is named", ran{}, &timelineUnreadable{err: refusal},
-			func(e attempt.Evidence) bool { return errors.Is(e.TimelineErr, refusal) }},
+			func(e recovery.Evidence) bool { return errors.Is(e.TimelineErr, refusal) }},
 		{"a read that reached its delivery served a proven buffer", ran{reached: health.Opening, reader: reader}, errors.New("stalled"),
-			func(e attempt.Evidence) bool { return e.Buffered && e.Reached == health.Opening }},
+			func(e recovery.Evidence) bool { return e.Buffered && e.Reached == health.Opening }},
 		{"a read stopped at its gate served nothing", ran{reached: health.Reading, reader: reader}, errors.New("dead"),
-			func(e attempt.Evidence) bool { return !e.Buffered }},
+			func(e recovery.Evidence) bool { return !e.Buffered }},
 		{"a remux that reached its delivery buffered nothing", ran{reached: health.Opening}, errors.New("stalled"),
-			func(e attempt.Evidence) bool { return !e.Buffered }},
+			func(e recovery.Evidence) bool { return !e.Buffered }},
 	} {
 		if e := evidence(tt.r, tt.err, false); !tt.want(e) {
 			t.Errorf("%s: evidence = %+v", tt.name, e)
@@ -78,8 +78,8 @@ func TestACancelledAttemptSaysSo(t *testing.T) {
 		want bool
 	}{{ctx, true}, {t.Context(), false}} {
 		dev := &fakeDevice{caps: chromecastLike(media.MP4)}
-		out := NewExecutor(Machinery{Timelines: direct{}}, Cast{MaxHeight: 1080, Device: dev}).Run(tc.ctx,
-			attempt.Attempt{Program: programFromStream(t, handoffStream())})
+		out := Cast{Timelines: direct{}, MaxHeight: 1080, Device: dev}.Run(tc.ctx,
+			recovery.Attempt{Program: programFromStream(t, handoffStream())})
 		if out.Evidence.Cancelled != tc.want {
 			t.Errorf("Cancelled = %v under a context cancelled %v", out.Evidence.Cancelled, tc.want)
 		}

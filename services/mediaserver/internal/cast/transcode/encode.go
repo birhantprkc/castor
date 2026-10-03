@@ -4,9 +4,9 @@ package transcode
 import (
 	"fmt"
 
+	"github.com/stupside/castor/services/mediaserver/internal/cast/codec"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/container"
 	"github.com/stupside/castor/services/mediaserver/internal/cast/fetch"
-	"github.com/stupside/castor/services/mediaserver/internal/cast/plan"
 	"github.com/stupside/castor/services/mediaserver/internal/ffmpeg"
 	"github.com/stupside/castor/services/mediaserver/internal/media"
 )
@@ -28,10 +28,10 @@ func FromSource(source ProgramSource) EncodeInput { return EncodeInput{source: s
 
 type EncodeOptions struct {
 	Input  EncodeInput
-	Probe  media.ProbeInfo              // Measurement copy decisions were made from.
-	Format container.FormatInfo         // Container to produce.
-	Video  plan.Track[plan.VideoEncode] // Video axis of encode (zero = no decision, refused).
-	Audio  plan.Track[plan.AudioEncode] // Audio axis of encode (zero = no decision, refused).
+	Probe  media.ProbeInfo                // Measurement copy decisions were made from.
+	Format container.Format               // Container to produce.
+	Video  codec.Track[codec.VideoEncode] // Video axis of encode (zero = no decision, refused).
+	Audio  codec.Track[codec.AudioEncode] // Audio axis of encode (zero = no decision, refused).
 }
 
 // Verbatim reports whether this encode would only re-mux the spool it reads into the same stream.
@@ -43,7 +43,7 @@ func (o EncodeOptions) Verbatim() bool {
 		o.Format.Delivery == container.DeliverStream
 }
 
-func encodeTuning(format container.FormatInfo) (container.Tuning, error) {
+func encodeTuning(format container.Format) (container.Tuning, error) {
 	if format.Muxer == "" {
 		return container.Tuning{}, fmt.Errorf("no output container: EncodeOptions.Format is unset")
 	}
