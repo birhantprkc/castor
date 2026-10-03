@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -42,7 +41,7 @@ func (o *output) bytes() []byte {
 	return bytes.Clone(o.buf.Bytes())
 }
 
-// server is a server binary running until the test ends.
+// server is a castor server command running until the test ends.
 type server struct {
 	name   string
 	out    output
@@ -51,16 +50,16 @@ type server struct {
 	err error
 }
 
-// start runs bin under doc, stops it when the test ends, and logs its output if the test failed.
-func start(t *testing.T, carrier settings.Carrier, doc map[string]any, bin binary) *server {
+// start runs `castor <command>` under doc, stops it when the test ends, and logs its output if the test failed.
+func start(t *testing.T, carrier settings.Carrier, doc map[string]any, command string) *server {
 	t.Helper()
 	launch, err := carrier.Carry(t, doc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &server{name: filepath.Base(string(bin)), exited: make(chan struct{})}
+	s := &server{name: command, exited: make(chan struct{})}
 	// Not the test's context: a server is interrupted first, at cleanup, so its casts let go of their devices.
-	cmd := bin.command(context.Background(), launch, nil, &s.out)
+	cmd := castor.command(context.Background(), launch, []string{command}, &s.out)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}

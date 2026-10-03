@@ -26,7 +26,7 @@ Used only by the interactive `castor cast` browser, and sent only to TMDB. Manag
 
 ## Media server and API server
 
-- **What devices fetch is open.** The media server serves a device over HTTP until it stops fetching: inside `castor` on your local network interface, or on `server.listen` (and `server.advertise`) for `castor server` and `castor-media`. Devices can't authenticate, so anyone who reaches it and knows a cast's URL can fetch it.
+- **What devices fetch is open.** The media server serves a device over HTTP until it stops fetching: inside `castor` on your local network interface, or on `server.listen` (and `server.advertise`) for `castor server`. Devices can't authenticate, so anyone who reaches it and knows a cast's URL can fetch it.
 - **Their APIs take a token.** With `server.token` or `api.token` set, every request to that server's API must carry `Authorization: Bearer <token>`, or it is refused as unauthenticated. Health checks (`grpc.health.v1.Health`) are the one exemption. Without a token, anyone who reaches the port can start casts, and the media server's browser opens any page they name, including pages on your own network.
 - **The default listen addresses are open.** `:8410` and `:8411` bind every interface, so set both tokens whenever a server runs on a network. Each logs a warning at startup when it listens beyond loopback without a token.
 - **Captured headers stay out of listings.** `ListCasts` returns casts without the headers captured for their streams.

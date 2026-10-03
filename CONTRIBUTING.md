@@ -19,7 +19,7 @@ On macOS or Linux, with Go 1.27+ and cmake. The whisper bindings use cgo, so the
 ```sh
 git clone --recurse-submodules https://github.com/stupside/castor.git
 cd castor
-make build   # libwhisper.a (~1 min), then castor, castor-media and castor-api
+make build   # libwhisper.a (~1 min), then castor
 ```
 
 `go install` won't work: the bindings need that locally built library. For plain Go tooling, export the build environment once per shell (the checked-in `.envrc` does it on `cd` with [direnv](https://direnv.net)):
@@ -44,7 +44,7 @@ go test ./...
 | `go vet`, `staticcheck -checks all` and `gofmt -s` report nothing | `lint` |
 | No unreachable code (`deadcode -test`; `castorNativeLog`, called only from C, is the one exception) | `lint` |
 | `go fix -diff` suggests nothing | `lint` |
-| `castor-api` builds without cgo | `lint` |
+| The API server builds without cgo | `lint` |
 | The protos pass `buf lint` and `buf format`, stay compatible with the latest release (`buf breaking`), and the committed generated code matches them | `proto` |
 
 Lint tools are pinned, so a new release never turns an unrelated push red.

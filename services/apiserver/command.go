@@ -2,7 +2,6 @@ package apiserver
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 
@@ -14,11 +13,6 @@ import (
 
 // Media runs a media server in this process, for an API server that names none, its own lines going to lines.
 type Media func(ctx context.Context, cmd *cli.Command, lines slog.Handler) (transport.Endpoint, func(), error)
-
-// RemoteMedia is the Media of a binary that links no media server, so server.url must name one.
-func RemoteMedia(context.Context, *cli.Command, slog.Handler) (transport.Endpoint, func(), error) {
-	return transport.Endpoint{}, nil, errors.New("server.url is required: this binary runs no media server of its own")
-}
 
 // Command is `castor api`: the API server, casting through the media server it names or one it runs, until interrupted.
 func Command(media Media) *cli.Command {

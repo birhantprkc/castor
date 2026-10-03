@@ -27,14 +27,12 @@ env:
 
 build: lib
 	go build -o castor ./cmd/castor
-	go build -o castor-media ./cmd/castor-media
-	CGO_ENABLED=0 go build -o castor-api ./cmd/castor-api
 
 # The cgo library alone, which CI links its tests and lint runs against.
 lib: $(LIB)
 
 clean:
-	rm -rf $(BUILD) castor castor-api castor-media
+	rm -rf $(BUILD) castor
 
 # Regenerate gen/ from proto/; buf runs the protoc plugins pinned as go tools.
 generate:

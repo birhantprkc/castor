@@ -42,8 +42,8 @@ jobs:
           [ -z "$dead" ] || { printf 'unreachable:\n%s\n' "$dead"; exit 1; }
       # Fails with the diff it suggests: run `go fix ./...` and commit it.
       - run: eval "$(make env)" && go fix -diff ./...
-      # castor-api runs where the devices are, so it ships cross-compiled without cgo.
-      - run: CGO_ENABLED=0 go build -o /dev/null ./cmd/castor-api
+      # cgo stays in the media server, so the API server alone still cross-compiles anywhere.
+      - run: CGO_ENABLED=0 go build ./services/apiserver/...
       - run: |
           unformatted=$(gofmt -s -l services cmd internal e2e)
           [ -z "$unformatted" ] || { printf 'unformatted:\n%s\n' "$unformatted"; exit 1; }

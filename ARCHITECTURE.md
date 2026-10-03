@@ -1,6 +1,6 @@
 # Architecture
 
-Castor puts web video on a device: a smart TV, a Chromecast or a Roku, called a device throughout the code and the contracts. It is three tiers that speak two protobuf contracts, shipped as three binaries.
+Castor puts web video on a device: a smart TV, a Chromecast or a Roku, called a device throughout the code and the contracts. It is three tiers that speak two protobuf contracts, shipped as one binary.
 
 ## Three tiers
 
@@ -25,10 +25,10 @@ Each tier knows one thing, and runs where that thing is.
 | Setup | What runs where |
 | --- | --- |
 | On one computer | `castor cast` or `castor scan` runs the TUI, an API server on loopback and a media server in one process. |
-| Shared media server | `castor server` (or `castor-media`) on a machine that stays on; each computer runs `castor` with `server.url`, so its API server casts through it. |
-| Shared API server | `castor api` (or `castor-api`) on the devices' network; clients set `api.url`. It runs its own media server unless `server.url` names one. |
+| Shared media server | `castor server` on a machine that stays on; each computer runs `castor` with `server.url`, so its API server casts through it. |
+| Shared API server | `castor api` on the devices' network; clients set `api.url`. It runs its own media server unless `server.url` names one. |
 
-`castor` links all three tiers and, when a command names no server, runs them in its own process. `castor-media` is the media server alone. `castor-api` is the API server alone: it links no cgo, so it cross-compiles to whatever small machine sits on the devices' network, and it always needs `server.url`.
+`castor` links all three tiers and, when a command names no server, runs them in its own process. `castor server` is the media server alone.
 
 ## Boundaries
 
@@ -37,7 +37,7 @@ Each tier knows one thing, and runs where that thing is.
 - **Consumers declare ports, entry points fill them.** The media server's entry point binds its engine and the cgo whisper transcriber; the API server's lists the device families. What crosses tiers inside one process (an API server for the TUI, a media server for the API server) is a port its consumer declares and `castor` fills.
 - **Decisions read capabilities as data.** Device families and source formats are named only at an entry point; nothing else branches on a family or names a site.
 - **Plumbing holds no castor concept.** What the tiers share (reading the configuration, serving HTTP behind a token, a value watchers follow, the casts a server keeps by id) and what the binaries share (signals, logging, build identity) know none of them.
-- **cgo stays in the media server.** Whisper is its only native dependency, which is what keeps `castor-api` portable.
+- **cgo stays in the media server.** Whisper is its only native dependency, so the API server alone still cross-compiles to any small machine on the devices' network.
 
 ## The contracts
 

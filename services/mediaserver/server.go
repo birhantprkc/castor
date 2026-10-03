@@ -1,4 +1,4 @@
-// Package mediaserver is castor's media server, run as `castor server`, as castor-media, or inside castor itself.
+// Package mediaserver is castor's media server, run as `castor server` or inside castor itself.
 package mediaserver
 
 import (
