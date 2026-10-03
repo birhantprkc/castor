@@ -17,20 +17,20 @@ type casts struct {
 	extractor Extractor
 	caster    func(asked *castorv1.Preferences) Caster
 	reach     *url.URL
-	registry  *registry
+	sessions  *sessions
 }
 
 func (c *casts) Start(_ context.Context, req *mediav1.StartRequest) (*mediav1.StartResponse, error) {
 	s := newSession(c.ctx, rand.Text(), c.reach, c.extractor, c.caster(req.GetPreferences()), req.GetSource())
-	if err := c.registry.add(s); err != nil {
+	if !c.sessions.Add(s.id, s, s.done) {
 		s.cancel(errShutdown)
-		return nil, err
+		return nil, connect.NewError(connect.CodeUnavailable, errShutdown)
 	}
 	return &mediav1.StartResponse{CastId: s.id}, nil
 }
 
 func (c *casts) Stop(_ context.Context, req *mediav1.StopRequest) (*mediav1.StopResponse, error) {
-	s, err := c.registry.find(req.GetCastId())
+	s, err := find(c.sessions, req.GetCastId())
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +40,7 @@ func (c *casts) Stop(_ context.Context, req *mediav1.StopRequest) (*mediav1.Stop
 
 // Watch follows a cast; following never drives it.
 func (c *casts) Watch(ctx context.Context, req *castorv1.WatchRequest, out *connect.ServerStream[castorv1.WatchResponse]) error {
-	s, err := c.registry.find(req.GetCastId())
+	s, err := find(c.sessions, req.GetCastId())
 	if err != nil {
 		return err
 	}

@@ -20,12 +20,12 @@ import (
 
 func TestACastNobodyLendsADeviceIsAbandonedAfterItsGrace(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		c := &casts{ctx: t.Context(), caster: func(*castorv1.Preferences) Caster { return nil }, reach: &url.URL{Scheme: "http", Host: "127.0.0.1:8410"}, registry: newRegistry()}
+		c := &casts{ctx: t.Context(), caster: func(*castorv1.Preferences) Caster { return nil }, reach: &url.URL{Scheme: "http", Host: "127.0.0.1:8410"}, sessions: newSessions()}
 		started, err := c.Start(t.Context(), &mediav1.StartRequest{})
 		if err != nil {
 			t.Fatal(err)
 		}
-		s, err := c.registry.find(started.GetCastId())
+		s, err := find(c.sessions, started.GetCastId())
 		if err != nil {
 			t.Fatal(err)
 		}

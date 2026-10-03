@@ -44,30 +44,30 @@ type Server struct {
 	API   http.Handler
 	Media http.Handler
 
-	registry *registry
+	sessions *sessions
 	stop     context.CancelCauseFunc
 }
 
 // New serves casts with b, telling devices to reach its media route at reach.
 func New(b Backend, reach *url.URL) *Server {
 	casting, stop := context.WithCancelCause(context.Background())
-	reg := newRegistry()
+	reg := newSessions()
 	valid := transport.Checked()
 	api := http.NewServeMux()
-	api.Handle(mediav1connect.NewCastServiceHandler(&casts{ctx: casting, extractor: b.Extractor, caster: b.Caster, reach: reach, registry: reg}, valid))
-	api.Handle(mediav1connect.NewDeviceServiceHandler(devices{registry: reg}, valid))
+	api.Handle(mediav1connect.NewCastServiceHandler(&casts{ctx: casting, extractor: b.Extractor, caster: b.Caster, reach: reach, sessions: reg}, valid))
+	api.Handle(mediav1connect.NewDeviceServiceHandler(devices{sessions: reg}, valid))
 	api.Handle(mediav1connect.NewStreamServiceHandler(streams{extractor: b.Extractor, caster: b.Caster}, valid))
 	transport.Introspect(api, mediav1connect.CastServiceName, mediav1connect.DeviceServiceName, mediav1connect.StreamServiceName)
 	media := http.NewServeMux()
 	media.Handle(mediaroute.Pattern, mediaroute.Handler(func(cast, port string) bool {
-		s, err := reg.find(cast)
-		return err == nil && s.deliveries.Serves(port)
+		s, ok := reg.Find(cast)
+		return ok && s.deliveries.Serves(port)
 	}))
-	return &Server{API: castlog.Served(api), Media: castlog.Served(media), registry: reg, stop: stop}
+	return &Server{API: castlog.Served(api), Media: castlog.Served(media), sessions: reg, stop: stop}
 }
 
 // Shutdown ends every cast, failed as the server shuts down, and waits until they have let go of what they hold, or ctx ends.
 func (s *Server) Shutdown(ctx context.Context) {
 	s.stop(errShutdown)
-	s.registry.drain(ctx)
+	s.sessions.Drain(ctx)
 }

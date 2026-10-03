@@ -12,11 +12,11 @@ import (
 )
 
 // devices takes the device lent to a cast, and its answers to what the cast asks of it.
-type devices struct{ registry *registry }
+type devices struct{ sessions *sessions }
 
 // Drive is the line to the lent device until the cast ends or its lender leaves; the cast plays on without it.
 func (d devices) Drive(ctx context.Context, req *mediav1.DriveRequest, out *connect.ServerStream[mediav1.DriveResponse]) error {
-	s, err := d.registry.find(req.GetCastId())
+	s, err := find(d.sessions, req.GetCastId())
 	if err != nil {
 		return err
 	}
@@ -41,7 +41,7 @@ func (d devices) Drive(ctx context.Context, req *mediav1.DriveRequest, out *conn
 }
 
 func (d devices) Answer(_ context.Context, req *mediav1.AnswerRequest) (*mediav1.AnswerResponse, error) {
-	s, err := d.registry.find(req.GetCastId())
+	s, err := find(d.sessions, req.GetCastId())
 	if err != nil {
 		return nil, err
 	}

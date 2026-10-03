@@ -9,13 +9,13 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
-	"sync"
 	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
 
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
+	"github.com/stupside/castor/internal/registry"
 	"github.com/stupside/castor/services/apiserver/internal/device"
 	"github.com/stupside/castor/services/apiserver/internal/mediaclient"
 )
@@ -41,18 +41,14 @@ type Service struct {
 	media    *mediaclient.Client
 	defaults *castorv1.Preferences
 	devices  Devices
-	running  sync.WaitGroup
-
-	mu     sync.Mutex
-	closed bool
-	byID   map[string]*cast
+	casts    *registry.Registry[*cast]
 }
 
 // New casts on devices through media, every cast asking defaults unless its request says otherwise.
 func New(defaults *castorv1.Preferences, devices Devices, media *mediaclient.Client) *Service {
 	// Casts outlive the request that started them, and end only once the server shuts down.
 	running, shut := context.WithCancelCause(context.Background())
-	return &Service{ctx: running, shut: shut, media: media, defaults: defaults, devices: devices, byID: map[string]*cast{}}
+	return &Service{ctx: running, shut: shut, media: media, defaults: defaults, devices: devices, casts: registry.New[*cast](linger)}
 }
 
 func (s *Service) Cast(ctx context.Context, req *castorv1.CastRequest) (*castorv1.CastResponse, error) {
@@ -61,43 +57,27 @@ func (s *Service) Cast(ctx context.Context, req *castorv1.CastRequest) (*castorv
 		return nil, err
 	}
 	asked := s.asked(req.GetPreferences())
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
-		return nil, connect.NewError(connect.CodeUnavailable, errShutdown)
-	}
 	run, stop := context.WithCancelCause(s.ctx)
 	c := newCast(rand.Text(), target.Public(), req.GetSource(), stop)
-	s.byID[c.id] = c
-	s.running.Go(func() {
+	done := make(chan struct{})
+	if !s.casts.Add(c.id, c, done) {
+		stop(nil)
+		return nil, connect.NewError(connect.CodeUnavailable, errShutdown)
+	}
+	go func() {
+		defer close(done)
 		defer stop(nil)
 		ended := s.play(run, c, target, asked)
 		c.update(func(v *view) { v.ended = ended })
 		slog.Info("cast ended", "id", c.id, "device", cmp.Or(c.device.GetName(), c.device.GetAddress()), "outcome", ended.GetOutcome().String(), "reason", ended.GetReason())
-		time.AfterFunc(linger, func() {
-			s.mu.Lock()
-			defer s.mu.Unlock()
-			delete(s.byID, c.id)
-		})
-	})
+	}()
 	return &castorv1.CastResponse{CastId: c.id}, nil
 }
 
 // Drain takes no new cast, ends every running one as the server shuts down, and waits for them to end, or for ctx.
 func (s *Service) Drain(ctx context.Context) {
-	s.mu.Lock()
-	s.closed = true
-	s.mu.Unlock()
 	s.shut(errShutdown)
-	done := make(chan struct{})
-	go func() {
-		s.running.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-ctx.Done():
-	}
+	s.casts.Drain(ctx)
 }
 
 // asked is what a cast asks: the server's defaults, overridden field by field by the request's.
@@ -136,14 +116,12 @@ func (s *Service) Stop(_ context.Context, req *castorv1.StopRequest) (*castorv1.
 }
 
 func (s *Service) ListCasts(context.Context, *castorv1.ListCastsRequest) (*castorv1.ListCastsResponse, error) {
-	s.mu.Lock()
 	var playing []*cast
-	for _, c := range s.byID {
+	for c := range s.casts.All() {
 		if v, _ := c.now.Load(); v.ended == nil {
 			playing = append(playing, c)
 		}
 	}
-	s.mu.Unlock()
 	slices.SortFunc(playing, func(a, b *cast) int { return cmp.Or(a.started.Compare(b.started), cmp.Compare(a.id, b.id)) })
 	listed := make([]*castorv1.Cast, len(playing))
 	for i, c := range playing {
@@ -163,9 +141,7 @@ func shareable(source *castorv1.Source) *castorv1.Source {
 }
 
 func (s *Service) find(id string) (*cast, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	c, ok := s.byID[id]
+	c, ok := s.casts.Find(id)
 	if !ok {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no cast %q", id))
 	}
