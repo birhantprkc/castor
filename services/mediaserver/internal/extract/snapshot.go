@@ -24,6 +24,9 @@ func snapshot(ctx context.Context, dir, label string) {
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, snapshotTimeout)
+	defer cancel()
+
 	ts := time.Now().UnixMilli()
 	prefix := filepath.Join(dir, fmt.Sprintf("%s_%d", label, ts))
 

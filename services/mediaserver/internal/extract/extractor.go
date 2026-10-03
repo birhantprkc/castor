@@ -19,6 +19,9 @@ type Extractor struct{ cfg Config }
 func New(cfg Config) *Extractor { return &Extractor{cfg: cfg} }
 
 func (e *Extractor) extract(ctx context.Context, targetURL string) ([]*source.Stream, error) {
+	ctx, cancel := context.WithTimeout(ctx, pageBudget)
+	defer cancel()
+
 	session, err := newSession(ctx, e.cfg.Browser, e.cfg.Documents, targetURL)
 	if err != nil {
 		return nil, fmt.Errorf("creating session for %s: %w", targetURL, err)
