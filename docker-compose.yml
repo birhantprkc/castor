@@ -1,0 +1,33 @@
+name: castor
+
+x-castor: &castor
+  image: ghcr.io/stupside/castor:latest
+  restart: unless-stopped
+  # Device discovery and devices fetching from the media server both need the host network.
+  network_mode: host
+  volumes:
+    - ./config.yaml:/config.yaml:ro
+    - castor-cache:/root/.cache
+
+services:
+  media-server:
+    <<: *castor
+    command: ["media-server"]
+    # Intel VA-API; drop on hosts without /dev/dri.
+    devices:
+      - /dev/dri:/dev/dri
+    environment:
+      CASTOR_SERVER__TOKEN: ${CASTOR_SERVER__TOKEN:?set it in .env}
+
+  api-server:
+    <<: *castor
+    command: ["api-server"]
+    depends_on:
+      - media-server
+    environment:
+      CASTOR_API__TOKEN: ${CASTOR_API__TOKEN:?set it in .env}
+      CASTOR_SERVER__URL: http://127.0.0.1:8410
+      CASTOR_SERVER__TOKEN: ${CASTOR_SERVER__TOKEN:?set it in .env}
+
+volumes:
+  castor-cache:

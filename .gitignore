@@ -13,3 +13,6 @@ third_party/whisper.cpp/build_*/
 
 # zig cache (created by mlugg/setup-zig in CI)
 .zig-cache/
+
+# docker compose secrets (tokens)
+.env

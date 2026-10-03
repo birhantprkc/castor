@@ -270,6 +270,8 @@ docker run --rm --network host --device /dev/dri \
 
 The `castor-cache` volume keeps downloaded whisper models. To keep a server running, pass `-d` with `server` (and `-e CASTOR_SERVER__TOKEN=<token>`) or `api` (and `-e CASTOR_API__TOKEN=<token>`). A lone `server` can also run without host networking: publish `-p 8410:8410` and set `server.advertise`. Health checks (`grpc.health.v1.Health`) need no token, so an orchestrator can probe either server.
 
+`docker-compose.yml` runs `media-server` and `api-server` as separate services on the host network: put `CASTOR_SERVER__TOKEN` and `CASTOR_API__TOKEN` in a git-ignored `.env`, then `docker compose up -d`.
+
 Tags: `:latest` (stable), `:canary` (preview), or a pinned `:vX.Y.Z`.
 
 ## Purpose and disclaimer
