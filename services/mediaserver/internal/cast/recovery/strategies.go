@@ -1,7 +1,6 @@
 package recovery
 
 import (
-	"cmp"
 	"context"
 	"log/slog"
 
@@ -55,55 +54,6 @@ func nextReadable(ctx context.Context, in Intent, resolver SourceResolver, a Att
 		return a.reading(resolved, in.Deadline), true
 	}
 	return a, false
-}
-
-// degradeRendition reads the heaviest rung the measured link can carry, not merely the next one down.
-var degradeRendition = strategy{
-	name: "degrade-rendition",
-	why:  "read the heaviest rung of the same program the measured link can carry",
-	apply: func(ctx context.Context, c change) (Attempt, bool) {
-		a := c.attempt
-		speed := c.outcome.Evidence.Vitals.Speed
-		if a.Origin.Sole() || a.Rendition.Bitrate <= 0 || speed <= 0 {
-			return a, false
-		}
-
-		// Capped at the current rung, so the move is down even when the measurement says more.
-		carried := media.Bitrate(float64(a.Rendition.Bitrate) * float64(speed))
-		lighter := a.Origin.Lighter(min(carried, a.Rendition.Bitrate))
-		if len(lighter) == 0 {
-			return a, false
-		}
-
-		rung := lighter[0]
-		primary, ok := a.Program.PrimaryInput()
-		// A rung is reached by its own URL, or by name inside the manifest the program already reads.
-		if !ok || (rung.URL == nil && rung.Representation == "") {
-			return a, false
-		}
-		source := source.Stream{
-			URL: cmp.Or(rung.URL, primary.URL), Headers: primary.Headers.Clone(), ContentType: primary.ContentType,
-		}
-		resolved, err := c.resolver.Resolve(ctx, &source, rung)
-		if err != nil {
-			slog.WarnContext(ctx, "the lighter rendition's documents could not be read; declining an unsafe fallback",
-				"url", source.URL.String(), "representation", rung.Representation, "error", err)
-			return a, false
-		}
-
-		// Resolve reads the selected media playlist, which reports itself as a sole rendition.
-		origin := resolved.Origin
-		origin.Renditions = a.Origin.Renditions
-		origin.Segmented = a.Origin.Segmented
-		origin.Live = origin.Live || a.Origin.Live
-		if origin.Duration == 0 {
-			origin.Duration = a.Origin.Duration
-		}
-
-		a = a.reading(resolved, c.intent.Deadline)
-		a.Origin, a.Rendition = origin, rung
-		return a, true
-	},
 }
 
 // decodeAxis decodes the packets the reader died copying.

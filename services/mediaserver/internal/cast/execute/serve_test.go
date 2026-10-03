@@ -86,8 +86,8 @@ func TestAPlayingRemuxIsWatchedOverItsEncoder(t *testing.T) {
 	if !ok {
 		t.Fatal("a remux whose device took nothing was never judged in flight")
 	}
-	if fault.Kind != health.Unfetched || fault.Vitals.Headroom != 0 {
-		t.Errorf("verdict %s at %gx headroom, want %s judged on castor's own encoder", fault.Kind, fault.Vitals.Headroom, health.Unfetched)
+	if fault.Kind != health.Unfetched {
+		t.Errorf("verdict %s, want %s judged on castor's own encoder", fault.Kind, health.Unfetched)
 	}
 }
 

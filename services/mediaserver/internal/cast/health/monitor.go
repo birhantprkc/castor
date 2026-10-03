@@ -29,9 +29,6 @@ type Monitor struct {
 	// Landed is the artifact's own size, so the gate opens on the artifact rather than the producer.
 	Landed func() int64
 
-	// Headroom is the pace the read was allowed (zero if not a source read).
-	Headroom float64
-
 	// Grace is how long the artifact may take; zero waits on it alone.
 	Grace time.Duration
 }

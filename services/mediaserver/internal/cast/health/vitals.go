@@ -23,9 +23,6 @@ type Vitals struct {
 	// Samples counts the speeds the producer stated, none before its first packet.
 	Samples int
 
-	// Headroom is the pace the read was allowed, as a multiple of realtime; zero judges no deliverability.
-	Headroom float64
-
 	// ended is a producer that finished, which never stalls since its buffer will not grow again.
 	ended  bool
 	failed bool
@@ -45,14 +42,11 @@ type Vitals struct {
 	// delivered is the media the device can fetch, and sincePlay how long it has held the URL.
 	delivered time.Duration
 	sincePlay time.Duration
-
-	// sinceDeficit tells a link losing the race from a passing dip.
-	sinceDeficit time.Duration
 }
 
 func (h Vitals) String() string {
-	return fmt.Sprintf("landed=%d position=%s speed=%.4gx headroom=%.4gx samples=%d since_growth=%s handed=%d since_fetch=%s buffered=%s",
-		h.Landed, h.Position.Round(time.Second), float64(h.Speed), h.Headroom,
+	return fmt.Sprintf("landed=%d position=%s speed=%.4gx samples=%d since_growth=%s handed=%d since_fetch=%s buffered=%s",
+		h.Landed, h.Position.Round(time.Second), float64(h.Speed),
 		h.Samples, h.sinceGrowth.Round(time.Second), h.handed, h.sinceFetch.Round(time.Second),
 		h.buffer().Round(time.Second))
 }
@@ -72,16 +66,6 @@ func (h Vitals) leads() bool { return h.lead >= transcriptionLead.Seconds() || h
 // cushioned is a buffer deep enough to ride out a source that goes quiet for a moment.
 func (h Vitals) cushioned() bool { return h.Position >= readCushion }
 
-// measured is deliverability settled: the read ended, was given no headroom, or stated enough speeds.
-func (h Vitals) measured() bool {
-	return h.ended || h.Headroom <= 1 || h.Samples >= minSpeedSamples
-}
-
-// starving is a read with headroom, measured slower than playback.
-func (h Vitals) starving() bool {
-	return !h.ended && h.Headroom > 1 && h.Samples >= minSpeedSamples && h.Speed < playbackRate
-}
-
 const (
 	// readCushion is the media a read holds before a device is started, since a device gives up on a stall long before one is judged.
 	readCushion = 30 * time.Second
@@ -91,9 +75,6 @@ const (
 
 	// StallWindow outlasts two reconnect ceilings, so a reconnecting read is never called silent.
 	StallWindow = 2*fetch.BackoffMax + 30*time.Second
-
-	// deficitWindow is one reconnect ceiling, the longest a legitimate backoff dips.
-	deficitWindow = fetch.BackoffMax
 
 	// fetchWindow is one reconnect ceiling: a device on the local network needs no longer.
 	fetchWindow = fetch.BackoffMax
@@ -108,9 +89,3 @@ const (
 	// reportInterval is how often a watch with nothing to decide says so.
 	reportInterval = 5 * time.Second
 )
-
-// playbackRate is the pace a device plays at.
-const playbackRate media.Speed = 1
-
-// minSpeedSamples outlasts a producer's startup lag before its speed convicts it.
-const minSpeedSamples = 6

@@ -75,7 +75,6 @@ func readMonitor(reader *pull, m health.Monitor) health.Monitor {
 	m.Producer = reader
 	m.Telemetry = reader
 	m.Landed = reader.spool.Size
-	m.Headroom = reader.judgedPace()
 	return m
 }
 

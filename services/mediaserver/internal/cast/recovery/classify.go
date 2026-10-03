@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/stupside/castor/services/mediaserver/internal/cast/health"
 )
@@ -21,8 +20,6 @@ const (
 	unreachable
 	// sourceStalled is a source that stopped delivering mid-cast.
 	sourceStalled
-	// underDelivering is a source arriving slower than it will be played.
-	underDelivering
 	// copyBrokeUpstream is a reader that exited on packets it was copying.
 	copyBrokeUpstream
 	// deviceGone is a device that crashed or switched off, not one that refused.
@@ -41,8 +38,6 @@ func (k kind) String() string {
 		return "unreachable"
 	case sourceStalled:
 		return "source-stalled"
-	case underDelivering:
-		return "under-delivering"
 	case copyBrokeUpstream:
 		return "copy-broke-upstream"
 	case deviceGone:
@@ -122,11 +117,6 @@ var verdictClasses = map[health.Kind]classRule{
 		why:  "the source stopped delivering entirely while it was still supposed to be delivering",
 		kind: sourceStalled,
 	},
-	// The failure this whole layer was built for; a fact about the LINK, not media.
-	health.Undeliverable: {
-		why:  "the source delivers fewer media seconds per wall-clock second than playback consumes, so the cast can never catch up however long it is given",
-		kind: underDelivering,
-	},
 }
 
 // unrecognised is the fallback row; fault still carries phase, measurements and evidence.
@@ -205,16 +195,8 @@ func (f *fault) arithmetic() []string {
 	if o.Duration > 0 {
 		terms = append(terms, fmt.Sprintf("the source published a %s program", o.Duration))
 	}
-	if at, ok := o.ProjectedRuntime(f.evidence.Vitals.Speed); ok {
-		terms = append(terms, fmt.Sprintf("delivering it at the measured %.4gx takes %s",
-			float64(f.evidence.Vitals.Speed), at.Round(time.Minute)))
-	}
 	if len(o.Renditions) > 0 {
-		if o.Sole() {
-			terms = append(terms, "the source published one rendition, so there was nothing lighter to fall back to")
-		} else {
-			terms = append(terms, fmt.Sprintf("the source published %d renditions", len(o.Renditions)))
-		}
+		terms = append(terms, fmt.Sprintf("the source published %d renditions", len(o.Renditions)))
 	}
 	spent := fmt.Sprintf("candidate %d of %d", f.attempt.candidate+1, f.candidates)
 	if f.attempt.candidate+1 >= f.candidates {

@@ -96,15 +96,12 @@ type tracker struct {
 	samples int
 	fresh   bool
 
-	// deficitFrom is when the read fell under playback rate.
-	deficitFrom time.Time
-
 	reported time.Time
 }
 
 // read takes one reading of every port.
 func (t *tracker) read() Vitals {
-	h := Vitals{Headroom: t.m.Headroom, subtitles: t.m.Lead != nil}
+	h := Vitals{subtitles: t.m.Lead != nil}
 
 	if t.m.Landed != nil {
 		h.Landed = t.m.Landed()
@@ -157,15 +154,6 @@ func (t *tracker) read() Vitals {
 
 	if t.m.Grace > 0 {
 		h.overdue = time.Since(t.start) > t.m.Grace
-	}
-
-	if h.starving() {
-		if t.deficitFrom.IsZero() {
-			t.deficitFrom = time.Now()
-		}
-		h.sinceDeficit = time.Since(t.deficitFrom)
-	} else {
-		t.deficitFrom = time.Time{}
 	}
 
 	return h
@@ -221,10 +209,9 @@ func (t *tracker) fault(ctx context.Context, r rule, act action, h Vitals) error
 	return f
 }
 
-// report says what the watch is waiting on, at once for a fresh deficit.
+// report says what the watch is waiting on.
 func (t *tracker) report(ctx context.Context, r rule, h Vitals) {
-	deficit := t.fresh && h.Headroom > 1 && h.Speed > 0 && h.Speed < playbackRate
-	if !deficit && time.Since(t.reported) < reportInterval {
+	if time.Since(t.reported) < reportInterval {
 		return
 	}
 	t.reported = time.Now()
@@ -236,9 +223,7 @@ func (t *tracker) report(ctx context.Context, r rule, h Vitals) {
 		"landed_bytes", h.Landed,
 		"media_position", h.Position.Round(time.Second),
 		"speed", float64(h.Speed),
-		"readrate", h.Headroom,
 		"speed_samples", h.Samples,
-		"under_playback_rate_for", h.sinceDeficit.Round(time.Second),
 		"transcribed_lead_seconds", int(h.lead),
 		"need_lead_seconds", transcriptionLead.Seconds(),
 	)

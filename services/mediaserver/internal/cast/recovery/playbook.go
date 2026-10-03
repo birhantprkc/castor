@@ -15,9 +15,6 @@ var playbook = map[kind][]strategy{
 	// A link that went silent may have rate-limited the opening burst, so it is asked once more at playback pace.
 	sourceStalled: {relaxRead, switchCandidate},
 
-	// A lighter rung keeps the source; the next link comes second, since the source may publish one rung only.
-	underDelivering: {degradeRendition, switchCandidate},
-
 	// Decoding comes first; a bitstream this one cannot copy may still copy from another link.
 	copyBrokeUpstream: {decodeAxis, switchCandidate},
 

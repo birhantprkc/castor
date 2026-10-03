@@ -56,26 +56,6 @@ var rules = []rule{{
 	when:   func(h Vitals) bool { return !h.ended && h.sinceGrowth > StallWindow && !h.buffered() },
 	kind:   Stalled,
 }, {
-	name:   "undeliverable",
-	why:    "the source has delivered fewer media seconds per wall-clock second than playback consumes for longer than a reconnect ceiling, so the cast can never catch up however long it is given",
-	phases: []Phase{Reading},
-	when:   func(h Vitals) bool { return h.starving() && h.sinceDeficit > deficitWindow },
-	kind:   Undeliverable,
-}, {
-	// The gate holds a fresh deficit rather than answering it.
-	name:   "under-playback-rate",
-	why:    "the read is delivering less than playback consumes, and the deficit has not yet outlasted the backoff this read was handed",
-	phases: []Phase{Reading},
-	when:   Vitals.starving,
-	kind:   starting,
-}, {
-	// In-flight: the deficit outlasted the stall window while a viewer watches.
-	name:   "undeliverable-in-flight",
-	why:    "the source has been delivering less than playback consumes for longer than the stall window, so the device's buffer cannot be refilled",
-	phases: []Phase{Playing},
-	when:   func(h Vitals) bool { return h.starving() && h.sinceDeficit > StallWindow },
-	kind:   Undeliverable,
-}, {
 	name:   "unfetched",
 	why:    "the device accepted the stream URL and was never handed a byte of what this cast produced for it",
 	phases: []Phase{Playing},
@@ -84,18 +64,18 @@ var rules = []rule{{
 	blames: theDevice,
 }, {
 	name:   "burn-in-ready",
-	why:    "the buffer holds media, the read has proved it can deliver it, and the transcription is far enough ahead of the encoder",
+	why:    "the buffer holds a cushion of media and the transcription is far enough ahead of the encoder",
 	phases: []Phase{Reading},
 	when: func(h Vitals) bool {
-		return h.subtitles && (h.playable() && h.measured() && h.cushioned() && h.leads() || h.ended)
+		return h.subtitles && (h.playable() && h.cushioned() && h.leads() || h.ended)
 	},
 	kind: ready,
 }, {
 	name:   "ready",
-	why:    "the buffer holds a cushion of media and the read has proved it can deliver it",
+	why:    "the buffer holds a cushion of media",
 	phases: []Phase{Reading},
 	when: func(h Vitals) bool {
-		return !h.subtitles && (h.playable() && h.measured() && h.cushioned() || h.ended)
+		return !h.subtitles && (h.playable() && h.cushioned() || h.ended)
 	},
 	kind: ready,
 }, {

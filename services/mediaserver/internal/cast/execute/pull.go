@@ -198,10 +198,3 @@ func (p *pull) exitStatus() int { return p.proc.Evidence().ExitStatus }
 
 // copying is the halves this read passed through untouched, which is what a recovery must stop asking for.
 func (p *pull) copying() media.Axes { return p.floor.Encoded().Copying() }
-
-func (p *pull) judgedPace() float64 {
-	if p.pcmOut != nil || p.floor.Encoded().Any() {
-		return 0
-	}
-	return p.pace
-}

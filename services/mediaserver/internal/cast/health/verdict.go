@@ -43,8 +43,6 @@ const (
 	healthy
 	// Stalled is a producer silent for the stall window.
 	Stalled
-	// Undeliverable is media arriving slower than playback.
-	Undeliverable
 	// Dead is a producer that ended with nothing playable.
 	Dead
 	// Unfetched is a device that accepted the URL and never fetched it.
@@ -59,8 +57,6 @@ func (k Kind) String() string {
 		return "healthy"
 	case Stalled:
 		return "stalled"
-	case Undeliverable:
-		return "undeliverable"
 	case Dead:
 		return "dead"
 	case Unfetched:
@@ -98,13 +94,11 @@ var actions = map[verdict]action{
 	{kind: ready, phase: Reading}: open,
 	{kind: ready, phase: Opening}: open,
 
-	{kind: Dead, phase: Reading}:          revise,
-	{kind: Dead, phase: Opening}:          revise,
-	{kind: Stalled, phase: Reading}:       revise,
-	{kind: Stalled, phase: Opening}:       revise,
-	{kind: Undeliverable, phase: Reading}: revise,
+	{kind: Dead, phase: Reading}:    revise,
+	{kind: Dead, phase: Opening}:    revise,
+	{kind: Stalled, phase: Reading}: revise,
+	{kind: Stalled, phase: Opening}: revise,
 
-	{kind: Stalled, phase: Playing}:       abandon,
-	{kind: Undeliverable, phase: Playing}: abandon,
-	{kind: Unfetched, phase: Playing}:     abandon,
+	{kind: Stalled, phase: Playing}:   abandon,
+	{kind: Unfetched, phase: Playing}: abandon,
 }
