@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stupside/castor/services/mediaserver/internal/media"
 	"github.com/stupside/castor/services/mediaserver/internal/source"
@@ -29,7 +30,7 @@ const ffmpegPresentation = `<?xml version="1.0" encoding="utf-8"?>
 
 func resolveWith(t *testing.T, body string, chosen source.Rendition, ceiling media.HeightCap) source.Resolution {
 	t.Helper()
-	resolver := source.NewResolver(&sourcetest.Playlist{Body: body, Status: http.StatusOK}, ceiling, source.Formats{Format{}})
+	resolver := source.NewResolver(&sourcetest.Document{Body: body, Status: http.StatusOK}, ceiling, source.Formats{Format{}})
 	stream := &source.Stream{URL: sourcetest.URL(t, "https://origin.example/manifest.mpd"), ContentType: media.DASH}
 	resolved, err := resolver.Resolve(t.Context(), stream, chosen)
 	if err != nil {
@@ -118,9 +119,45 @@ func TestAPresentationUnderDRMIsRefused(t *testing.T) {
     <ContentProtection schemeIdUri="urn:mpeg:dash:mp4protection:2011" value="cenc"/>
     <Representation id="hd" mimeType="video/mp4" codecs="avc1.640028" bandwidth="6941000" height="1080"/>
   </AdaptationSet></Period></MPD>`
-	resolver := source.NewResolver(&sourcetest.Playlist{Body: body, Status: http.StatusOK}, 1080, source.Formats{Format{}})
+	resolver := source.NewResolver(&sourcetest.Document{Body: body, Status: http.StatusOK}, 1080, source.Formats{Format{}})
 	stream := &source.Stream{URL: sourcetest.URL(t, "https://origin.example/manifest.mpd"), ContentType: media.DASH}
 	if _, err := resolver.Resolve(t.Context(), stream, source.Rendition{}); err == nil || !strings.Contains(err.Error(), "cenc") {
 		t.Errorf("Resolve = %v, want a refusal naming the protection", err)
+	}
+}
+
+func TestThumbnailsAndTrickPlayNeverJoinTheLadder(t *testing.T) {
+	const body = mpdOpen + `type="static" mediaPresentationDuration="PT1H"><Period>
+  <AdaptationSet contentType="video"><Representation id="film" codecs="avc1.64001f" bandwidth="800000" height="360"/></AdaptationSet>
+  <AdaptationSet contentType="image" mimeType="image/jpeg"><Representation id="tiles" bandwidth="1000" width="1600" height="900"/></AdaptationSet>
+  <AdaptationSet contentType="video"><EssentialProperty schemeIdUri="http://dashif.org/guidelines/trickmode" value="1"/>
+    <Representation id="trick" codecs="avc1.64001f" bandwidth="100000" height="720"/></AdaptationSet>
+</Period></MPD>`
+	resolved := resolveWith(t, body, source.Rendition{}, 1080)
+	if len(resolved.Origin.Renditions) != 1 || resolved.Rendition.Representation != "film" {
+		t.Errorf("ladder = %+v, want the film alone", resolved.Origin.Renditions)
+	}
+}
+
+func TestALiveLadderIsTheOpenPeriods(t *testing.T) {
+	const body = mpdOpen + `type="dynamic" availabilityStartTime="2026-01-01T00:00:00Z"><Period id="ad" start="PT0S" duration="PT600S">
+  <AdaptationSet contentType="video"><Representation id="ad" codecs="avc1.64001f" bandwidth="4000000" height="1080"/></AdaptationSet></Period>
+  <Period id="now" start="PT600S"><AdaptationSet contentType="video"><Representation id="now" codecs="avc1.64001f" bandwidth="1000000" height="720"/></AdaptationSet></Period></MPD>`
+	if got := resolveWith(t, body, source.Rendition{}, 720).Rendition; got.Representation != "now" {
+		t.Errorf("chosen %+v, want the running Period's 720p rung, not the finished ad's", got)
+	}
+}
+
+func TestCalendarUnitsWrittenAsZerosStillReadAsADuration(t *testing.T) {
+	runtime := func(stated string) time.Duration {
+		body := mpdOpen + `type="static" mediaPresentationDuration="` + stated + `"><Period>
+  <AdaptationSet contentType="video"><Representation id="v" codecs="avc1.64001f" bandwidth="800000" height="360"/></AdaptationSet></Period></MPD>`
+		return resolveWith(t, body, source.Rendition{}, 1080).Origin.Duration
+	}
+	if got := runtime("P0Y0M0DT0H3M30S"); got != 210*time.Second {
+		t.Errorf("P0Y0M0DT0H3M30S = %v, want 3m30s", got)
+	}
+	if got := runtime("P1M"); got != 0 {
+		t.Errorf("P1M = %v, want nothing: a month has no fixed length", got)
 	}
 }

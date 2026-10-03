@@ -106,9 +106,9 @@ func inspect(ctx context.Context, env source.Env, stream source.Stream, origin s
 }
 
 // inspectCompanion reads the audio rendition's media playlist.
-func inspectCompanion(ctx context.Context, playlists source.Client, audioURL *url.URL, headers http.Header) (media.Fetch, bool) {
+func inspectCompanion(ctx context.Context, client source.Client, audioURL *url.URL, headers http.Header) (media.Fetch, bool) {
 	unknown := media.Fetch{Segmented: true}
-	doc, status, err := readPlaylist(ctx, playlists, audioURL, headers)
+	doc, status, err := readPlaylist(ctx, client, audioURL, headers)
 	if err != nil {
 		slog.WarnContext(ctx, "the companion audio playlist could not be read; its fetch characteristics stay unknown",
 			"error", err, "status", status, "url", audioURL.String())
@@ -128,8 +128,8 @@ func inspectCompanion(ctx context.Context, playlists source.Client, audioURL *ur
 }
 
 // readPlaylist fetches one HLS document and reduces it to the facts it states.
-func readPlaylist(ctx context.Context, playlists source.Client, u *url.URL, headers http.Header) (document, int, error) {
-	body, from, status, err := playlists.Fetch(ctx, u, headers)
+func readPlaylist(ctx context.Context, client source.Client, u *url.URL, headers http.Header) (document, int, error) {
+	body, from, status, err := client.Fetch(ctx, u, headers)
 	if err != nil {
 		return document{}, status, err
 	}

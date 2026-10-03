@@ -30,7 +30,7 @@ func TestFetchReportsWhatTheOriginSaid(t *testing.T) {
 		}
 	}))
 	t.Cleanup(origin.Close)
-	client := Client(5 * time.Second)
+	client := New(5 * time.Second)
 
 	// Relative URIs resolve against where the document was served from, not the URL asked for.
 	got, from, status, err := client.Fetch(t.Context(), sourcetest.URL(t, origin.URL+"/hls/master.m3u8"), http.Header{"Referer": {"https://player.example/"}})
@@ -56,7 +56,7 @@ func TestAFreshSessionCookieReplacesTheCopyTakenEarlier(t *testing.T) {
 		_, _ = w.Write([]byte("#EXTM3U\n"))
 	}))
 	t.Cleanup(origin.Close)
-	client := Client(5 * time.Second)
+	client := New(5 * time.Second)
 	u := sourcetest.URL(t, origin.URL+"/live.m3u8")
 	if _, _, _, err := client.Fetch(t.Context(), u, nil); err != nil {
 		t.Fatal(err)
@@ -76,7 +76,7 @@ func TestAReplayCarriesTheSessionCookieOverThePagesCopy(t *testing.T) {
 		_, _ = w.Write([]byte("#EXTM3U\n"))
 	}))
 	t.Cleanup(origin.Close)
-	client := Client(5 * time.Second)
+	client := New(5 * time.Second)
 	u := sourcetest.URL(t, origin.URL+"/live.m3u8")
 	page := http.Header{"Cookie": {"consent=yes; token=stale"}, "Referer": {"https://player.example/"}}
 	if got := client.Replay(u, page); !maps.EqualFunc(got, page, slices.Equal) {

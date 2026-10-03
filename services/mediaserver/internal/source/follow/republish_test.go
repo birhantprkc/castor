@@ -38,7 +38,7 @@ func republished(t *testing.T, s shape) *url.URL {
 	if err != nil {
 		t.Fatal(err)
 	}
-	followed, stop, err := New(&sourcetest.Playlist{}, source.Formats{s}, 5*time.Second, nil).Republish(t.Context(), p)
+	followed, stop, err := New(&sourcetest.Document{}, source.Formats{s}, 5*time.Second, nil).Republish(t.Context(), p)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -18,35 +18,35 @@ import (
 	"github.com/stupside/castor/services/mediaserver/internal/source/timeline"
 )
 
-// Playlist serves one fixture document to every fetch; like web.Client, anything but a 2xx fails.
-type Playlist struct {
+// Document serves one fixture document to every fetch; like the web client, anything but a 2xx fails.
+type Document struct {
 	Body   string
 	Status int
 }
 
-func (*Playlist) Replay(_ *url.URL, h http.Header) http.Header { return h }
+func (*Document) Replay(_ *url.URL, h http.Header) http.Header { return h }
 
-func (p *Playlist) Read(ctx context.Context, u *url.URL, h http.Header, r timeline.Range) (io.ReadCloser, error) {
-	return read(ctx, p, u, h, r)
+func (d *Document) Read(ctx context.Context, u *url.URL, h http.Header, r timeline.Range) (io.ReadCloser, error) {
+	return read(ctx, d, u, h, r)
 }
 
-func (p *Playlist) Fetch(_ context.Context, u *url.URL, _ http.Header) (string, *url.URL, int, error) {
-	if p.Status < 200 || p.Status >= 300 {
-		return "", u, p.Status, fmt.Errorf("fetching document: HTTP %d", p.Status)
+func (d *Document) Fetch(_ context.Context, u *url.URL, _ http.Header) (string, *url.URL, int, error) {
+	if d.Status < 200 || d.Status >= 300 {
+		return "", u, d.Status, fmt.Errorf("fetching document: HTTP %d", d.Status)
 	}
-	return p.Body, u, p.Status, nil
+	return d.Body, u, d.Status, nil
 }
 
-// Playlists serves documents of one origin by path, 404s every other, and records every path asked for.
-type Playlists struct {
-	Documents map[string]string
+// Documents serves the documents of one origin by path, 404s every other, and records every path asked for.
+type Documents struct {
+	ByPath map[string]string
 
 	mu    sync.Mutex
 	asked []string
 }
 
 // Testdata serves every file in dir at its own name under the origin root.
-func Testdata(t *testing.T, dir string) *Playlists {
+func Testdata(t *testing.T, dir string) *Documents {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -60,24 +60,24 @@ func Testdata(t *testing.T, dir string) *Playlists {
 		}
 		docs["/"+e.Name()] = string(body)
 	}
-	return &Playlists{Documents: docs}
+	return &Documents{ByPath: docs}
 }
 
-func (*Playlists) Replay(_ *url.URL, h http.Header) http.Header { return h }
+func (*Documents) Replay(_ *url.URL, h http.Header) http.Header { return h }
 
-func (p *Playlists) Fetch(_ context.Context, u *url.URL, _ http.Header) (string, *url.URL, int, error) {
-	p.mu.Lock()
-	p.asked = append(p.asked, u.Path)
-	p.mu.Unlock()
-	body, ok := p.Documents[u.Path]
+func (d *Documents) Fetch(_ context.Context, u *url.URL, _ http.Header) (string, *url.URL, int, error) {
+	d.mu.Lock()
+	d.asked = append(d.asked, u.Path)
+	d.mu.Unlock()
+	body, ok := d.ByPath[u.Path]
 	if !ok {
 		return "", u, http.StatusNotFound, fmt.Errorf("fetching document: HTTP %d", http.StatusNotFound)
 	}
 	return body, u, http.StatusOK, nil
 }
 
-func (p *Playlists) Read(ctx context.Context, u *url.URL, h http.Header, r timeline.Range) (io.ReadCloser, error) {
-	return read(ctx, p, u, h, r)
+func (d *Documents) Read(ctx context.Context, u *url.URL, h http.Header, r timeline.Range) (io.ReadCloser, error) {
+	return read(ctx, d, u, h, r)
 }
 
 type fetcher interface {
@@ -97,10 +97,10 @@ func read(ctx context.Context, f fetcher, u *url.URL, h http.Header, r timeline.
 }
 
 // Asked is every path fetched so far, in order.
-func (p *Playlists) Asked() []string {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return slices.Clone(p.asked)
+func (d *Documents) Asked() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return slices.Clone(d.asked)
 }
 
 // URL parses raw, failing the test when it does not.

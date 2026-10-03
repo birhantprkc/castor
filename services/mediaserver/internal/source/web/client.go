@@ -28,7 +28,8 @@ type client struct {
 // documentLimit is far above any real playlist or manifest, and far below a film served in its place.
 const documentLimit = 16 << 20
 
-func Client(timeout time.Duration) source.Client {
+// New reads origins with documents bounded by timeout, sharing one cookie session across every read.
+func New(timeout time.Duration) source.Client {
 	// A CDN that authorises a session on the master (Akamai's hdntl) refuses every later read without its cookie.
 	jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
 	return &client{http: &http.Client{Timeout: timeout, Jar: jar}}

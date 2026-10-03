@@ -38,6 +38,7 @@ type Identity struct {
 	MIMETypes   []string
 }
 
+// Env is what every format resolves with: the origin's client and the cast's height ceiling.
 type Env struct {
 	Client    Client
 	MaxHeight media.HeightCap
@@ -62,6 +63,7 @@ func (e Env) Choose(ctx context.Context, origin Origin, settled Rendition, prefe
 	return chosen
 }
 
+// Subject is the link a format resolves, what is known of its origin so far, and the rung already settled on.
 type Subject struct {
 	Stream Stream
 	Origin Origin

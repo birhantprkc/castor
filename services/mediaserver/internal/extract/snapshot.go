@@ -49,11 +49,6 @@ func sanitize(rawURL string) string {
 	if err != nil {
 		return "unknown"
 	}
-	s := u.Host + u.Path
-	s = strings.ReplaceAll(s, "/", "_")
-	s = strings.ReplaceAll(s, ":", "_")
-	if len(s) > 80 {
-		s = s[:80]
-	}
-	return s
+	s := strings.NewReplacer("/", "_", ":", "_").Replace(u.Host + u.Path)
+	return s[:min(len(s), 80)]
 }

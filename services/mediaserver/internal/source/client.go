@@ -17,3 +17,17 @@ type Client interface {
 	// Read opens media bytes, within r when it has a length, on the same session; a status the origin answered comes as a timeline.Failure.
 	Read(ctx context.Context, u *url.URL, h http.Header, r timeline.Range) (io.ReadCloser, error)
 }
+
+// Upstream reads what a timeline lists, with the headers and session its input carries.
+type Upstream struct {
+	Client  Client
+	Headers http.Header
+}
+
+func (u Upstream) Read(ctx context.Context, uri string, r timeline.Range) (io.ReadCloser, error) {
+	parsed, err := url.Parse(uri)
+	if err != nil {
+		return nil, err
+	}
+	return u.Client.Read(ctx, parsed, u.Headers, r)
+}

@@ -2,6 +2,7 @@ package extract
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -16,7 +17,7 @@ import (
 	"github.com/stupside/castor/services/mediaserver/internal/extract/stealth"
 )
 
-// session owns the chromedp lifecycle for a single proxy attempt.
+// session owns the browser that extracts one page.
 type session struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -98,7 +99,7 @@ func allocatorOpts(cfg BrowserConfig) []chromedp.ExecAllocatorOption {
 func (s *session) readBody(reqID network.RequestID) ([]byte, error) {
 	target := chromedp.FromContext(s.ctx).Target
 	if target == nil {
-		return nil, fmt.Errorf("no CDP target on the session")
+		return nil, errors.New("no CDP target on the session")
 	}
 	return network.GetResponseBody(reqID).Do(cdp.WithExecutor(s.ctx, target))
 }

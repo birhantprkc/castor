@@ -8,6 +8,7 @@ import (
 	"github.com/stupside/castor/services/mediaserver/internal/media"
 )
 
+// Stream is one link a cast may read, with what capture and measurement said of it.
 type Stream struct {
 	URL *url.URL
 
@@ -23,11 +24,11 @@ type Stream struct {
 }
 
 // Bitrate is the rate a measurement established for this stream, 0 when none did.
-func (c *Stream) Bitrate() media.Bitrate {
-	if c.Probe == nil {
+func (s *Stream) Bitrate() media.Bitrate {
+	if s.Probe == nil {
 		return 0
 	}
-	return media.Bitrate(c.Probe.BitRate)
+	return media.Bitrate(s.Probe.BitRate)
 }
 
 // minContentDuration is the shortest runtime treated as real content; pre-roll ads run well under it.

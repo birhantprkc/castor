@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/chromedp/cdproto/network"
+	"github.com/chromedp/cdproto/runtime"
 
 	"github.com/stupside/castor/services/mediaserver/internal/media"
 	"github.com/stupside/castor/services/mediaserver/internal/source"
@@ -128,6 +129,19 @@ func TestARedirectedDocumentIsReadWhereItLanded(t *testing.T) {
 	}
 	if entries[1].Ladder != source.LadderMultivariant || entries[0].Ladder != source.LadderUnknown {
 		t.Errorf("ladders = %v on %s, %v on %s, want the master on %s", entries[0].Ladder, asked, entries[1].Ladder, landed, landed)
+	}
+}
+
+// A player printing its stream to the console names it, whatever else it prints.
+func TestALinkAPlayerPrintsIsCaptured(t *testing.T) {
+	c := testCollector(t)
+	c.listen(&runtime.EventConsoleAPICalled{Args: []*runtime.RemoteObject{
+		{Value: []byte(`42`)},
+		{Value: []byte(`"source: https:\/\/cdn.example\/hls\/index.m3u8?t=\"x\""`)},
+		{Value: []byte(`{"src":"https://cdn.example/dash/stream.mpd"}`)},
+	}})
+	if got, want := urls(c.entries()), []string{"https://cdn.example/hls/index.m3u8?t="}; !slices.Equal(got, want) {
+		t.Errorf("entries = %v, want %v: only a printed string is read, its escapes undone", got, want)
 	}
 }
 

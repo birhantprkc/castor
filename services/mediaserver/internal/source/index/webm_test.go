@@ -7,6 +7,19 @@ import (
 	"testing"
 )
 
+// Matroska element ids the WebM fixtures are written with.
+const (
+	ebmlSegment       = 0x18538067
+	ebmlInfo          = 0x1549A966
+	ebmlTimecodeScale = 0x2AD7B1
+	ebmlDuration      = 0x4489
+	ebmlCues          = 0x1C53BB6B
+	ebmlCuePoint      = 0xBB
+	ebmlCueTime       = 0xB3
+	ebmlCueTrackPos   = 0xB7
+	ebmlClusterAt     = 0xF1
+)
+
 // ebml is one element: its id as written, an eight-byte size, and its children.
 func ebml(id uint32, children ...[]byte) []byte {
 	payload := bytes.Join(children, nil)
@@ -23,12 +36,14 @@ func ebml(id uint32, children ...[]byte) []byte {
 
 func number(n uint64) []byte { return binary.BigEndian.AppendUint64(nil, n) }
 
+// cue points at the cluster at a position counted from the Segment's data.
+func cue(time, at uint64) []byte {
+	return ebml(ebmlCuePoint, ebml(ebmlCueTime, number(time)), ebml(ebmlCueTrackPos, ebml(ebmlClusterAt, number(at))))
+}
+
 func TestAWebMIndexCutsTheFileAtEachCluster(t *testing.T) {
 	info := ebml(ebmlInfo, ebml(ebmlTimecodeScale, number(1_000_000)), ebml(ebmlDuration, binary.BigEndian.AppendUint64(nil, math.Float64bits(3000))))
 	clusters := [][]byte{bytes.Repeat([]byte{1}, 100), bytes.Repeat([]byte{2}, 200), bytes.Repeat([]byte{3}, 50)}
-	cue := func(time, at uint64) []byte {
-		return ebml(ebmlCuePoint, ebml(ebmlCueTime, number(time)), ebml(ebmlCueTrackPos, ebml(ebmlClusterAt, number(at))))
-	}
 	// Positions count from the Segment's data, which starts after its header.
 	cues := ebml(ebmlCues, cue(0, uint64(len(info))), cue(1000, uint64(len(info)+100)), cue(2000, uint64(len(info)+300)))
 	segment := ebml(ebmlSegment, info, bytes.Join(clusters, nil), cues)
@@ -57,9 +72,6 @@ func TestAWebMIndexCutsTheFileAtEachCluster(t *testing.T) {
 
 func TestTracksCueingOneClusterMakeOneSubsegment(t *testing.T) {
 	info := ebml(ebmlInfo, ebml(ebmlTimecodeScale, number(1_000_000)))
-	cue := func(time, at uint64) []byte {
-		return ebml(ebmlCuePoint, ebml(ebmlCueTime, number(time)), ebml(ebmlCueTrackPos, ebml(ebmlClusterAt, number(at))))
-	}
 	first := uint64(len(info))
 	cues := ebml(ebmlCues, cue(0, first), cue(0, first), cue(1000, first+100), cue(1000, first+100))
 	segment := ebml(ebmlSegment, info, bytes.Repeat([]byte{1}, 300), cues)

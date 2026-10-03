@@ -3,6 +3,7 @@ package extract
 import (
 	"context"
 	_ "embed"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -39,7 +40,10 @@ func solveTurnstile(ctx context.Context) bool {
 	ch := make(chan struct{}, 2)
 
 	go func() {
-		var pos map[string]any
+		var pos struct {
+			X float64 `json:"x"`
+			Y float64 `json:"y"`
+		}
 		if err := chromedp.Run(tCtx,
 			chromedp.Poll(turnstileIframePosJS, &pos, chromedp.WithPollingTimeout(0)),
 		); err != nil {
@@ -47,12 +51,9 @@ func solveTurnstile(ctx context.Context) bool {
 			return
 		}
 
-		x, _ := pos["x"].(float64)
-		y, _ := pos["y"].(float64)
-
 		var gone bool
 		if err := chromedp.Run(tCtx,
-			chromedp.MouseClickXY(x, y, chromedp.ButtonLeft),
+			chromedp.MouseClickXY(pos.X, pos.Y, chromedp.ButtonLeft),
 			chromedp.Poll(turnstileGoneJS, &gone, chromedp.WithPollingTimeout(0)),
 			chromedp.WaitReady("body"),
 		); err != nil {
@@ -102,7 +103,7 @@ func bypassTurnstile(ctx context.Context) error {
 
 	if detectTurnstile(ctx) {
 		if !solveTurnstile(ctx) {
-			return fmt.Errorf("turnstile solve failed after retry")
+			return errors.New("turnstile solve failed after retry")
 		}
 		slog.DebugContext(ctx, "turnstile solved after retry")
 	}

@@ -3,8 +3,8 @@ package extract
 import (
 	"cmp"
 	"context"
-	"encoding/json"
-	"fmt"
+	"encoding/json/v2"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -27,6 +27,7 @@ var urlInText = regexp.MustCompile(`https?://[^\s"'<>]+`)
 // bodyReader asks the browser for the bytes of a response it already holds.
 type bodyReader func(network.RequestID) ([]byte, error)
 
+// capture is one link the page fetched that may be a stream, and what its body said once read.
 type capture struct {
 	raw         string
 	url         *url.URL
@@ -305,7 +306,7 @@ func (c *collector) Wait(ctx context.Context) ([]*source.Stream, error) {
 	if entries := c.entries(); len(entries) > 0 {
 		return entries, nil
 	}
-	return nil, fmt.Errorf("no stream URL captured within grace period")
+	return nil, errors.New("no stream URL captured within grace period")
 }
 
 func (c *collector) listen(ev any) {
@@ -339,38 +340,6 @@ func (c *collector) listen(ev any) {
 			}
 		}
 	}
-}
-
-// mergeHeaders folds outgoing headers into the set recorded for a request ID.
-func (c *collector) mergeHeaders(id network.RequestID, headers http.Header) {
-	if id == "" || len(headers) == 0 {
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	existing := c.requestHeaders[id]
-	if existing == nil {
-		existing = make(http.Header, len(headers))
-		c.requestHeaders[id] = existing
-	}
-	for k, vs := range headers {
-		if len(vs) > 0 && vs[0] != "" {
-			existing[k] = vs
-		}
-	}
-}
-
-func toHTTPHeader(h network.Headers) http.Header {
-	out := make(http.Header, len(h))
-	for k, v := range h {
-		if s, ok := v.(string); ok && !strings.HasPrefix(k, ":") {
-			out.Set(k, s)
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
 }
 
 func closeOnce(ch chan struct{}) {

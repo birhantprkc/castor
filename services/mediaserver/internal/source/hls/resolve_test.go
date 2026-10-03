@@ -13,15 +13,15 @@ import (
 )
 
 // newTestResolver wires resolution to this format alone, under a 1080 cap.
-func newTestResolver(playlists source.Client) *source.Resolver {
-	return source.NewResolver(playlists, 1080, source.Formats{Format{}})
+func newTestResolver(client source.Client) *source.Resolver {
+	return source.NewResolver(client, 1080, source.Formats{Format{}})
 }
 
 const mediaPlaylist = "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4.0,\nseg0.ts\n#EXT-X-ENDLIST\n"
 
-func resolve(t *testing.T, playlists source.Client, stream *source.Stream) source.Resolution {
+func resolve(t *testing.T, client source.Client, stream *source.Stream) source.Resolution {
 	t.Helper()
-	resolved, err := newTestResolver(playlists).Resolve(t.Context(), stream, source.Rendition{})
+	resolved, err := newTestResolver(client).Resolve(t.Context(), stream, source.Rendition{})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestResolveNarrowsAMasterToTheRungUnderTheCap(t *testing.T) {
 
 func TestResolveKeepsTheStreamWhenThePlaylistIsRefused(t *testing.T) {
 	const raw = "http://a.example/spent.m3u8"
-	resolved := resolve(t, &sourcetest.Playlist{Status: http.StatusForbidden}, hlsAt(t, raw))
+	resolved := resolve(t, &sourcetest.Document{Status: http.StatusForbidden}, hlsAt(t, raw))
 	if got := sourcetest.PrimaryInput(t, resolved.Program).URL.String(); got != raw {
 		t.Errorf("URL = %s, want the original %s", got, raw)
 	}
@@ -98,7 +98,7 @@ func TestResolveChoosesTheDefaultCompanionAudio(t *testing.T) {
 #EXT-X-STREAM-INF:BANDWIDTH=6000000,RESOLUTION=1920x1080,CODECS="avc1.640028,mp4a.40.2",AUDIO="aud"
 video.m3u8
 `
-	resolved := resolve(t, &sourcetest.Playlists{Documents: map[string]string{
+	resolved := resolve(t, &sourcetest.Documents{ByPath: map[string]string{
 		"/master.m3u8":   master,
 		"/video.m3u8":    mediaPlaylist,
 		"/audio/en.m3u8": mediaPlaylist,
@@ -128,7 +128,7 @@ func TestResolveDescribesTheChosenRungFromWhatTheMasterDeclared(t *testing.T) {
 			stream := hlsAt(t, "https://origin.example/master.m3u8")
 			stream.Probe = &media.ProbeInfo{VideoCodec: media.CodecHEVC, VideoProfile: "Main 10", VideoHeight: 2160, VideoBitDepth: 10}
 			master := "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=6000000,RESOLUTION=1920x1080,CODECS=\"" + tt.codecs + "\"\nvideo.m3u8\n"
-			resolved := resolve(t, &sourcetest.Playlists{Documents: map[string]string{
+			resolved := resolve(t, &sourcetest.Documents{ByPath: map[string]string{
 				"/master.m3u8": master,
 				"/video.m3u8":  mediaPlaylist,
 			}}, stream)
@@ -156,7 +156,7 @@ func TestAPlaylistUnderDRMIsRefusedAndAClearKeyIsNot(t *testing.T) {
 		{`#EXT-X-KEY:METHOD=AES-128,URI="key.bin"`, false},
 	} {
 		body := "#EXTM3U\n#EXT-X-TARGETDURATION:4\n" + tt.key + "\n#EXTINF:4.0,\nseg0.ts\n#EXT-X-ENDLIST\n"
-		_, err := newTestResolver(&sourcetest.Playlist{Body: body, Status: http.StatusOK}).Resolve(t.Context(), hlsAt(t, "http://a.example/media.m3u8"), source.Rendition{})
+		_, err := newTestResolver(&sourcetest.Document{Body: body, Status: http.StatusOK}).Resolve(t.Context(), hlsAt(t, "http://a.example/media.m3u8"), source.Rendition{})
 		if refused := err != nil; refused != tt.refused {
 			t.Errorf("%s: Resolve = %v, want refused %v", tt.key, err, tt.refused)
 		}

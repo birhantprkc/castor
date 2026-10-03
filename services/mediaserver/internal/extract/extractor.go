@@ -58,7 +58,7 @@ func (e *Extractor) ExtractAll(ctx context.Context, urls []string) ([]*source.St
 	}
 	_ = g.Wait()
 
-	deduped := deduplicateStreams(slices.Concat(results...))
+	deduped := deduplicate(slices.Concat(results...))
 	if len(deduped) == 0 {
 		return nil, fmt.Errorf("no stream extracted from %d URL(s): %w", len(urls), errors.Join(failures...))
 	}
@@ -66,7 +66,7 @@ func (e *Extractor) ExtractAll(ctx context.Context, urls []string) ([]*source.St
 	return deduped, nil
 }
 
-func deduplicateStreams(streams []*source.Stream) []*source.Stream {
+func deduplicate(streams []*source.Stream) []*source.Stream {
 	seen := make(map[string]struct{}, len(streams))
 	return slices.DeleteFunc(slices.Clone(streams), func(s *source.Stream) bool {
 		key := s.URL.String()

@@ -135,17 +135,14 @@ var greaseBrands = []string{`Not A(Brand`, `Not/A)Brand`, `Not_A Brand`}
 
 // New draws a profile, everything but the version, which only the running browser can state.
 func New() *Profile {
-	plat := platformPresets[rand.IntN(len(platformPresets))]
-	webgl := plat.webGLRenderers[rand.IntN(len(plat.webGLRenderers))]
-	scr := screenPresets[rand.IntN(len(screenPresets))]
-	loc := localePresets[rand.IntN(len(localePresets))]
-	grease := greaseBrands[rand.IntN(len(greaseBrands))]
-	hwConc := hardwareConcurrencies[rand.IntN(len(hardwareConcurrencies))]
-	devMem := deviceMemories[rand.IntN(len(deviceMemories))]
+	plat := pick(platformPresets)
+	webgl := pick(plat.webGLRenderers)
+	scr := pick(screenPresets)
+	loc := pick(localePresets)
 
 	return &Profile{
 		uaOS:                plat.uaOS,
-		grease:              grease,
+		grease:              pick(greaseBrands),
 		platform:            plat.chPlatform,
 		platformVersion:     plat.chPlatformVersion,
 		architecture:        plat.architecture,
@@ -153,8 +150,8 @@ func New() *Profile {
 		navigatorPlatform:   plat.navigatorPlatform,
 		acceptLanguage:      loc.acceptLanguage,
 		languages:           loc.languages,
-		hardwareConcurrency: hwConc,
-		deviceMemory:        devMem,
+		hardwareConcurrency: pick(hardwareConcurrencies),
+		deviceMemory:        pick(deviceMemories),
 		screenWidth:         scr.width,
 		screenHeight:        scr.height,
 		webGLVendor:         webgl.vendor,
@@ -166,6 +163,8 @@ func New() *Profile {
 		audioNoiseMag:       0.00001 + rand.Float64()*0.00009,
 	}
 }
+
+func pick[T any](choices []T) T { return choices[rand.IntN(len(choices))] }
 
 // identify pins the user agent and client hints to the version a browser reports as its product.
 func (p *Profile) identify(product string) error {

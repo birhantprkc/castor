@@ -151,12 +151,8 @@ func attributes(list string) map[string]string {
 			break
 		}
 		var value string
-		if strings.HasPrefix(rest, `"`) {
-			end := strings.Index(rest[1:], `"`)
-			if end < 0 {
-				end = len(rest) - 1
-			}
-			value, rest = rest[1:end+1], rest[min(end+2, len(rest)):]
+		if quoted, ok := strings.CutPrefix(rest, `"`); ok {
+			value, rest, _ = strings.Cut(quoted, `"`)
 		} else {
 			value, rest, _ = strings.Cut(rest, ",")
 		}

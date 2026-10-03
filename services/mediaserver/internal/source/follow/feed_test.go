@@ -48,9 +48,9 @@ func (s *scripted) Window(context.Context) (timeline.Window, error) {
 	return r.window, r.err
 }
 
-func serving(t *testing.T, s timeline.Source) *server {
+func serving(t *testing.T, s timeline.Source, repackage Repackage) *server {
 	t.Helper()
-	server, err := serve(newFeed("primary", s, time.Second, nil))
+	server, err := serve(newFeed("primary", s, time.Second, repackage))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,26 +58,26 @@ func serving(t *testing.T, s timeline.Source) *server {
 	return server
 }
 
-func get(t *testing.T, server *server) (*http.Response, string) {
+func fetch(t *testing.T, u string) (int, string) {
 	t.Helper()
-	resp, err := http.Get(server.URL("primary").String())
+	resp, err := http.Get(u)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
-	return resp, string(body)
+	return resp.StatusCode, string(body)
 }
 
 func TestAReloadTheOriginCouldNotAnswerIsAnsweredFromTheLastRender(t *testing.T) {
 	server := serving(t, &scripted{replies: []reply{
 		{window: listed("a", 0, 3)},
 		{err: &timeline.Failure{Status: http.StatusServiceUnavailable, Err: errors.New("busy")}},
-	}})
-	_, first := get(t, server)
-	resp, second := get(t, server)
-	if resp.StatusCode != http.StatusOK || second != first {
-		t.Errorf("a 503 on reload answered %d %q, want the last render", resp.StatusCode, second)
+	}}, nil)
+	_, first := fetch(t, server.URL("primary").String())
+	status, second := fetch(t, server.URL("primary").String())
+	if status != http.StatusOK || second != first {
+		t.Errorf("a 503 on reload answered %d %q, want the last render", status, second)
 	}
 }
 
@@ -85,17 +85,17 @@ func TestAnOriginsFinalNoIsRelayed(t *testing.T) {
 	server := serving(t, &scripted{replies: []reply{
 		{window: listed("a", 0, 3)},
 		{err: &timeline.Failure{Status: http.StatusForbidden, Err: errors.New("expired")}},
-	}})
-	get(t, server)
-	if resp, _ := get(t, server); resp.StatusCode != http.StatusForbidden {
-		t.Errorf("a 403 on reload answered %d, want the origin's 403", resp.StatusCode)
+	}}, nil)
+	fetch(t, server.URL("primary").String())
+	if status, _ := fetch(t, server.URL("primary").String()); status != http.StatusForbidden {
+		t.Errorf("a 403 on reload answered %d, want the origin's 403", status)
 	}
 }
 
 func TestAFirstReadTheOriginCouldNotAnswerIsABadGateway(t *testing.T) {
-	server := serving(t, &scripted{replies: []reply{{err: errors.New("connection reset")}}})
-	if resp, _ := get(t, server); resp.StatusCode != http.StatusBadGateway {
-		t.Errorf("answered %d with nothing to fall back on, want 502", resp.StatusCode)
+	server := serving(t, &scripted{replies: []reply{{err: errors.New("connection reset")}}}, nil)
+	if status, _ := fetch(t, server.URL("primary").String()); status != http.StatusBadGateway {
+		t.Errorf("answered %d with nothing to fall back on, want 502", status)
 	}
 }
 
@@ -103,9 +103,9 @@ func TestAClosedTimelineIsNeverFetchedAgain(t *testing.T) {
 	w := listed("a", 0, 3)
 	w.Closed = true
 	origin := &scripted{replies: []reply{{window: w}}}
-	server := serving(t, origin)
-	get(t, server)
-	_, body := get(t, server)
+	server := serving(t, origin, nil)
+	fetch(t, server.URL("primary").String())
+	_, body := fetch(t, server.URL("primary").String())
 	if origin.asked != 1 || !strings.HasSuffix(body, "#EXT-X-ENDLIST\n") {
 		t.Errorf("fetched the origin %d times after it closed (body %q)", origin.asked, body)
 	}

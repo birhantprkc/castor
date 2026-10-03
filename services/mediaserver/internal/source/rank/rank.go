@@ -4,6 +4,7 @@ package rank
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -33,7 +34,7 @@ func New(cfg Config, maxHeight media.HeightCap, probes Probes) *Ranker {
 func (r *Ranker) Rank(ctx context.Context, streams []*source.Stream) ([]*source.Stream, error) {
 	slog.InfoContext(ctx, "ranking streams", "count", len(streams))
 	if len(streams) == 0 {
-		return nil, fmt.Errorf("no streams to rank")
+		return nil, errors.New("no streams to rank")
 	}
 	streams = limitPerHost(ctx, streams)
 

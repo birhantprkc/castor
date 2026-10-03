@@ -29,7 +29,7 @@ var formats = source.Formats{hls.Format{}, dash.Format{}}
 // backend is the machinery the media server casts with, bound to c.
 func (c *Config) backend() Backend {
 	// One origin session for the engine, so every cast and identification share its cookies.
-	client := web.Client(c.Resolver.PlaylistTimeout)
+	client := web.New(c.Resolver.PlaylistTimeout)
 	e := &engine{
 		cfg:    *c,
 		client: client,

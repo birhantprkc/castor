@@ -3,6 +3,7 @@ package source
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -38,7 +39,7 @@ func NewResolver(client Client, maxHeight media.HeightCap, formats Formats) *Res
 // Resolve reads a link, narrowed to chosen when a rung was already picked (zero for none).
 func (r *Resolver) Resolve(ctx context.Context, stream *Stream, chosen Rendition) (Resolution, error) {
 	if stream == nil || stream.URL == nil {
-		return Resolution{}, fmt.Errorf("source has no URL")
+		return Resolution{}, errors.New("source has no URL")
 	}
 	origin := Origin{}
 	if probe := stream.Probe; probe != nil {

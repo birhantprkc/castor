@@ -125,9 +125,8 @@ func (f *follower) skew(ctx context.Context, m presentation, from *url.URL) time
 			}
 		}
 		if !stated.IsZero() {
-			offset := time.Until(stated)
-			f.offset = &offset
-			return offset
+			f.offset = new(time.Until(stated))
+			return *f.offset
 		}
 	}
 	// A clock server that did not answer is asked again at the next window.
