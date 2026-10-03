@@ -8,7 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/stupside/castor/tui/internal/browse/tmdb"
+	"github.com/stupside/castor/cmd/castor/internal/browse/tmdb"
 )
 
 func drive(t *testing.T, m model, msg tea.Msg) (model, tea.Cmd) {

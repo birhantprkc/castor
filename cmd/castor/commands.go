@@ -1,4 +1,4 @@
-package tui
+package main
 
 import (
 	"context"
@@ -7,14 +7,14 @@ import (
 
 	"github.com/urfave/cli/v3"
 
+	"github.com/stupside/castor/cmd/castor/internal/browse"
+	"github.com/stupside/castor/cmd/castor/internal/browse/tmdb"
+	"github.com/stupside/castor/cmd/castor/internal/cast"
+	"github.com/stupside/castor/cmd/internal/process"
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
 	"github.com/stupside/castor/gen/castor/v1/castorv1connect"
-	"github.com/stupside/castor/internal/process"
 	"github.com/stupside/castor/internal/settings"
 	"github.com/stupside/castor/internal/transport"
-	"github.com/stupside/castor/tui/internal/browse"
-	"github.com/stupside/castor/tui/internal/browse/tmdb"
-	"github.com/stupside/castor/tui/internal/cast"
 )
 
 const dryRunFlag = "dry-run"

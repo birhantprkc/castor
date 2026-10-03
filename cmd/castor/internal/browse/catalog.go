@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	"github.com/stupside/castor/tui/internal/browse/tmdb"
+	"github.com/stupside/castor/cmd/castor/internal/browse/tmdb"
 )
 
 // Catalog is the title lookups the browser makes: TMDB in use, a test seam so screens render from a fixed shelf.

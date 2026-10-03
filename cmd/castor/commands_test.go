@@ -1,4 +1,4 @@
-package tui
+package main
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"github.com/stupside/castor/internal/process"
+	"github.com/stupside/castor/cmd/internal/process"
 	"github.com/stupside/castor/internal/settings"
 	"github.com/stupside/castor/internal/transport"
 )
@@ -33,7 +33,7 @@ func TestADryRunOfALinkNeedsNoConfigAndNoServerWhicheverSideTheFlagIsTyped(t *te
 }
 
 func TestEveryKeyTheCommandLineReadsLandsWhereItReadsIt(t *testing.T) {
-	data, err := os.ReadFile("../config.yaml")
+	data, err := os.ReadFile("../../config.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}

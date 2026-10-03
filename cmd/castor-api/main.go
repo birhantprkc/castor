@@ -4,7 +4,7 @@ package main
 import (
 	"github.com/urfave/cli/v3"
 
-	"github.com/stupside/castor/internal/process"
+	"github.com/stupside/castor/cmd/internal/process"
 	"github.com/stupside/castor/services/apiserver"
 )
 

@@ -34,7 +34,7 @@ jobs:
       - uses: ./.github/actions/setup
       - run: eval "$(make env)" && go vet ./...
       # Pinned so a new release never turns an unrelated push red; gen/ is buf's.
-      - run: eval "$(make env)" && go run honnef.co/go/tools/cmd/staticcheck@2026.2.1 -checks all ./services/... ./tui/... ./internal/... ./cmd/... ./e2e/...
+      - run: eval "$(make env)" && go run honnef.co/go/tools/cmd/staticcheck@2026.2.1 -checks all ./services/... ./internal/... ./cmd/... ./e2e/...
       # deadcode always exits 0, so its output is the gate; castorNativeLog is called only from C.
       - run: |
           eval "$(make env)"
@@ -45,7 +45,7 @@ jobs:
       # castor-api runs where the devices are, so it ships cross-compiled without cgo.
       - run: CGO_ENABLED=0 go build -o /dev/null ./cmd/castor-api
       - run: |
-          unformatted=$(gofmt -s -l services tui cmd internal e2e)
+          unformatted=$(gofmt -s -l services cmd internal e2e)
           [ -z "$unformatted" ] || { printf 'unformatted:\n%s\n' "$unformatted"; exit 1; }
 
   proto:

@@ -132,7 +132,7 @@ jobs:
         run: |
           export CGO_CFLAGS="-I$WHISPER/include -I$WHISPER/ggml/include"
           export CGO_LDFLAGS="-L$BUILD/src -L$BUILD/ggml/src -L$BUILD/ggml/src/ggml-blas -L$BUILD/ggml/src/ggml-metal"
-          ldflags="-s -w -X github.com/stupside/castor/internal/process.version=${VERSION}"
+          ldflags="-s -w -X github.com/stupside/castor/cmd/internal/process.version=${VERSION}"
           go build -trimpath -ldflags "$ldflags" -o dist/castor ./cmd/castor
           go build -trimpath -ldflags "$ldflags" -o dist/castor-media ./cmd/castor-media
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -157,7 +157,7 @@ jobs:
           CGO_ENABLED: "0"
           VERSION: ${{ inputs.version }}
         run: |
-          ldflags="-s -w -X github.com/stupside/castor/internal/process.version=${VERSION}"
+          ldflags="-s -w -X github.com/stupside/castor/cmd/internal/process.version=${VERSION}"
           for target in linux/amd64 linux/arm64 linux/arm darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
             os="${target%/*}"; arch="${target#*/}"
             GOOS=$os GOARCH=$arch GOARM=7 go build -trimpath -ldflags "$ldflags" -o "dist/castor-api_${os}_${arch}" ./cmd/castor-api

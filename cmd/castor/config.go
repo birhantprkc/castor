@@ -1,5 +1,4 @@
-// Package tui is castor's command line: what each command does over castor's public API, and how it shows it, as `castor cast` and `castor scan`.
-package tui
+package main
 
 import (
 	"context"
@@ -8,10 +7,10 @@ import (
 
 	"github.com/urfave/cli/v3"
 
+	"github.com/stupside/castor/cmd/castor/internal/browse/tmdb"
+	"github.com/stupside/castor/cmd/castor/internal/cast"
+	"github.com/stupside/castor/cmd/castor/internal/sources"
 	"github.com/stupside/castor/internal/transport"
-	"github.com/stupside/castor/tui/internal/browse/tmdb"
-	"github.com/stupside/castor/tui/internal/cast"
-	"github.com/stupside/castor/tui/internal/sources"
 )
 
 // Config is the command line's sections of castor's configuration.

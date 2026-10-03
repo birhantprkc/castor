@@ -14,7 +14,7 @@ import (
 	"github.com/charmbracelet/x/exp/golden"
 	"github.com/charmbracelet/x/exp/teatest/v2"
 
-	"github.com/stupside/castor/tui/internal/browse/tmdb"
+	"github.com/stupside/castor/cmd/castor/internal/browse/tmdb"
 )
 
 // shelf is a catalog that answers at once from a fixed shelf, so a run renders the same every time.

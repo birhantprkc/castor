@@ -5,7 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/stupside/castor/tui/internal/browse/tmdb"
+	"github.com/stupside/castor/cmd/castor/internal/browse/tmdb"
 )
 
 type tabID int

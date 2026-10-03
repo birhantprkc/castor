@@ -5,8 +5,8 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/stupside/castor/cmd/castor/internal/cast"
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
-	"github.com/stupside/castor/tui/internal/cast"
 )
 
 // A nil device client proves the pinned device is neither listed nor picked.

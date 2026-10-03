@@ -55,7 +55,7 @@ Tests exercise behaviour, never the shape of the code (import graphs, which call
 
 - No tier imports another, tests included; tiers share only the generated contracts.
 - Anything that reaches into the devices' network belongs to the API server; content belongs to the UIs.
-- A tier's entry point is its only package outside its internal tree, and only a binary's main imports it.
+- A server's entry point is its only package outside its internal tree, and only a binary's main imports it; the TUI lives inside the castor binary.
 - Consumers declare narrow ports; only a tier's entry point lists device families, source formats and other adapters.
 - Settings are injected at construction; a config struct lives with the package that reads it.
 - Inside a tier, a package is a feature, a vocabulary, or a tool several features run; a package one feature uses lives inside it.

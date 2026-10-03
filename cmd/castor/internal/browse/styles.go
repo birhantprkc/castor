@@ -5,7 +5,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
 
-	"github.com/stupside/castor/tui/internal/palette"
+	"github.com/stupside/castor/cmd/castor/internal/palette"
 )
 
 const (

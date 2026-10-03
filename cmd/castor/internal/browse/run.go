@@ -7,10 +7,10 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/stupside/castor/cmd/castor/internal/browse/picker"
+	"github.com/stupside/castor/cmd/castor/internal/cast"
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
 	"github.com/stupside/castor/gen/castor/v1/castorv1connect"
-	"github.com/stupside/castor/tui/internal/browse/picker"
-	"github.com/stupside/castor/tui/internal/cast"
 )
 
 // Run asks which device to cast to, unless d pins one, then which title; chosen is false when the operator leaves without both.

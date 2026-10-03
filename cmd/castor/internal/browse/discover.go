@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/stupside/castor/tui/internal/browse/tmdb"
+	"github.com/stupside/castor/cmd/castor/internal/browse/tmdb"
 )
 
 // browseMode is the source of the results list on screenBrowse: non-empty search overrides both modes.

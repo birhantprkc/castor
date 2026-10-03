@@ -14,8 +14,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/stupside/castor/cmd/castor/internal/palette"
 	castorv1 "github.com/stupside/castor/gen/castor/v1"
-	"github.com/stupside/castor/tui/internal/palette"
 )
 
 // Device is the device the operator picks, preselecting the one named defaultName; ok is false when they quit without one.

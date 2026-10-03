@@ -13,8 +13,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/stupside/castor/tui/internal/browse/tmdb"
-	"github.com/stupside/castor/tui/internal/palette"
+	"github.com/stupside/castor/cmd/castor/internal/browse/tmdb"
+	"github.com/stupside/castor/cmd/castor/internal/palette"
 )
 
 // genrePicker is the modal genre filter; owns draft selection, isolated from feed.

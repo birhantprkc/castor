@@ -33,10 +33,10 @@ Each tier knows one thing, and runs where that thing is.
 ## Boundaries
 
 - **Tiers share only the generated contracts.** No tier imports another, tests included; a test fakes a neighbour at its contract.
-- **Each tier is sealed.** Everything but its entry point (its configuration sections, defaults, commands and adapter wiring) sits behind Go's internal rule, so the compiler refuses any reach into it and one module is enough. Only a binary's main imports an entry point.
+- **Each tier is sealed.** A server's internals sit behind Go's internal rule, outside its entry point (its configuration sections, defaults, commands and adapter wiring), which only a binary's main imports. The TUI is part of the `castor` binary itself, so nothing else can import it. The compiler refuses any other reach, and one module is enough.
 - **Consumers declare ports, entry points fill them.** The media server's entry point binds its engine and the cgo whisper transcriber; the API server's lists the device families. What crosses tiers inside one process (an API server for the TUI, a media server for the API server) is a port its consumer declares and `castor` fills.
 - **Decisions read capabilities as data.** Device families and source formats are named only at an entry point; nothing else branches on a family or names a site.
-- **Plumbing holds no castor concept.** Reading the configuration, serving HTTP behind a token, and the process every binary runs are shared by every tier and know none of them.
+- **Plumbing holds no castor concept.** What the tiers share (reading the configuration, serving HTTP behind a token, a value watchers follow) and what the binaries share (signals, logging, build identity) know none of them.
 - **cgo stays in the media server.** Whisper is its only native dependency, which is what keeps `castor-api` portable.
 
 ## The contracts
