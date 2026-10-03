@@ -14,49 +14,57 @@ Welcome: bug fixes, device support, transcoding and subtitle work, and extractio
 
 ## Building from source
 
-The whisper bindings use cgo, so the first build compiles the library with cmake:
+On macOS or Linux, with Go 1.27+ and cmake. The whisper bindings use cgo, so the first build compiles the library:
 
 ```sh
-git submodule update --init --recursive   # first checkout only
-make build                                # libwhisper.a (~1 min), then ./castor
+git clone --recurse-submodules https://github.com/stupside/castor.git
+cd castor
+make build   # libwhisper.a (~1 min), then castor, castor-media and castor-api
 ```
 
-For plain Go tooling, export the build environment once per shell:
+`go install` won't work: the bindings need that locally built library. For plain Go tooling, export the build environment once per shell (the checked-in `.envrc` does it on `cd` with [direnv](https://direnv.net)):
 
 ```sh
 eval "$(make env)"
-go run . scan
+go run ./cmd/castor scan
 go test ./...
 ```
 
-With [direnv](https://direnv.net), the checked-in `.envrc` does this on `cd` after `direnv allow`.
+`go test ./...` includes the end-to-end suite, which builds the three binaries and casts real streams from fake sites to fake devices on each family's protocol. It needs ffmpeg, ffprobe and Chrome, runs in real time, and is not run in CI; `go test -short ./...` skips it.
 
 ## The rules
 
-### Checked by CI
+[ARCHITECTURE.md](ARCHITECTURE.md) explains why each of these holds.
 
-Breaking one of these turns `go test ./...` or the `lint` job red.
+### Checked by CI
 
 | Rule | Checked by |
 | --- | --- |
-| Both delivery mechanisms pass one conformance suite: where they are fetched, flagging a delivery nobody fetched, Close finishing its reads, a cancelled Wait stopping | `sink_conformance_test.go` |
-| Every device family passes one suite: `AwaitEnd` keeps polling a playing device and returns the cast's reason, and the stated envelope holds the H.264 baseline | `devicetest`, from each family's tests |
-| No unreachable code (`deadcode -test ./...`; `castorNativeLog` is the one exception, called only from C) | `lint` |
-| `modernize`, `staticcheck`, `go vet` and `gofmt -s` report nothing | `lint` |
+| Every test passes, and none skips (the whisper transcriber test, which needs a large model, is the one exception) | `test` job, outside the end-to-end suite |
+| `go vet`, `staticcheck -checks all` and `gofmt -s` report nothing | `lint` |
+| No unreachable code (`deadcode -test`; `castorNativeLog`, called only from C, is the one exception) | `lint` |
+| `go fix -diff` suggests nothing | `lint` |
+| `castor-api` builds without cgo | `lint` |
+| The protos pass `buf lint` and `buf format`, stay compatible with the latest release (`buf breaking`), and the committed generated code matches them | `proto` |
 
 Lint tools are pinned, so a new release never turns an unrelated push red.
 
-Tests exercise behaviour, never the shape of the code (import graphs, which call site passes a value). Mutation-test what you add: break the behaviour, see the test fail with a clear message, restore.
+Tests exercise behaviour, never the shape of the code (import graphs, which call site passes a value), and never a library. Mutation-test what you add: break the behaviour, see the test fail with a clear message, restore.
 
 ### Held in review
 
-- **The core is agnostic to source and device.** Decisions read capabilities as data. Device families and source formats are listed only in the composition root; nothing else branches on a family or names a site.
-- **The tree is sliced by feature.** A top-level package is a feature, the shared media vocabulary, a tool several features run, or the composition root. A package one feature uses lives inside it. Folders are named for what they do, not for a layer. One responsibility per package, one concept per file, one file per strategy.
-- **Consumers declare narrow ports; the composition root binds them.** That keeps decisions testable without ffmpeg, a network, or a renderer. The subtitle burn-in is the exception, bound by the command layer because it is cgo.
-- **The API server and its client never import each other.** Both speak the cast contract through its translation layer, and only the composition root knows both. Anything that reaches into the operator's network (discovery, renderer control) belongs to the client; the server reads, encodes, and serves renderers what they fetch from it.
-- **Absence is a value.** An optional lookup returns `(T, bool)`, never a nil to remember to check. A caller that can't handle absence returns an error naming what was missing.
-- **A comment is one short line, or nothing.** Only for what the code can't say: a reason, a constraint, a field failure.
-- **Modern Go, no shims.** Go 1.26 idioms over hand-rolled equivalents, and no compatibility shims or dead fallback paths.
+- No tier imports another, tests included; tiers share only the generated contracts.
+- Anything that reaches into the devices' network belongs to the API server; content belongs to the UIs.
+- A tier's entry point is its only package outside its internal tree, and only a binary's main imports it.
+- Consumers declare narrow ports; only a tier's entry point lists device families, source formats and other adapters.
+- Settings are injected at construction; a config struct lives with the package that reads it.
+- Inside a tier, a package is a feature, a vocabulary, or a tool several features run; a package one feature uses lives inside it.
+- Name folders for what they do, not for a layer: one responsibility per package, one concept per file, one file per strategy.
+- Contract rules live in the protos and only the server checks them; API layers use the generated types, with no mirror types.
+- The public contract holds only what an integrator cannot do alone.
+- An optional lookup returns `(T, bool)`, never a nil to remember to check.
+- A comment is one short line, only for what the code can't say, or nothing.
+- Use Go 1.27 idioms over hand-rolled equivalents, with no compatibility shims or dead fallback paths.
 
 ## Commit messages
 
@@ -70,6 +78,6 @@ make hooks   # points core.hooksPath at .githooks/
 
 ## Releases
 
-[release-please](https://github.com/googleapis/release-please) keeps a release PR up to date from the commits on `main`. Merging it tags `vX.Y.Z` and publishes the binaries, the Docker image (`:latest`), and the Homebrew cask.
+[release-please](https://github.com/googleapis/release-please) keeps a release PR up to date from the commits on `main`. Merging it tags `vX.Y.Z` and publishes the `castor`, `castor-media` and `castor-api` archives, the Docker image (`:latest`, the full `castor`), and the Homebrew cask.
 
-For a preview, run the **canary** workflow on any branch. It publishes `ghcr.io/stupside/castor:canary` and moves no stable pointer.
+For a preview, run the **canary-release** workflow on any branch. It publishes `ghcr.io/stupside/castor:canary` and moves no stable pointer.
