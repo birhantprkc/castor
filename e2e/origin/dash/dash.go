@@ -37,3 +37,5 @@ func (Packager) Package(dir string, l origin.Layout) origin.Output {
 			filepath.Join(dir, entry)},
 	}
 }
+
+func (Packager) Muxes() string { return "mp4" }

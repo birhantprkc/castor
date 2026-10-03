@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package castor.v1;
+
+enum LogLevel {
+  LOG_LEVEL_UNSPECIFIED = 0;
+  LOG_LEVEL_DEBUG = 1;
+  LOG_LEVEL_INFO = 2;
+  LOG_LEVEL_WARN = 3;
+  LOG_LEVEL_ERROR = 4;
+}
+
+// LogLine is one line logged for a cast, sent live and never kept.
+message LogLine {
+  LogLevel level = 1;
+  string message = 2;
+  // attrs are in logged order, group keys dotted.
+  repeated Attr attrs = 3;
+
+  message Attr {
+    string key = 1;
+    string value = 2;
+  }
+}

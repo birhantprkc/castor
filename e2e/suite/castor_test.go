@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,13 +21,24 @@ type binary string
 
 func (b binary) Cast(ctx context.Context, launch settings.Launch, args []string) ([]byte, error) {
 	var out bytes.Buffer
+	err := b.command(ctx, launch, args, &out).Run()
+	return out.Bytes(), err
+}
+
+// command runs b in a process group of its own, so the browsers and encoders it starts die with it when ctx ends.
+func (b binary) command(ctx context.Context, launch settings.Launch, args []string, out io.Writer) *exec.Cmd {
 	// --debug brings the engine's lines back through the watch, so a failing case shows why.
 	cmd := exec.CommandContext(ctx, string(b), slices.Concat([]string{"--debug"}, launch.Flags, args)...)
 	cmd.Dir, cmd.Env = launch.Dir, append(os.Environ(), launch.Env...)
-	cmd.Stdout, cmd.Stderr = &out, &out
+	cmd.Stdout, cmd.Stderr = out, out
+	// Grandchildren holding the output pipe open must not keep Wait from returning.
 	cmd.WaitDelay = 5 * time.Second
-	err := cmd.Run()
-	return out.Bytes(), err
+	grouped(cmd)
+	cmd.Cancel = func() error {
+		killGroup(cmd)
+		return nil
+	}
+	return cmd
 }
 
 const (
@@ -36,8 +48,8 @@ const (
 	handOff = 10 * time.Second
 )
 
-// castor is the binary TestMain builds, the same main package a user runs.
-var castor binary
+// The binaries TestMain builds, the same main packages a user runs; castor-api without cgo, as it ships.
+var castor, castorAPI, castorMedia binary
 
 func TestMain(m *testing.M) {
 	flag.Parse()
@@ -49,15 +61,20 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	bin := filepath.Join(dir, "castor")
-	build := exec.Command("go", "build", "-o", bin, "github.com/stupside/castor")
-	build.Stdout, build.Stderr = os.Stderr, os.Stderr
-	if err := build.Run(); err != nil {
-		fmt.Fprintln(os.Stderr, "building castor:", err)
-		os.RemoveAll(dir)
-		os.Exit(1)
+	for name, built := range map[string]*binary{"castor": &castor, "castor-api": &castorAPI, "castor-media": &castorMedia} {
+		bin := filepath.Join(dir, name)
+		build := exec.Command("go", "build", "-o", bin, "github.com/stupside/castor/cmd/"+name)
+		build.Stdout, build.Stderr = os.Stderr, os.Stderr
+		if name == "castor-api" {
+			build.Env = append(os.Environ(), "CGO_ENABLED=0")
+		}
+		if err := build.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "building %s: %v\n", name, err)
+			os.RemoveAll(dir)
+			os.Exit(1)
+		}
+		*built = binary(bin)
 	}
-	castor = binary(bin)
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)

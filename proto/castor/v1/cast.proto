@@ -3,33 +3,151 @@ syntax = "proto3";
 package castor.v1;
 
 import "buf/validate/validate.proto";
+import "castor/v1/device.proto";
+import "castor/v1/log.proto";
+import "castor/v1/revision.proto";
 import "castor/v1/stream.proto";
 
-// CastService starts and stops casts.
+// CastService plays video on devices.
 service CastService {
-  // Start begins a cast and returns at once; it plays once a device is lent to it through DeviceService.
-  rpc Start(StartRequest) returns (StartResponse);
+  // Cast starts playing a source on a device and returns at once; Watch follows it.
+  rpc Cast(CastRequest) returns (CastResponse);
+  // Resolve is what Cast would play from a source, best first, without casting.
+  rpc Resolve(ResolveRequest) returns (ResolveResponse);
+  // Watch sends a cast's status now and on every change (changes close together may arrive as one), its log lines when asked, and Ended last; a stream cut before Ended is an error.
+  // A cast stays watchable for 5 minutes after its end.
+  // buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE
+  rpc Watch(WatchRequest) returns (stream WatchResponse);
   // Stop ends a cast and returns at once.
   rpc Stop(StopRequest) returns (StopResponse);
+  // ListCasts is the casts playing now, oldest first.
+  rpc ListCasts(ListCastsRequest) returns (ListCastsResponse);
 }
 
-message StartRequest {
-  oneof streams {
-    option (buf.validate.oneof).required = true;
-    // found streams are ranked by the server, which may admit none.
-    Streams found = 1;
-    // named is a stream the operator chose, measured and cast as is.
-    Stream named = 2;
-  }
-  Preferences preferences = 3 [(buf.validate.field).required = true];
-
-  message Streams {
-    repeated Stream streams = 1 [(buf.validate.field).repeated.min_items = 1];
-  }
+message CastRequest {
+  Target target = 1 [(buf.validate.field).required = true];
+  Source source = 2 [(buf.validate.field).required = true];
+  Preferences preferences = 3;
 }
 
-message StartResponse {
+message CastResponse {
+  // cast_id is opaque.
   string cast_id = 1;
+}
+
+message ResolveRequest {
+  Source source = 1 [(buf.validate.field).required = true];
+  Preferences preferences = 2;
+}
+
+message ResolveResponse {
+  // ranked is the order a cast tries the streams in, best first.
+  repeated RankedStream ranked = 1;
+}
+
+// Source is what to play: one stream as is, or pages whose streams are found and ranked.
+message Source {
+  oneof source {
+    option (buf.validate.oneof).required = true;
+    Stream stream = 1;
+    Pages pages = 2;
+  }
+
+  message Pages {
+    repeated string urls = 1 [
+      (buf.validate.field).repeated.min_items = 1,
+      (buf.validate.field).repeated.max_items = 16,
+      (buf.validate.field).repeated.items.string.max_len = 8192,
+      (buf.validate.field).repeated.items.cel = {
+        id: "url.http"
+        message: "must be an http or https URL"
+        expression: "this.isUri() && (this.startsWith('http://') || this.startsWith('https://'))"
+      }
+    ];
+  }
+}
+
+// Preferences are what one cast asks; each unset field takes the server's configuration.
+message Preferences {
+  optional Delivery delivery = 1 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  // max_height is the tallest picture the cast may show.
+  optional uint32 max_height = 2 [(buf.validate.field).uint32.gte = 2];
+  // subtitles is the language to burn in, a whisper code or auto to detect it, empty for none.
+  // The default model understands English only; subtitles are burnt in only where castor draws the frames, never on a hand-off.
+  optional string subtitles = 3 [(buf.validate.field).string.pattern = "^(auto|[a-z]{2,3})?$"];
+}
+
+message WatchRequest {
+  string cast_id = 1 [(buf.validate.field).string.min_len = 1];
+  // logs is the least severe line sent; unset sends none.
+  optional LogLevel logs = 2 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+}
+
+message WatchResponse {
+  oneof update {
+    CastStatus status = 1;
+    LogLine line = 2;
+    // ended is always the last message.
+    Ended ended = 3;
+  }
+}
+
+// CastStatus is where a cast stands, for people to read.
+message CastStatus {
+  Phase phase = 1;
+  // streams is how many streams the cast was handed, once it measures them.
+  uint32 streams = 2;
+  // castable is how many of them measuring kept.
+  uint32 castable = 3;
+  // attempt counts tries from 1, once casting.
+  uint32 attempt = 4;
+  // revision is the latest change of plan, unset before any.
+  Revision revision = 5;
+}
+
+// Phase is where a cast is; it stays at its last phase once the cast has ended, which Ended tells.
+// Phase only moves forward, in the order of its values.
+enum Phase {
+  PHASE_UNSPECIFIED = 0;
+  // PHASE_CONNECTING reaches the device, before anything is read.
+  PHASE_CONNECTING = 1;
+  // PHASE_EXTRACTING opens the source's pages to find their streams.
+  PHASE_EXTRACTING = 2;
+  // PHASE_MEASURING readies the streams and the device.
+  PHASE_MEASURING = 3;
+  // PHASE_CASTING plays on the device, attempt after attempt.
+  PHASE_CASTING = 4;
+}
+
+message Ended {
+  option (buf.validate.message).cel = {
+    id: "ended.reason"
+    message: "reason is set when, and only when, the cast failed"
+    expression: "(this.outcome == 3) == (this.reason != '')"
+  };
+
+  Outcome outcome = 1 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  // reason is why a failed cast failed.
+  string reason = 2;
+}
+
+enum Outcome {
+  OUTCOME_UNSPECIFIED = 0;
+  // OUTCOME_ENDED is a cast that played to its end; a hand-off ends once the device accepted the URL.
+  OUTCOME_ENDED = 1;
+  // OUTCOME_STOPPED is a cast Stop ended.
+  OUTCOME_STOPPED = 2;
+  // OUTCOME_FAILED is a cast that could not play on, or that its server ended as it shut down; reason says why.
+  OUTCOME_FAILED = 3;
 }
 
 message StopRequest {
@@ -37,3 +155,18 @@ message StopRequest {
 }
 
 message StopResponse {}
+
+message ListCastsRequest {}
+
+message ListCastsResponse {
+  repeated Cast casts = 1;
+}
+
+message Cast {
+  // id is opaque.
+  string id = 1;
+  // device is what the cast plays on; a pinned one has an empty id.
+  Device device = 2;
+  Source source = 3;
+  CastStatus status = 4;
+}

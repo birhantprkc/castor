@@ -22,30 +22,26 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type DriveRequest struct {
-	state  protoimpl.MessageState `protogen:"open.v1"`
-	CastId string                 `protobuf:"bytes,1,opt,name=cast_id,json=castId,proto3" json:"cast_id,omitempty"`
-	Device *Device                `protobuf:"bytes,2,opt,name=device,proto3" json:"device,omitempty"`
-	// self_fetch is whether the device fetches a stream URL itself, known before connecting to it.
-	SelfFetch     bool `protobuf:"varint,3,opt,name=self_fetch,json=selfFetch,proto3" json:"self_fetch,omitempty"`
+type ListDevicesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *DriveRequest) Reset() {
-	*x = DriveRequest{}
+func (x *ListDevicesRequest) Reset() {
+	*x = ListDevicesRequest{}
 	mi := &file_castor_v1_device_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *DriveRequest) String() string {
+func (x *ListDevicesRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*DriveRequest) ProtoMessage() {}
+func (*ListDevicesRequest) ProtoMessage() {}
 
-func (x *DriveRequest) ProtoReflect() protoreflect.Message {
+func (x *ListDevicesRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_castor_v1_device_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -57,53 +53,32 @@ func (x *DriveRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use DriveRequest.ProtoReflect.Descriptor instead.
-func (*DriveRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use ListDevicesRequest.ProtoReflect.Descriptor instead.
+func (*ListDevicesRequest) Descriptor() ([]byte, []int) {
 	return file_castor_v1_device_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *DriveRequest) GetCastId() string {
-	if x != nil {
-		return x.CastId
-	}
-	return ""
-}
-
-func (x *DriveRequest) GetDevice() *Device {
-	if x != nil {
-		return x.Device
-	}
-	return nil
-}
-
-func (x *DriveRequest) GetSelfFetch() bool {
-	if x != nil {
-		return x.SelfFetch
-	}
-	return false
-}
-
-type DriveResponse struct {
+type ListDevicesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Command       *DeviceCommand         `protobuf:"bytes,1,opt,name=command,proto3" json:"command,omitempty"`
+	Devices       []*Device              `protobuf:"bytes,1,rep,name=devices,proto3" json:"devices,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *DriveResponse) Reset() {
-	*x = DriveResponse{}
+func (x *ListDevicesResponse) Reset() {
+	*x = ListDevicesResponse{}
 	mi := &file_castor_v1_device_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *DriveResponse) String() string {
+func (x *ListDevicesResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*DriveResponse) ProtoMessage() {}
+func (*ListDevicesResponse) ProtoMessage() {}
 
-func (x *DriveResponse) ProtoReflect() protoreflect.Message {
+func (x *ListDevicesResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_castor_v1_device_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -115,197 +90,33 @@ func (x *DriveResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use DriveResponse.ProtoReflect.Descriptor instead.
-func (*DriveResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use ListDevicesResponse.ProtoReflect.Descriptor instead.
+func (*ListDevicesResponse) Descriptor() ([]byte, []int) {
 	return file_castor_v1_device_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *DriveResponse) GetCommand() *DeviceCommand {
+func (x *ListDevicesResponse) GetDevices() []*Device {
 	if x != nil {
-		return x.Command
+		return x.Devices
 	}
 	return nil
 }
 
-type AnswerRequest struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	CastId    string                 `protobuf:"bytes,1,opt,name=cast_id,json=castId,proto3" json:"cast_id,omitempty"`
-	CommandId string                 `protobuf:"bytes,2,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
-	// Types that are valid to be assigned to Answer:
-	//
-	//	*AnswerRequest_Done_
-	//	*AnswerRequest_Capabilities
-	//	*AnswerRequest_Headers_
-	//	*AnswerRequest_Error
-	Answer        isAnswerRequest_Answer `protobuf_oneof:"answer"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *AnswerRequest) Reset() {
-	*x = AnswerRequest{}
-	mi := &file_castor_v1_device_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *AnswerRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*AnswerRequest) ProtoMessage() {}
-
-func (x *AnswerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_castor_v1_device_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use AnswerRequest.ProtoReflect.Descriptor instead.
-func (*AnswerRequest) Descriptor() ([]byte, []int) {
-	return file_castor_v1_device_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *AnswerRequest) GetCastId() string {
-	if x != nil {
-		return x.CastId
-	}
-	return ""
-}
-
-func (x *AnswerRequest) GetCommandId() string {
-	if x != nil {
-		return x.CommandId
-	}
-	return ""
-}
-
-func (x *AnswerRequest) GetAnswer() isAnswerRequest_Answer {
-	if x != nil {
-		return x.Answer
-	}
-	return nil
-}
-
-func (x *AnswerRequest) GetDone() *AnswerRequest_Done {
-	if x != nil {
-		if x, ok := x.Answer.(*AnswerRequest_Done_); ok {
-			return x.Done
-		}
-	}
-	return nil
-}
-
-func (x *AnswerRequest) GetCapabilities() *Capabilities {
-	if x != nil {
-		if x, ok := x.Answer.(*AnswerRequest_Capabilities); ok {
-			return x.Capabilities
-		}
-	}
-	return nil
-}
-
-func (x *AnswerRequest) GetHeaders() *AnswerRequest_Headers {
-	if x != nil {
-		if x, ok := x.Answer.(*AnswerRequest_Headers_); ok {
-			return x.Headers
-		}
-	}
-	return nil
-}
-
-func (x *AnswerRequest) GetError() *DeviceError {
-	if x != nil {
-		if x, ok := x.Answer.(*AnswerRequest_Error); ok {
-			return x.Error
-		}
-	}
-	return nil
-}
-
-type isAnswerRequest_Answer interface {
-	isAnswerRequest_Answer()
-}
-
-type AnswerRequest_Done_ struct {
-	Done *AnswerRequest_Done `protobuf:"bytes,3,opt,name=done,proto3,oneof"`
-}
-
-type AnswerRequest_Capabilities struct {
-	Capabilities *Capabilities `protobuf:"bytes,4,opt,name=capabilities,proto3,oneof"`
-}
-
-type AnswerRequest_Headers_ struct {
-	Headers *AnswerRequest_Headers `protobuf:"bytes,5,opt,name=headers,proto3,oneof"`
-}
-
-type AnswerRequest_Error struct {
-	Error *DeviceError `protobuf:"bytes,6,opt,name=error,proto3,oneof"`
-}
-
-func (*AnswerRequest_Done_) isAnswerRequest_Answer() {}
-
-func (*AnswerRequest_Capabilities) isAnswerRequest_Answer() {}
-
-func (*AnswerRequest_Headers_) isAnswerRequest_Answer() {}
-
-func (*AnswerRequest_Error) isAnswerRequest_Answer() {}
-
-type AnswerResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *AnswerResponse) Reset() {
-	*x = AnswerResponse{}
-	mi := &file_castor_v1_device_proto_msgTypes[3]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *AnswerResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*AnswerResponse) ProtoMessage() {}
-
-func (x *AnswerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_castor_v1_device_proto_msgTypes[3]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use AnswerResponse.ProtoReflect.Descriptor instead.
-func (*AnswerResponse) Descriptor() ([]byte, []int) {
-	return file_castor_v1_device_proto_rawDescGZIP(), []int{3}
-}
-
-// Device is the lent device, sent for the server's logs.
 type Device struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Type          string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
-	Address       string                 `protobuf:"bytes,3,opt,name=address,proto3" json:"address,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// id is opaque and the same on every discovery; a cast's target names it.
+	Id   string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// type is the device's family: dlna, chromecast or roku.
+	Type          string `protobuf:"bytes,3,opt,name=type,proto3" json:"type,omitempty"`
+	Address       string `protobuf:"bytes,4,opt,name=address,proto3" json:"address,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Device) Reset() {
 	*x = Device{}
-	mi := &file_castor_v1_device_proto_msgTypes[4]
+	mi := &file_castor_v1_device_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -317,7 +128,7 @@ func (x *Device) String() string {
 func (*Device) ProtoMessage() {}
 
 func (x *Device) ProtoReflect() protoreflect.Message {
-	mi := &file_castor_v1_device_proto_msgTypes[4]
+	mi := &file_castor_v1_device_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -330,7 +141,14 @@ func (x *Device) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Device.ProtoReflect.Descriptor instead.
 func (*Device) Descriptor() ([]byte, []int) {
-	return file_castor_v1_device_proto_rawDescGZIP(), []int{4}
+	return file_castor_v1_device_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *Device) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
 }
 
 func (x *Device) GetName() string {
@@ -354,236 +172,33 @@ func (x *Device) GetAddress() string {
 	return ""
 }
 
-// Capabilities is what a renderer decodes natively and how it takes a stream.
-type Capabilities struct {
-	state      protoimpl.MessageState `protogen:"open.v1"`
-	Containers []string               `protobuf:"bytes,1,rep,name=containers,proto3" json:"containers,omitempty"`
-	Video      []*VideoSupport        `protobuf:"bytes,2,rep,name=video,proto3" json:"video,omitempty"`
-	Audio      []*AudioSupport        `protobuf:"bytes,3,rep,name=audio,proto3" json:"audio,omitempty"`
-	// served_container is what a served cast that remuxes is muxed into.
-	ServedContainer string `protobuf:"bytes,4,opt,name=served_container,json=servedContainer,proto3" json:"served_container,omitempty"`
-	Deinterlaces    bool   `protobuf:"varint,5,opt,name=deinterlaces,proto3" json:"deinterlaces,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
-}
-
-func (x *Capabilities) Reset() {
-	*x = Capabilities{}
-	mi := &file_castor_v1_device_proto_msgTypes[5]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Capabilities) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Capabilities) ProtoMessage() {}
-
-func (x *Capabilities) ProtoReflect() protoreflect.Message {
-	mi := &file_castor_v1_device_proto_msgTypes[5]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Capabilities.ProtoReflect.Descriptor instead.
-func (*Capabilities) Descriptor() ([]byte, []int) {
-	return file_castor_v1_device_proto_rawDescGZIP(), []int{5}
-}
-
-func (x *Capabilities) GetContainers() []string {
-	if x != nil {
-		return x.Containers
-	}
-	return nil
-}
-
-func (x *Capabilities) GetVideo() []*VideoSupport {
-	if x != nil {
-		return x.Video
-	}
-	return nil
-}
-
-func (x *Capabilities) GetAudio() []*AudioSupport {
-	if x != nil {
-		return x.Audio
-	}
-	return nil
-}
-
-func (x *Capabilities) GetServedContainer() string {
-	if x != nil {
-		return x.ServedContainer
-	}
-	return ""
-}
-
-func (x *Capabilities) GetDeinterlaces() bool {
-	if x != nil {
-		return x.Deinterlaces
-	}
-	return false
-}
-
-type VideoSupport struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Codec         string                 `protobuf:"bytes,1,opt,name=codec,proto3" json:"codec,omitempty"`
-	Profiles      []string               `protobuf:"bytes,2,rep,name=profiles,proto3" json:"profiles,omitempty"`
-	BitDepths     []uint32               `protobuf:"varint,3,rep,packed,name=bit_depths,json=bitDepths,proto3" json:"bit_depths,omitempty"`
-	MaxLevel      uint32                 `protobuf:"varint,4,opt,name=max_level,json=maxLevel,proto3" json:"max_level,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *VideoSupport) Reset() {
-	*x = VideoSupport{}
-	mi := &file_castor_v1_device_proto_msgTypes[6]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *VideoSupport) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*VideoSupport) ProtoMessage() {}
-
-func (x *VideoSupport) ProtoReflect() protoreflect.Message {
-	mi := &file_castor_v1_device_proto_msgTypes[6]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use VideoSupport.ProtoReflect.Descriptor instead.
-func (*VideoSupport) Descriptor() ([]byte, []int) {
-	return file_castor_v1_device_proto_rawDescGZIP(), []int{6}
-}
-
-func (x *VideoSupport) GetCodec() string {
-	if x != nil {
-		return x.Codec
-	}
-	return ""
-}
-
-func (x *VideoSupport) GetProfiles() []string {
-	if x != nil {
-		return x.Profiles
-	}
-	return nil
-}
-
-func (x *VideoSupport) GetBitDepths() []uint32 {
-	if x != nil {
-		return x.BitDepths
-	}
-	return nil
-}
-
-func (x *VideoSupport) GetMaxLevel() uint32 {
-	if x != nil {
-		return x.MaxLevel
-	}
-	return 0
-}
-
-type AudioSupport struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Codec         string                 `protobuf:"bytes,1,opt,name=codec,proto3" json:"codec,omitempty"`
-	MaxChannels   uint32                 `protobuf:"varint,2,opt,name=max_channels,json=maxChannels,proto3" json:"max_channels,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *AudioSupport) Reset() {
-	*x = AudioSupport{}
-	mi := &file_castor_v1_device_proto_msgTypes[7]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *AudioSupport) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*AudioSupport) ProtoMessage() {}
-
-func (x *AudioSupport) ProtoReflect() protoreflect.Message {
-	mi := &file_castor_v1_device_proto_msgTypes[7]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use AudioSupport.ProtoReflect.Descriptor instead.
-func (*AudioSupport) Descriptor() ([]byte, []int) {
-	return file_castor_v1_device_proto_rawDescGZIP(), []int{7}
-}
-
-func (x *AudioSupport) GetCodec() string {
-	if x != nil {
-		return x.Codec
-	}
-	return ""
-}
-
-func (x *AudioSupport) GetMaxChannels() uint32 {
-	if x != nil {
-		return x.MaxChannels
-	}
-	return 0
-}
-
-// DeviceCommand is one call the server's cast makes on the client's renderer.
-type DeviceCommand struct {
+// Target is the device a cast plays on: one discovered, or one pinned where discovery cannot see.
+type Target struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// Types that are valid to be assigned to Command:
+	// Types that are valid to be assigned to Target:
 	//
-	//	*DeviceCommand_Connect_
-	//	*DeviceCommand_Play_
-	//	*DeviceCommand_StreamHeaders_
-	//	*DeviceCommand_AwaitEnd_
-	//	*DeviceCommand_Close_
-	//	*DeviceCommand_Cancel_
-	Command       isDeviceCommand_Command `protobuf_oneof:"command"`
+	//	*Target_DeviceId
+	//	*Target_Pinned_
+	Target        isTarget_Target `protobuf_oneof:"target"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *DeviceCommand) Reset() {
-	*x = DeviceCommand{}
-	mi := &file_castor_v1_device_proto_msgTypes[8]
+func (x *Target) Reset() {
+	*x = Target{}
+	mi := &file_castor_v1_device_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *DeviceCommand) String() string {
+func (x *Target) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*DeviceCommand) ProtoMessage() {}
+func (*Target) ProtoMessage() {}
 
-func (x *DeviceCommand) ProtoReflect() protoreflect.Message {
-	mi := &file_castor_v1_device_proto_msgTypes[8]
+func (x *Target) ProtoReflect() protoreflect.Message {
+	mi := &file_castor_v1_device_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -594,148 +209,77 @@ func (x *DeviceCommand) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use DeviceCommand.ProtoReflect.Descriptor instead.
-func (*DeviceCommand) Descriptor() ([]byte, []int) {
-	return file_castor_v1_device_proto_rawDescGZIP(), []int{8}
+// Deprecated: Use Target.ProtoReflect.Descriptor instead.
+func (*Target) Descriptor() ([]byte, []int) {
+	return file_castor_v1_device_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *DeviceCommand) GetId() string {
+func (x *Target) GetTarget() isTarget_Target {
 	if x != nil {
-		return x.Id
+		return x.Target
+	}
+	return nil
+}
+
+func (x *Target) GetDeviceId() string {
+	if x != nil {
+		if x, ok := x.Target.(*Target_DeviceId); ok {
+			return x.DeviceId
+		}
 	}
 	return ""
 }
 
-func (x *DeviceCommand) GetCommand() isDeviceCommand_Command {
+func (x *Target) GetPinned() *Target_Pinned {
 	if x != nil {
-		return x.Command
-	}
-	return nil
-}
-
-func (x *DeviceCommand) GetConnect() *DeviceCommand_Connect {
-	if x != nil {
-		if x, ok := x.Command.(*DeviceCommand_Connect_); ok {
-			return x.Connect
+		if x, ok := x.Target.(*Target_Pinned_); ok {
+			return x.Pinned
 		}
 	}
 	return nil
 }
 
-func (x *DeviceCommand) GetPlay() *DeviceCommand_Play {
-	if x != nil {
-		if x, ok := x.Command.(*DeviceCommand_Play_); ok {
-			return x.Play
-		}
-	}
-	return nil
+type isTarget_Target interface {
+	isTarget_Target()
 }
 
-func (x *DeviceCommand) GetStreamHeaders() *DeviceCommand_StreamHeaders {
-	if x != nil {
-		if x, ok := x.Command.(*DeviceCommand_StreamHeaders_); ok {
-			return x.StreamHeaders
-		}
-	}
-	return nil
+type Target_DeviceId struct {
+	DeviceId string `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3,oneof"`
 }
 
-func (x *DeviceCommand) GetAwaitEnd() *DeviceCommand_AwaitEnd {
-	if x != nil {
-		if x, ok := x.Command.(*DeviceCommand_AwaitEnd_); ok {
-			return x.AwaitEnd
-		}
-	}
-	return nil
+type Target_Pinned_ struct {
+	Pinned *Target_Pinned `protobuf:"bytes,2,opt,name=pinned,proto3,oneof"`
 }
 
-func (x *DeviceCommand) GetClose() *DeviceCommand_Close {
-	if x != nil {
-		if x, ok := x.Command.(*DeviceCommand_Close_); ok {
-			return x.Close
-		}
-	}
-	return nil
-}
+func (*Target_DeviceId) isTarget_Target() {}
 
-func (x *DeviceCommand) GetCancel() *DeviceCommand_Cancel {
-	if x != nil {
-		if x, ok := x.Command.(*DeviceCommand_Cancel_); ok {
-			return x.Cancel
-		}
-	}
-	return nil
-}
+func (*Target_Pinned_) isTarget_Target() {}
 
-type isDeviceCommand_Command interface {
-	isDeviceCommand_Command()
-}
-
-type DeviceCommand_Connect_ struct {
-	// connect opens the lent device, closing the one this cast opened before.
-	Connect *DeviceCommand_Connect `protobuf:"bytes,2,opt,name=connect,proto3,oneof"`
-}
-
-type DeviceCommand_Play_ struct {
-	Play *DeviceCommand_Play `protobuf:"bytes,3,opt,name=play,proto3,oneof"`
-}
-
-type DeviceCommand_StreamHeaders_ struct {
-	StreamHeaders *DeviceCommand_StreamHeaders `protobuf:"bytes,4,opt,name=stream_headers,json=streamHeaders,proto3,oneof"`
-}
-
-type DeviceCommand_AwaitEnd_ struct {
-	AwaitEnd *DeviceCommand_AwaitEnd `protobuf:"bytes,5,opt,name=await_end,json=awaitEnd,proto3,oneof"`
-}
-
-type DeviceCommand_Close_ struct {
-	Close *DeviceCommand_Close `protobuf:"bytes,6,opt,name=close,proto3,oneof"`
-}
-
-type DeviceCommand_Cancel_ struct {
-	// cancel abandons a command still running; it is never answered.
-	Cancel *DeviceCommand_Cancel `protobuf:"bytes,7,opt,name=cancel,proto3,oneof"`
-}
-
-func (*DeviceCommand_Connect_) isDeviceCommand_Command() {}
-
-func (*DeviceCommand_Play_) isDeviceCommand_Command() {}
-
-func (*DeviceCommand_StreamHeaders_) isDeviceCommand_Command() {}
-
-func (*DeviceCommand_AwaitEnd_) isDeviceCommand_Command() {}
-
-func (*DeviceCommand_Close_) isDeviceCommand_Command() {}
-
-func (*DeviceCommand_Cancel_) isDeviceCommand_Command() {}
-
-// DeviceError is a renderer's failure, typed where the server's recovery reads its kind.
-type DeviceError struct {
+type Target_Pinned struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Types that are valid to be assigned to Error:
-	//
-	//	*DeviceError_Message
-	//	*DeviceError_Gone_
-	Error         isDeviceError_Error `protobuf_oneof:"error"`
+	// type is the device's family, as Device.type reports it.
+	Type string `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
+	// address is a host, a host:port, or the URL the family answers at.
+	Address       string `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *DeviceError) Reset() {
-	*x = DeviceError{}
-	mi := &file_castor_v1_device_proto_msgTypes[9]
+func (x *Target_Pinned) Reset() {
+	*x = Target_Pinned{}
+	mi := &file_castor_v1_device_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *DeviceError) String() string {
+func (x *Target_Pinned) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*DeviceError) ProtoMessage() {}
+func (*Target_Pinned) ProtoMessage() {}
 
-func (x *DeviceError) ProtoReflect() protoreflect.Message {
-	mi := &file_castor_v1_device_proto_msgTypes[9]
+func (x *Target_Pinned) ProtoReflect() protoreflect.Message {
+	mi := &file_castor_v1_device_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -746,438 +290,21 @@ func (x *DeviceError) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use DeviceError.ProtoReflect.Descriptor instead.
-func (*DeviceError) Descriptor() ([]byte, []int) {
-	return file_castor_v1_device_proto_rawDescGZIP(), []int{9}
+// Deprecated: Use Target_Pinned.ProtoReflect.Descriptor instead.
+func (*Target_Pinned) Descriptor() ([]byte, []int) {
+	return file_castor_v1_device_proto_rawDescGZIP(), []int{3, 0}
 }
 
-func (x *DeviceError) GetError() isDeviceError_Error {
+func (x *Target_Pinned) GetType() string {
 	if x != nil {
-		return x.Error
-	}
-	return nil
-}
-
-func (x *DeviceError) GetMessage() string {
-	if x != nil {
-		if x, ok := x.Error.(*DeviceError_Message); ok {
-			return x.Message
-		}
+		return x.Type
 	}
 	return ""
 }
 
-func (x *DeviceError) GetGone() *DeviceError_Gone {
+func (x *Target_Pinned) GetAddress() string {
 	if x != nil {
-		if x, ok := x.Error.(*DeviceError_Gone_); ok {
-			return x.Gone
-		}
-	}
-	return nil
-}
-
-type isDeviceError_Error interface {
-	isDeviceError_Error()
-}
-
-type DeviceError_Message struct {
-	Message string `protobuf:"bytes,1,opt,name=message,proto3,oneof"`
-}
-
-type DeviceError_Gone_ struct {
-	Gone *DeviceError_Gone `protobuf:"bytes,2,opt,name=gone,proto3,oneof"`
-}
-
-func (*DeviceError_Message) isDeviceError_Error() {}
-
-func (*DeviceError_Gone_) isDeviceError_Error() {}
-
-type AnswerRequest_Done struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *AnswerRequest_Done) Reset() {
-	*x = AnswerRequest_Done{}
-	mi := &file_castor_v1_device_proto_msgTypes[10]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *AnswerRequest_Done) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*AnswerRequest_Done) ProtoMessage() {}
-
-func (x *AnswerRequest_Done) ProtoReflect() protoreflect.Message {
-	mi := &file_castor_v1_device_proto_msgTypes[10]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use AnswerRequest_Done.ProtoReflect.Descriptor instead.
-func (*AnswerRequest_Done) Descriptor() ([]byte, []int) {
-	return file_castor_v1_device_proto_rawDescGZIP(), []int{2, 0}
-}
-
-type AnswerRequest_Headers struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Headers       map[string]string      `protobuf:"bytes,1,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *AnswerRequest_Headers) Reset() {
-	*x = AnswerRequest_Headers{}
-	mi := &file_castor_v1_device_proto_msgTypes[11]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *AnswerRequest_Headers) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*AnswerRequest_Headers) ProtoMessage() {}
-
-func (x *AnswerRequest_Headers) ProtoReflect() protoreflect.Message {
-	mi := &file_castor_v1_device_proto_msgTypes[11]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use AnswerRequest_Headers.ProtoReflect.Descriptor instead.
-func (*AnswerRequest_Headers) Descriptor() ([]byte, []int) {
-	return file_castor_v1_device_proto_rawDescGZIP(), []int{2, 1}
-}
-
-func (x *AnswerRequest_Headers) GetHeaders() map[string]string {
-	if x != nil {
-		return x.Headers
-	}
-	return nil
-}
-
-type DeviceCommand_Connect struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *DeviceCommand_Connect) Reset() {
-	*x = DeviceCommand_Connect{}
-	mi := &file_castor_v1_device_proto_msgTypes[13]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DeviceCommand_Connect) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DeviceCommand_Connect) ProtoMessage() {}
-
-func (x *DeviceCommand_Connect) ProtoReflect() protoreflect.Message {
-	mi := &file_castor_v1_device_proto_msgTypes[13]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DeviceCommand_Connect.ProtoReflect.Descriptor instead.
-func (*DeviceCommand_Connect) Descriptor() ([]byte, []int) {
-	return file_castor_v1_device_proto_rawDescGZIP(), []int{8, 0}
-}
-
-type DeviceCommand_Play struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// url is what the renderer fetches: the source itself, or what the server serves it.
-	Url           string `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
-	ContentType   string `protobuf:"bytes,2,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *DeviceCommand_Play) Reset() {
-	*x = DeviceCommand_Play{}
-	mi := &file_castor_v1_device_proto_msgTypes[14]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DeviceCommand_Play) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DeviceCommand_Play) ProtoMessage() {}
-
-func (x *DeviceCommand_Play) ProtoReflect() protoreflect.Message {
-	mi := &file_castor_v1_device_proto_msgTypes[14]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DeviceCommand_Play.ProtoReflect.Descriptor instead.
-func (*DeviceCommand_Play) Descriptor() ([]byte, []int) {
-	return file_castor_v1_device_proto_rawDescGZIP(), []int{8, 1}
-}
-
-func (x *DeviceCommand_Play) GetUrl() string {
-	if x != nil {
-		return x.Url
-	}
-	return ""
-}
-
-func (x *DeviceCommand_Play) GetContentType() string {
-	if x != nil {
-		return x.ContentType
-	}
-	return ""
-}
-
-type DeviceCommand_StreamHeaders struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ContentType   string                 `protobuf:"bytes,1,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *DeviceCommand_StreamHeaders) Reset() {
-	*x = DeviceCommand_StreamHeaders{}
-	mi := &file_castor_v1_device_proto_msgTypes[15]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DeviceCommand_StreamHeaders) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DeviceCommand_StreamHeaders) ProtoMessage() {}
-
-func (x *DeviceCommand_StreamHeaders) ProtoReflect() protoreflect.Message {
-	mi := &file_castor_v1_device_proto_msgTypes[15]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DeviceCommand_StreamHeaders.ProtoReflect.Descriptor instead.
-func (*DeviceCommand_StreamHeaders) Descriptor() ([]byte, []int) {
-	return file_castor_v1_device_proto_rawDescGZIP(), []int{8, 2}
-}
-
-func (x *DeviceCommand_StreamHeaders) GetContentType() string {
-	if x != nil {
-		return x.ContentType
-	}
-	return ""
-}
-
-type DeviceCommand_AwaitEnd struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *DeviceCommand_AwaitEnd) Reset() {
-	*x = DeviceCommand_AwaitEnd{}
-	mi := &file_castor_v1_device_proto_msgTypes[16]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DeviceCommand_AwaitEnd) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DeviceCommand_AwaitEnd) ProtoMessage() {}
-
-func (x *DeviceCommand_AwaitEnd) ProtoReflect() protoreflect.Message {
-	mi := &file_castor_v1_device_proto_msgTypes[16]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DeviceCommand_AwaitEnd.ProtoReflect.Descriptor instead.
-func (*DeviceCommand_AwaitEnd) Descriptor() ([]byte, []int) {
-	return file_castor_v1_device_proto_rawDescGZIP(), []int{8, 3}
-}
-
-type DeviceCommand_Close struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *DeviceCommand_Close) Reset() {
-	*x = DeviceCommand_Close{}
-	mi := &file_castor_v1_device_proto_msgTypes[17]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DeviceCommand_Close) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DeviceCommand_Close) ProtoMessage() {}
-
-func (x *DeviceCommand_Close) ProtoReflect() protoreflect.Message {
-	mi := &file_castor_v1_device_proto_msgTypes[17]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DeviceCommand_Close.ProtoReflect.Descriptor instead.
-func (*DeviceCommand_Close) Descriptor() ([]byte, []int) {
-	return file_castor_v1_device_proto_rawDescGZIP(), []int{8, 4}
-}
-
-type DeviceCommand_Cancel struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	CommandId     string                 `protobuf:"bytes,1,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *DeviceCommand_Cancel) Reset() {
-	*x = DeviceCommand_Cancel{}
-	mi := &file_castor_v1_device_proto_msgTypes[18]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DeviceCommand_Cancel) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DeviceCommand_Cancel) ProtoMessage() {}
-
-func (x *DeviceCommand_Cancel) ProtoReflect() protoreflect.Message {
-	mi := &file_castor_v1_device_proto_msgTypes[18]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DeviceCommand_Cancel.ProtoReflect.Descriptor instead.
-func (*DeviceCommand_Cancel) Descriptor() ([]byte, []int) {
-	return file_castor_v1_device_proto_rawDescGZIP(), []int{8, 5}
-}
-
-func (x *DeviceCommand_Cancel) GetCommandId() string {
-	if x != nil {
-		return x.CommandId
-	}
-	return ""
-}
-
-// Gone is a renderer established unreachable.
-type DeviceError_Gone struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Renderer      string                 `protobuf:"bytes,1,opt,name=renderer,proto3" json:"renderer,omitempty"`
-	Observed      string                 `protobuf:"bytes,2,opt,name=observed,proto3" json:"observed,omitempty"`
-	Cause         string                 `protobuf:"bytes,3,opt,name=cause,proto3" json:"cause,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *DeviceError_Gone) Reset() {
-	*x = DeviceError_Gone{}
-	mi := &file_castor_v1_device_proto_msgTypes[19]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DeviceError_Gone) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DeviceError_Gone) ProtoMessage() {}
-
-func (x *DeviceError_Gone) ProtoReflect() protoreflect.Message {
-	mi := &file_castor_v1_device_proto_msgTypes[19]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DeviceError_Gone.ProtoReflect.Descriptor instead.
-func (*DeviceError_Gone) Descriptor() ([]byte, []int) {
-	return file_castor_v1_device_proto_rawDescGZIP(), []int{9, 0}
-}
-
-func (x *DeviceError_Gone) GetRenderer() string {
-	if x != nil {
-		return x.Renderer
-	}
-	return ""
-}
-
-func (x *DeviceError_Gone) GetObserved() string {
-	if x != nil {
-		return x.Observed
-	}
-	return ""
-}
-
-func (x *DeviceError_Gone) GetCause() string {
-	if x != nil {
-		return x.Cause
+		return x.Address
 	}
 	return ""
 }
@@ -1186,84 +313,24 @@ var File_castor_v1_device_proto protoreflect.FileDescriptor
 
 const file_castor_v1_device_proto_rawDesc = "" +
 	"\n" +
-	"\x16castor/v1/device.proto\x12\tcastor.v1\x1a\x1bbuf/validate/validate.proto\"z\n" +
-	"\fDriveRequest\x12 \n" +
-	"\acast_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x06castId\x12)\n" +
-	"\x06device\x18\x02 \x01(\v2\x11.castor.v1.DeviceR\x06device\x12\x1d\n" +
-	"\n" +
-	"self_fetch\x18\x03 \x01(\bR\tselfFetch\"C\n" +
-	"\rDriveResponse\x122\n" +
-	"\acommand\x18\x01 \x01(\v2\x18.castor.v1.DeviceCommandR\acommand\"\xfe\x03\n" +
-	"\rAnswerRequest\x12 \n" +
-	"\acast_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x06castId\x12&\n" +
-	"\n" +
-	"command_id\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tcommandId\x123\n" +
-	"\x04done\x18\x03 \x01(\v2\x1d.castor.v1.AnswerRequest.DoneH\x00R\x04done\x12=\n" +
-	"\fcapabilities\x18\x04 \x01(\v2\x17.castor.v1.CapabilitiesH\x00R\fcapabilities\x12<\n" +
-	"\aheaders\x18\x05 \x01(\v2 .castor.v1.AnswerRequest.HeadersH\x00R\aheaders\x12.\n" +
-	"\x05error\x18\x06 \x01(\v2\x16.castor.v1.DeviceErrorH\x00R\x05error\x1a\x06\n" +
-	"\x04Done\x1a\xa7\x01\n" +
-	"\aHeaders\x12`\n" +
-	"\aheaders\x18\x01 \x03(\v2-.castor.v1.AnswerRequest.Headers.HeadersEntryB\x17\xbaH\x14\x9a\x01\x11\"\x05r\x03\xc0\x01\x01*\br\x06\xc8\x01\x00\xc0\x01\x02R\aheaders\x1a:\n" +
-	"\fHeadersEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x0f\n" +
-	"\x06answer\x12\x05\xbaH\x02\b\x01\"\x10\n" +
-	"\x0eAnswerResponse\"J\n" +
-	"\x06Device\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
-	"\x04type\x18\x02 \x01(\tR\x04type\x12\x18\n" +
-	"\aaddress\x18\x03 \x01(\tR\aaddress\"\xdb\x01\n" +
-	"\fCapabilities\x12\x1e\n" +
-	"\n" +
-	"containers\x18\x01 \x03(\tR\n" +
-	"containers\x12-\n" +
-	"\x05video\x18\x02 \x03(\v2\x17.castor.v1.VideoSupportR\x05video\x12-\n" +
-	"\x05audio\x18\x03 \x03(\v2\x17.castor.v1.AudioSupportR\x05audio\x12)\n" +
-	"\x10served_container\x18\x04 \x01(\tR\x0fservedContainer\x12\"\n" +
-	"\fdeinterlaces\x18\x05 \x01(\bR\fdeinterlaces\"|\n" +
-	"\fVideoSupport\x12\x14\n" +
-	"\x05codec\x18\x01 \x01(\tR\x05codec\x12\x1a\n" +
-	"\bprofiles\x18\x02 \x03(\tR\bprofiles\x12\x1d\n" +
-	"\n" +
-	"bit_depths\x18\x03 \x03(\rR\tbitDepths\x12\x1b\n" +
-	"\tmax_level\x18\x04 \x01(\rR\bmaxLevel\"G\n" +
-	"\fAudioSupport\x12\x14\n" +
-	"\x05codec\x18\x01 \x01(\tR\x05codec\x12!\n" +
-	"\fmax_channels\x18\x02 \x01(\rR\vmaxChannels\"\xdf\x05\n" +
-	"\rDeviceCommand\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12<\n" +
-	"\aconnect\x18\x02 \x01(\v2 .castor.v1.DeviceCommand.ConnectH\x00R\aconnect\x123\n" +
-	"\x04play\x18\x03 \x01(\v2\x1d.castor.v1.DeviceCommand.PlayH\x00R\x04play\x12O\n" +
-	"\x0estream_headers\x18\x04 \x01(\v2&.castor.v1.DeviceCommand.StreamHeadersH\x00R\rstreamHeaders\x12@\n" +
-	"\tawait_end\x18\x05 \x01(\v2!.castor.v1.DeviceCommand.AwaitEndH\x00R\bawaitEnd\x126\n" +
-	"\x05close\x18\x06 \x01(\v2\x1e.castor.v1.DeviceCommand.CloseH\x00R\x05close\x129\n" +
-	"\x06cancel\x18\a \x01(\v2\x1f.castor.v1.DeviceCommand.CancelH\x00R\x06cancel\x1a\t\n" +
-	"\aConnect\x1a;\n" +
-	"\x04Play\x12\x10\n" +
-	"\x03url\x18\x01 \x01(\tR\x03url\x12!\n" +
-	"\fcontent_type\x18\x02 \x01(\tR\vcontentType\x1a2\n" +
-	"\rStreamHeaders\x12!\n" +
-	"\fcontent_type\x18\x01 \x01(\tR\vcontentType\x1a\n" +
-	"\n" +
-	"\bAwaitEnd\x1a\a\n" +
-	"\x05Close\x1a'\n" +
-	"\x06Cancel\x12\x1d\n" +
-	"\n" +
-	"command_id\x18\x01 \x01(\tR\tcommandId:y\xbaHv\x1at\n" +
-	"\x11device_command.id\x12:id is set on every command but cancel, and empty on cancel\x1a#has(this.cancel) == (this.id == '')B\x10\n" +
-	"\acommand\x12\x05\xbaH\x02\b\x01\"\xcb\x01\n" +
-	"\vDeviceError\x12#\n" +
-	"\amessage\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01H\x00R\amessage\x121\n" +
-	"\x04gone\x18\x02 \x01(\v2\x1b.castor.v1.DeviceError.GoneH\x00R\x04gone\x1aT\n" +
-	"\x04Gone\x12\x1a\n" +
-	"\brenderer\x18\x01 \x01(\tR\brenderer\x12\x1a\n" +
-	"\bobserved\x18\x02 \x01(\tR\bobserved\x12\x14\n" +
-	"\x05cause\x18\x03 \x01(\tR\x05causeB\x0e\n" +
-	"\x05error\x12\x05\xbaH\x02\b\x012\x8c\x01\n" +
-	"\rDeviceService\x12<\n" +
-	"\x05Drive\x12\x17.castor.v1.DriveRequest\x1a\x18.castor.v1.DriveResponse0\x01\x12=\n" +
-	"\x06Answer\x12\x18.castor.v1.AnswerRequest\x1a\x19.castor.v1.AnswerResponseB\x94\x01\n" +
+	"\x16castor/v1/device.proto\x12\tcastor.v1\x1a\x1bbuf/validate/validate.proto\"\x14\n" +
+	"\x12ListDevicesRequest\"B\n" +
+	"\x13ListDevicesResponse\x12+\n" +
+	"\adevices\x18\x01 \x03(\v2\x11.castor.v1.DeviceR\adevices\"Z\n" +
+	"\x06Device\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
+	"\x04type\x18\x03 \x01(\tR\x04type\x12\x18\n" +
+	"\aaddress\x18\x04 \x01(\tR\aaddress\"\xbf\x01\n" +
+	"\x06Target\x12&\n" +
+	"\tdevice_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01H\x00R\bdeviceId\x122\n" +
+	"\x06pinned\x18\x02 \x01(\v2\x18.castor.v1.Target.PinnedH\x00R\x06pinned\x1aH\n" +
+	"\x06Pinned\x12\x1b\n" +
+	"\x04type\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x04type\x12!\n" +
+	"\aaddress\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\aaddressB\x0f\n" +
+	"\x06target\x12\x05\xbaH\x02\b\x012]\n" +
+	"\rDeviceService\x12L\n" +
+	"\vListDevices\x12\x1d.castor.v1.ListDevicesRequest\x1a\x1e.castor.v1.ListDevicesResponseB\x94\x01\n" +
 	"\rcom.castor.v1B\vDeviceProtoP\x01Z1github.com/stupside/castor/gen/castor/v1;castorv1\xa2\x02\x03CXX\xaa\x02\tCastor.V1\xca\x02\tCastor\\V1\xe2\x02\x15Castor\\V1\\GPBMetadata\xea\x02\n" +
 	"Castor::V1b\x06proto3"
 
@@ -1279,55 +346,24 @@ func file_castor_v1_device_proto_rawDescGZIP() []byte {
 	return file_castor_v1_device_proto_rawDescData
 }
 
-var file_castor_v1_device_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
+var file_castor_v1_device_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_castor_v1_device_proto_goTypes = []any{
-	(*DriveRequest)(nil),                // 0: castor.v1.DriveRequest
-	(*DriveResponse)(nil),               // 1: castor.v1.DriveResponse
-	(*AnswerRequest)(nil),               // 2: castor.v1.AnswerRequest
-	(*AnswerResponse)(nil),              // 3: castor.v1.AnswerResponse
-	(*Device)(nil),                      // 4: castor.v1.Device
-	(*Capabilities)(nil),                // 5: castor.v1.Capabilities
-	(*VideoSupport)(nil),                // 6: castor.v1.VideoSupport
-	(*AudioSupport)(nil),                // 7: castor.v1.AudioSupport
-	(*DeviceCommand)(nil),               // 8: castor.v1.DeviceCommand
-	(*DeviceError)(nil),                 // 9: castor.v1.DeviceError
-	(*AnswerRequest_Done)(nil),          // 10: castor.v1.AnswerRequest.Done
-	(*AnswerRequest_Headers)(nil),       // 11: castor.v1.AnswerRequest.Headers
-	nil,                                 // 12: castor.v1.AnswerRequest.Headers.HeadersEntry
-	(*DeviceCommand_Connect)(nil),       // 13: castor.v1.DeviceCommand.Connect
-	(*DeviceCommand_Play)(nil),          // 14: castor.v1.DeviceCommand.Play
-	(*DeviceCommand_StreamHeaders)(nil), // 15: castor.v1.DeviceCommand.StreamHeaders
-	(*DeviceCommand_AwaitEnd)(nil),      // 16: castor.v1.DeviceCommand.AwaitEnd
-	(*DeviceCommand_Close)(nil),         // 17: castor.v1.DeviceCommand.Close
-	(*DeviceCommand_Cancel)(nil),        // 18: castor.v1.DeviceCommand.Cancel
-	(*DeviceError_Gone)(nil),            // 19: castor.v1.DeviceError.Gone
+	(*ListDevicesRequest)(nil),  // 0: castor.v1.ListDevicesRequest
+	(*ListDevicesResponse)(nil), // 1: castor.v1.ListDevicesResponse
+	(*Device)(nil),              // 2: castor.v1.Device
+	(*Target)(nil),              // 3: castor.v1.Target
+	(*Target_Pinned)(nil),       // 4: castor.v1.Target.Pinned
 }
 var file_castor_v1_device_proto_depIdxs = []int32{
-	4,  // 0: castor.v1.DriveRequest.device:type_name -> castor.v1.Device
-	8,  // 1: castor.v1.DriveResponse.command:type_name -> castor.v1.DeviceCommand
-	10, // 2: castor.v1.AnswerRequest.done:type_name -> castor.v1.AnswerRequest.Done
-	5,  // 3: castor.v1.AnswerRequest.capabilities:type_name -> castor.v1.Capabilities
-	11, // 4: castor.v1.AnswerRequest.headers:type_name -> castor.v1.AnswerRequest.Headers
-	9,  // 5: castor.v1.AnswerRequest.error:type_name -> castor.v1.DeviceError
-	6,  // 6: castor.v1.Capabilities.video:type_name -> castor.v1.VideoSupport
-	7,  // 7: castor.v1.Capabilities.audio:type_name -> castor.v1.AudioSupport
-	13, // 8: castor.v1.DeviceCommand.connect:type_name -> castor.v1.DeviceCommand.Connect
-	14, // 9: castor.v1.DeviceCommand.play:type_name -> castor.v1.DeviceCommand.Play
-	15, // 10: castor.v1.DeviceCommand.stream_headers:type_name -> castor.v1.DeviceCommand.StreamHeaders
-	16, // 11: castor.v1.DeviceCommand.await_end:type_name -> castor.v1.DeviceCommand.AwaitEnd
-	17, // 12: castor.v1.DeviceCommand.close:type_name -> castor.v1.DeviceCommand.Close
-	18, // 13: castor.v1.DeviceCommand.cancel:type_name -> castor.v1.DeviceCommand.Cancel
-	19, // 14: castor.v1.DeviceError.gone:type_name -> castor.v1.DeviceError.Gone
-	12, // 15: castor.v1.AnswerRequest.Headers.headers:type_name -> castor.v1.AnswerRequest.Headers.HeadersEntry
-	0,  // 16: castor.v1.DeviceService.Drive:input_type -> castor.v1.DriveRequest
-	2,  // 17: castor.v1.DeviceService.Answer:input_type -> castor.v1.AnswerRequest
-	1,  // 18: castor.v1.DeviceService.Drive:output_type -> castor.v1.DriveResponse
-	3,  // 19: castor.v1.DeviceService.Answer:output_type -> castor.v1.AnswerResponse
-	18, // [18:20] is the sub-list for method output_type
-	16, // [16:18] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	2, // 0: castor.v1.ListDevicesResponse.devices:type_name -> castor.v1.Device
+	4, // 1: castor.v1.Target.pinned:type_name -> castor.v1.Target.Pinned
+	0, // 2: castor.v1.DeviceService.ListDevices:input_type -> castor.v1.ListDevicesRequest
+	1, // 3: castor.v1.DeviceService.ListDevices:output_type -> castor.v1.ListDevicesResponse
+	3, // [3:4] is the sub-list for method output_type
+	2, // [2:3] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_castor_v1_device_proto_init() }
@@ -1335,23 +371,9 @@ func file_castor_v1_device_proto_init() {
 	if File_castor_v1_device_proto != nil {
 		return
 	}
-	file_castor_v1_device_proto_msgTypes[2].OneofWrappers = []any{
-		(*AnswerRequest_Done_)(nil),
-		(*AnswerRequest_Capabilities)(nil),
-		(*AnswerRequest_Headers_)(nil),
-		(*AnswerRequest_Error)(nil),
-	}
-	file_castor_v1_device_proto_msgTypes[8].OneofWrappers = []any{
-		(*DeviceCommand_Connect_)(nil),
-		(*DeviceCommand_Play_)(nil),
-		(*DeviceCommand_StreamHeaders_)(nil),
-		(*DeviceCommand_AwaitEnd_)(nil),
-		(*DeviceCommand_Close_)(nil),
-		(*DeviceCommand_Cancel_)(nil),
-	}
-	file_castor_v1_device_proto_msgTypes[9].OneofWrappers = []any{
-		(*DeviceError_Message)(nil),
-		(*DeviceError_Gone_)(nil),
+	file_castor_v1_device_proto_msgTypes[3].OneofWrappers = []any{
+		(*Target_DeviceId)(nil),
+		(*Target_Pinned_)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -1359,7 +381,7 @@ func file_castor_v1_device_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_castor_v1_device_proto_rawDesc), len(file_castor_v1_device_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   20,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

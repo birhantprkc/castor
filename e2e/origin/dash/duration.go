@@ -18,3 +18,5 @@ func (Duration) Package(dir string, l origin.Layout) origin.Output {
 	out.Args = slices.Insert(out.Args, len(out.Args)-1, "-use_timeline", "0")
 	return out
 }
+
+func (Duration) Muxes() string { return "mp4" }

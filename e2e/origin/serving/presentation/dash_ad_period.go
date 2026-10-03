@@ -6,10 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
-	"strconv"
 
 	"github.com/Eyevinn/dash-mpd/mpd"
 	"go.yaml.in/yaml/v3"
@@ -78,27 +76,16 @@ func (a adPeriod) Wrap(next http.Handler, p origin.Published) http.Handler {
 
 // encodeDashCreative packages the ad once as DASH, returning its files by name and its adaptation sets.
 func encodeDashCreative(segments, height int) (map[string][]byte, []*mpd.AdaptationSetType, error) {
-	ffmpeg, err := exec.LookPath("ffmpeg")
-	if err != nil {
-		return nil, nil, err
-	}
 	dir, err := os.MkdirTemp("", "castor-e2e-dash-ad-")
 	if err != nil {
 		return nil, nil, err
 	}
 	defer os.RemoveAll(dir)
-	width := (height*16/9 + 1) &^ 1
-	cmd := exec.Command(ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", fmt.Sprintf("smptebars=size=%dx%d:rate=15", width, height),
-		"-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000",
-		"-t", strconv.Itoa(segments),
-		"-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-g", "15",
-		"-c:a", "aac", "-ac", "2",
+	if err := origin.Creative(segments, height,
 		"-f", "dash", "-seg_duration", "1", "-adaptation_sets", "id=0,streams=v id=1,streams=a",
 		"-init_seg_name", "ad-init-$RepresentationID$.m4s", "-media_seg_name", "ad-$RepresentationID$-$Number%05d$.m4s",
-		filepath.Join(dir, "ad.mpd"))
-	if log, err := cmd.CombinedOutput(); err != nil {
-		return nil, nil, fmt.Errorf("encoding the creative: %w\n%s", err, log)
+		filepath.Join(dir, "ad.mpd")); err != nil {
+		return nil, nil, err
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {

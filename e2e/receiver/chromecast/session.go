@@ -7,8 +7,9 @@ import (
 	"net"
 	"sync"
 
-	"github.com/gogo/protobuf/proto"
 	pb "github.com/vishen/go-chromecast/cast/proto"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/protoadapt"
 
 	"github.com/stupside/castor/e2e/receiver"
 )
@@ -68,7 +69,7 @@ func (c *castSession) serve() {
 			return
 		}
 		var msg pb.CastMessage
-		if err := proto.Unmarshal(frame, &msg); err != nil {
+		if err := proto.Unmarshal(frame, protoadapt.MessageV2Of(&msg)); err != nil {
 			c.session.Problem("undecodable cast frame: %v", err)
 			return
 		}
@@ -128,14 +129,14 @@ func (c *castSession) send(source, destination, namespace string, payload map[st
 		return
 	}
 	text := string(body)
-	frame, err := proto.Marshal(&pb.CastMessage{
+	frame, err := proto.Marshal(protoadapt.MessageV2Of(&pb.CastMessage{
 		ProtocolVersion: pb.CastMessage_CASTV2_1_0.Enum(),
 		SourceId:        &source,
 		DestinationId:   &destination,
 		Namespace:       &namespace,
 		PayloadType:     pb.CastMessage_STRING.Enum(),
 		PayloadUtf8:     &text,
-	})
+	}))
 	if err != nil {
 		c.session.Problem("encoding a cast frame: %v", err)
 		return

@@ -13,7 +13,7 @@ import (
 	"github.com/stupside/castor/e2e/receiver"
 )
 
-// Playlist plays HLS and DASH the way a TV does: fetching the playlist's segments itself.
+// Playlist plays HLS and DASH the way a device does: fetching the playlist's segments itself.
 type Playlist struct{}
 
 func (Playlist) Name() string { return "playlist" }

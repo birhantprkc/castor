@@ -9,7 +9,7 @@ import (
 	"github.com/stupside/castor/e2e/receiver"
 )
 
-// joinSlack is how far behind a live start a player may join: ffmpeg, like a TV, starts three segments back from the edge.
+// joinSlack is how far behind a live start a player may join: ffmpeg, like a device, starts three segments back from the edge.
 const joinSlack = 3 * time.Second
 
 // PlayedOut holds a cast watched to the end to the source's length and to decoding cleanly, and a stopping viewer to having stopped it.

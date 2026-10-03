@@ -6,7 +6,6 @@ import (
 	"maps"
 	"net/http"
 	"path"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -87,11 +86,10 @@ func (l live) revealed(p origin.Published) int { return l.Start + int(time.Since
 
 // placed maps each segment a media playlist lists to its place, so a segment request knows whether it slid out.
 func placed(playlist string) map[string]place {
-	lines := slices.Collect(strings.Lines(playlist))
 	var uris []string
-	for i, line := range lines {
-		if strings.HasPrefix(line, "#EXTINF") && i+1 < len(lines) {
-			uris = append(uris, path.Base(strings.TrimSpace(lines[i+1])))
+	for line := range serving.Lines(playlist) {
+		if line.Entry() {
+			uris = append(uris, path.Base(strings.TrimSpace(line.URI)))
 		}
 	}
 	places := make(map[string]place, len(uris))
@@ -104,7 +102,6 @@ func placed(playlist string) map[string]place {
 // edge is a media playlist cut to its revealed segments, the newest window of them if any, typed as live; a master passes through.
 func (l live) edge(playlist string, revealed int) string {
 	var out strings.Builder
-	lines := slices.Collect(strings.Lines(playlist))
 	total := strings.Count(playlist, "#EXTINF")
 	last := min(revealed, total)
 	first := 0
@@ -112,21 +109,19 @@ func (l live) edge(playlist string, revealed int) string {
 		first = max(0, last-l.Window)
 	}
 	seen := 0
-	for i := 0; i < len(lines); i++ {
-		line := lines[i]
+	for line := range serving.Lines(playlist) {
 		switch {
-		case strings.HasPrefix(line, "#EXT-X-PLAYLIST-TYPE"), strings.HasPrefix(line, "#EXT-X-ENDLIST"):
-		case l.Window > 0 && strings.HasPrefix(line, "#EXT-X-MEDIA-SEQUENCE:"):
+		case strings.HasPrefix(line.Text, "#EXT-X-PLAYLIST-TYPE"), strings.HasPrefix(line.Text, "#EXT-X-ENDLIST"):
+		case l.Window > 0 && strings.HasPrefix(line.Text, "#EXT-X-MEDIA-SEQUENCE:"):
 			fmt.Fprintf(&out, "#EXT-X-MEDIA-SEQUENCE:%d\n", first)
-		case strings.HasPrefix(line, "#EXTINF"):
-			if seen >= first && seen < last && i+1 < len(lines) {
-				out.WriteString(line + lines[i+1])
+		case line.Entry():
+			if seen >= first && seen < last {
+				out.WriteString(line.Text + line.URI)
 			}
 			seen++
-			i++
 		default:
 			if seen == 0 {
-				out.WriteString(line)
+				out.WriteString(line.Text)
 			}
 		}
 	}

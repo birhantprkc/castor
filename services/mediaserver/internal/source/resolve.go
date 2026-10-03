@@ -1,0 +1,100 @@
+// Package source turns a link into the program a cast reads: what the origin publishes, and the formats that read it.
+package source
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+
+	"github.com/stupside/castor/services/mediaserver/internal/media"
+)
+
+// Resolution is what resolving one link established.
+type Resolution struct {
+	// Program is what castor reads.
+	Program media.Program
+
+	// Origin is what the source offered, whatever was chosen from it.
+	Origin Origin
+
+	// Rendition is the rung chosen, zero when the source published no ladder.
+	Rendition Rendition
+}
+
+// Resolver resolves links through the formats it was bound to.
+type Resolver struct {
+	env     Env
+	formats Formats
+}
+
+// NewResolver binds resolution to the client that reads origins, the tallest picture a cast shows and the formats it reads.
+func NewResolver(client Client, maxHeight media.HeightCap, formats Formats) *Resolver {
+	return &Resolver{
+		env:     Env{Client: client, MaxHeight: maxHeight},
+		formats: formats,
+	}
+}
+
+// Resolve reads a link, narrowed to chosen when a rung was already picked (zero for none).
+func (r *Resolver) Resolve(ctx context.Context, stream *Stream, chosen Rendition) (Resolution, error) {
+	if stream == nil || stream.URL == nil {
+		return Resolution{}, fmt.Errorf("source has no URL")
+	}
+	origin := Origin{}
+	if probe := stream.Probe; probe != nil {
+		origin.Duration = probe.Duration
+		origin.Live = probe.Duration == 0
+	}
+	origin.Segmented = media.IsSegmented(stream.ContentType)
+	resolved, err := r.formats.Claiming(stream.ContentType).Resolve(ctx, r.env, Subject{Stream: *stream, Origin: origin, Chosen: chosen})
+	if err != nil {
+		return resolved, err
+	}
+	if drm := resolved.Origin.Protection; drm != "" {
+		return resolved, fmt.Errorf("the source is protected by DRM (%s), which castor cannot decrypt", drm)
+	}
+	slog.InfoContext(ctx, "source resolved", "content_type", stream.ContentType)
+	return resolved, nil
+}
+
+// ProgramFor is the single-input program one stream names, before any format reads it.
+func ProgramFor(stream *Stream) (media.Program, error) {
+	program, err := media.NewProgram(media.Program{
+		Inputs: []media.Input{{
+			ID: media.PrimaryInputID, URL: stream.URL, Headers: stream.Headers,
+			ContentType: stream.ContentType, Fetch: media.Fetch{Segmented: media.IsSegmented(stream.ContentType)},
+		}},
+		Tracks: []media.TrackRef{
+			{Input: media.PrimaryInputID, Kind: media.TrackVideo, Optional: true},
+			{Input: media.PrimaryInputID, Kind: media.TrackAudio, Optional: true},
+		},
+		ClockInput: media.PrimaryInputID,
+		EndPolicy:  media.EndAtLongest,
+	})
+	if err != nil {
+		return media.Program{}, err
+	}
+	if stream.Probe != nil {
+		program.SetMeasurement(*stream.Probe)
+	}
+	return program, nil
+}
+
+// Narrowed builds program to read chosen out of stream, carrying a measurement of that very reading, else the rung's declaration.
+func Narrowed(program media.Program, chosen Rendition, stream *Stream) (media.Program, error) {
+	narrowed, err := media.NewProgram(program)
+	if err != nil {
+		return media.Program{}, err
+	}
+	published, err := ProgramFor(stream)
+	if err != nil {
+		return media.Program{}, err
+	}
+	switch measured, ok := published.Measurement(); {
+	case ok && published.SameBindings(narrowed):
+		narrowed.SetMeasurement(measured)
+	case chosen.Declared != nil:
+		narrowed.SetMeasurement(*chosen.Declared)
+	}
+	return narrowed, nil
+}

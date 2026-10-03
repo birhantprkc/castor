@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package castor.v1;
+
+// Revision is a cast's latest change of plan, and why.
+message Revision {
+  string strategy = 1;
+  string why = 2;
+}

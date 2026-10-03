@@ -33,7 +33,7 @@ func (rotated) Name() string { return "rotated" }
 
 func (r rotated) Bend(s *origin.Stream) error {
 	// MPEG-TS has nowhere to put a display matrix.
-	if slices.Contains([]string{"file-ts", "hls-ts"}, s.Packager.Name()) {
+	if s.Packager.Muxes() == origin.MPEGTS {
 		return fmt.Errorf("%s cannot carry a rotation", s.Packager.Name())
 	}
 	s.VideoIn = append(s.VideoIn, "-noautorotate", "-display_rotation", strconv.Itoa(r.degrees))

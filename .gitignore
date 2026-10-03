@@ -5,11 +5,12 @@
 # Personal config override (keeps private sources/paths out of version control)
 config.local.yaml
 
-# Built castor binary (produced by `make build`)
+# Built castor binaries (produced by `make build`)
 /castor
+/castor-api
+/castor-media
 
-# whisper.cpp cmake artifacts (produced by `make whisper-lib` or CD pipeline)
-third_party/whisper.cpp/build_go/
+# whisper.cpp cmake artifacts (`make lib`)
 third_party/whisper.cpp/build_*/
 
 # zig cache (created by mlugg/setup-zig in CI)

@@ -39,3 +39,5 @@ func (WebM) Package(dir string, l origin.Layout) origin.Output {
 		},
 	}
 }
+
+func (WebM) Muxes() string { return "webm" }

@@ -22,32 +22,145 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type StartRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Types that are valid to be assigned to Streams:
-	//
-	//	*StartRequest_Found
-	//	*StartRequest_Named
-	Streams       isStartRequest_Streams `protobuf_oneof:"streams"`
+// Phase is where a cast is; it stays at its last phase once the cast has ended, which Ended tells.
+// Phase only moves forward, in the order of its values.
+type Phase int32
+
+const (
+	Phase_PHASE_UNSPECIFIED Phase = 0
+	// PHASE_CONNECTING reaches the device, before anything is read.
+	Phase_PHASE_CONNECTING Phase = 1
+	// PHASE_EXTRACTING opens the source's pages to find their streams.
+	Phase_PHASE_EXTRACTING Phase = 2
+	// PHASE_MEASURING readies the streams and the device.
+	Phase_PHASE_MEASURING Phase = 3
+	// PHASE_CASTING plays on the device, attempt after attempt.
+	Phase_PHASE_CASTING Phase = 4
+)
+
+// Enum value maps for Phase.
+var (
+	Phase_name = map[int32]string{
+		0: "PHASE_UNSPECIFIED",
+		1: "PHASE_CONNECTING",
+		2: "PHASE_EXTRACTING",
+		3: "PHASE_MEASURING",
+		4: "PHASE_CASTING",
+	}
+	Phase_value = map[string]int32{
+		"PHASE_UNSPECIFIED": 0,
+		"PHASE_CONNECTING":  1,
+		"PHASE_EXTRACTING":  2,
+		"PHASE_MEASURING":   3,
+		"PHASE_CASTING":     4,
+	}
+)
+
+func (x Phase) Enum() *Phase {
+	p := new(Phase)
+	*p = x
+	return p
+}
+
+func (x Phase) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Phase) Descriptor() protoreflect.EnumDescriptor {
+	return file_castor_v1_cast_proto_enumTypes[0].Descriptor()
+}
+
+func (Phase) Type() protoreflect.EnumType {
+	return &file_castor_v1_cast_proto_enumTypes[0]
+}
+
+func (x Phase) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Phase.Descriptor instead.
+func (Phase) EnumDescriptor() ([]byte, []int) {
+	return file_castor_v1_cast_proto_rawDescGZIP(), []int{0}
+}
+
+type Outcome int32
+
+const (
+	Outcome_OUTCOME_UNSPECIFIED Outcome = 0
+	// OUTCOME_ENDED is a cast that played to its end; a hand-off ends once the device accepted the URL.
+	Outcome_OUTCOME_ENDED Outcome = 1
+	// OUTCOME_STOPPED is a cast Stop ended.
+	Outcome_OUTCOME_STOPPED Outcome = 2
+	// OUTCOME_FAILED is a cast that could not play on, or that its server ended as it shut down; reason says why.
+	Outcome_OUTCOME_FAILED Outcome = 3
+)
+
+// Enum value maps for Outcome.
+var (
+	Outcome_name = map[int32]string{
+		0: "OUTCOME_UNSPECIFIED",
+		1: "OUTCOME_ENDED",
+		2: "OUTCOME_STOPPED",
+		3: "OUTCOME_FAILED",
+	}
+	Outcome_value = map[string]int32{
+		"OUTCOME_UNSPECIFIED": 0,
+		"OUTCOME_ENDED":       1,
+		"OUTCOME_STOPPED":     2,
+		"OUTCOME_FAILED":      3,
+	}
+)
+
+func (x Outcome) Enum() *Outcome {
+	p := new(Outcome)
+	*p = x
+	return p
+}
+
+func (x Outcome) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Outcome) Descriptor() protoreflect.EnumDescriptor {
+	return file_castor_v1_cast_proto_enumTypes[1].Descriptor()
+}
+
+func (Outcome) Type() protoreflect.EnumType {
+	return &file_castor_v1_cast_proto_enumTypes[1]
+}
+
+func (x Outcome) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Outcome.Descriptor instead.
+func (Outcome) EnumDescriptor() ([]byte, []int) {
+	return file_castor_v1_cast_proto_rawDescGZIP(), []int{1}
+}
+
+type CastRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Target        *Target                `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	Source        *Source                `protobuf:"bytes,2,opt,name=source,proto3" json:"source,omitempty"`
 	Preferences   *Preferences           `protobuf:"bytes,3,opt,name=preferences,proto3" json:"preferences,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *StartRequest) Reset() {
-	*x = StartRequest{}
+func (x *CastRequest) Reset() {
+	*x = CastRequest{}
 	mi := &file_castor_v1_cast_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *StartRequest) String() string {
+func (x *CastRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*StartRequest) ProtoMessage() {}
+func (*CastRequest) ProtoMessage() {}
 
-func (x *StartRequest) ProtoReflect() protoreflect.Message {
+func (x *CastRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_castor_v1_cast_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -59,82 +172,54 @@ func (x *StartRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use StartRequest.ProtoReflect.Descriptor instead.
-func (*StartRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use CastRequest.ProtoReflect.Descriptor instead.
+func (*CastRequest) Descriptor() ([]byte, []int) {
 	return file_castor_v1_cast_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *StartRequest) GetStreams() isStartRequest_Streams {
+func (x *CastRequest) GetTarget() *Target {
 	if x != nil {
-		return x.Streams
+		return x.Target
 	}
 	return nil
 }
 
-func (x *StartRequest) GetFound() *StartRequest_Streams {
+func (x *CastRequest) GetSource() *Source {
 	if x != nil {
-		if x, ok := x.Streams.(*StartRequest_Found); ok {
-			return x.Found
-		}
+		return x.Source
 	}
 	return nil
 }
 
-func (x *StartRequest) GetNamed() *Stream {
-	if x != nil {
-		if x, ok := x.Streams.(*StartRequest_Named); ok {
-			return x.Named
-		}
-	}
-	return nil
-}
-
-func (x *StartRequest) GetPreferences() *Preferences {
+func (x *CastRequest) GetPreferences() *Preferences {
 	if x != nil {
 		return x.Preferences
 	}
 	return nil
 }
 
-type isStartRequest_Streams interface {
-	isStartRequest_Streams()
-}
-
-type StartRequest_Found struct {
-	// found streams are ranked by the server, which may admit none.
-	Found *StartRequest_Streams `protobuf:"bytes,1,opt,name=found,proto3,oneof"`
-}
-
-type StartRequest_Named struct {
-	// named is a stream the operator chose, measured and cast as is.
-	Named *Stream `protobuf:"bytes,2,opt,name=named,proto3,oneof"`
-}
-
-func (*StartRequest_Found) isStartRequest_Streams() {}
-
-func (*StartRequest_Named) isStartRequest_Streams() {}
-
-type StartResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	CastId        string                 `protobuf:"bytes,1,opt,name=cast_id,json=castId,proto3" json:"cast_id,omitempty"`
+type CastResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// cast_id is opaque.
+	CastId        string `protobuf:"bytes,1,opt,name=cast_id,json=castId,proto3" json:"cast_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *StartResponse) Reset() {
-	*x = StartResponse{}
+func (x *CastResponse) Reset() {
+	*x = CastResponse{}
 	mi := &file_castor_v1_cast_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *StartResponse) String() string {
+func (x *CastResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*StartResponse) ProtoMessage() {}
+func (*CastResponse) ProtoMessage() {}
 
-func (x *StartResponse) ProtoReflect() protoreflect.Message {
+func (x *CastResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_castor_v1_cast_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -146,14 +231,544 @@ func (x *StartResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use StartResponse.ProtoReflect.Descriptor instead.
-func (*StartResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use CastResponse.ProtoReflect.Descriptor instead.
+func (*CastResponse) Descriptor() ([]byte, []int) {
 	return file_castor_v1_cast_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *StartResponse) GetCastId() string {
+func (x *CastResponse) GetCastId() string {
 	if x != nil {
 		return x.CastId
+	}
+	return ""
+}
+
+type ResolveRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Source        *Source                `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
+	Preferences   *Preferences           `protobuf:"bytes,2,opt,name=preferences,proto3" json:"preferences,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResolveRequest) Reset() {
+	*x = ResolveRequest{}
+	mi := &file_castor_v1_cast_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolveRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolveRequest) ProtoMessage() {}
+
+func (x *ResolveRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_castor_v1_cast_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolveRequest.ProtoReflect.Descriptor instead.
+func (*ResolveRequest) Descriptor() ([]byte, []int) {
+	return file_castor_v1_cast_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ResolveRequest) GetSource() *Source {
+	if x != nil {
+		return x.Source
+	}
+	return nil
+}
+
+func (x *ResolveRequest) GetPreferences() *Preferences {
+	if x != nil {
+		return x.Preferences
+	}
+	return nil
+}
+
+type ResolveResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// ranked is the order a cast tries the streams in, best first.
+	Ranked        []*RankedStream `protobuf:"bytes,1,rep,name=ranked,proto3" json:"ranked,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResolveResponse) Reset() {
+	*x = ResolveResponse{}
+	mi := &file_castor_v1_cast_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolveResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolveResponse) ProtoMessage() {}
+
+func (x *ResolveResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_castor_v1_cast_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolveResponse.ProtoReflect.Descriptor instead.
+func (*ResolveResponse) Descriptor() ([]byte, []int) {
+	return file_castor_v1_cast_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ResolveResponse) GetRanked() []*RankedStream {
+	if x != nil {
+		return x.Ranked
+	}
+	return nil
+}
+
+// Source is what to play: one stream as is, or pages whose streams are found and ranked.
+type Source struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Source:
+	//
+	//	*Source_Stream
+	//	*Source_Pages_
+	Source        isSource_Source `protobuf_oneof:"source"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Source) Reset() {
+	*x = Source{}
+	mi := &file_castor_v1_cast_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Source) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Source) ProtoMessage() {}
+
+func (x *Source) ProtoReflect() protoreflect.Message {
+	mi := &file_castor_v1_cast_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Source.ProtoReflect.Descriptor instead.
+func (*Source) Descriptor() ([]byte, []int) {
+	return file_castor_v1_cast_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *Source) GetSource() isSource_Source {
+	if x != nil {
+		return x.Source
+	}
+	return nil
+}
+
+func (x *Source) GetStream() *Stream {
+	if x != nil {
+		if x, ok := x.Source.(*Source_Stream); ok {
+			return x.Stream
+		}
+	}
+	return nil
+}
+
+func (x *Source) GetPages() *Source_Pages {
+	if x != nil {
+		if x, ok := x.Source.(*Source_Pages_); ok {
+			return x.Pages
+		}
+	}
+	return nil
+}
+
+type isSource_Source interface {
+	isSource_Source()
+}
+
+type Source_Stream struct {
+	Stream *Stream `protobuf:"bytes,1,opt,name=stream,proto3,oneof"`
+}
+
+type Source_Pages_ struct {
+	Pages *Source_Pages `protobuf:"bytes,2,opt,name=pages,proto3,oneof"`
+}
+
+func (*Source_Stream) isSource_Source() {}
+
+func (*Source_Pages_) isSource_Source() {}
+
+// Preferences are what one cast asks; each unset field takes the server's configuration.
+type Preferences struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Delivery *Delivery              `protobuf:"varint,1,opt,name=delivery,proto3,enum=castor.v1.Delivery,oneof" json:"delivery,omitempty"`
+	// max_height is the tallest picture the cast may show.
+	MaxHeight *uint32 `protobuf:"varint,2,opt,name=max_height,json=maxHeight,proto3,oneof" json:"max_height,omitempty"`
+	// subtitles is the language to burn in, a whisper code or auto to detect it, empty for none.
+	// The default model understands English only; subtitles are burnt in only where castor draws the frames, never on a hand-off.
+	Subtitles     *string `protobuf:"bytes,3,opt,name=subtitles,proto3,oneof" json:"subtitles,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Preferences) Reset() {
+	*x = Preferences{}
+	mi := &file_castor_v1_cast_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Preferences) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Preferences) ProtoMessage() {}
+
+func (x *Preferences) ProtoReflect() protoreflect.Message {
+	mi := &file_castor_v1_cast_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Preferences.ProtoReflect.Descriptor instead.
+func (*Preferences) Descriptor() ([]byte, []int) {
+	return file_castor_v1_cast_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *Preferences) GetDelivery() Delivery {
+	if x != nil && x.Delivery != nil {
+		return *x.Delivery
+	}
+	return Delivery_DELIVERY_UNSPECIFIED
+}
+
+func (x *Preferences) GetMaxHeight() uint32 {
+	if x != nil && x.MaxHeight != nil {
+		return *x.MaxHeight
+	}
+	return 0
+}
+
+func (x *Preferences) GetSubtitles() string {
+	if x != nil && x.Subtitles != nil {
+		return *x.Subtitles
+	}
+	return ""
+}
+
+type WatchRequest struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	CastId string                 `protobuf:"bytes,1,opt,name=cast_id,json=castId,proto3" json:"cast_id,omitempty"`
+	// logs is the least severe line sent; unset sends none.
+	Logs          *LogLevel `protobuf:"varint,2,opt,name=logs,proto3,enum=castor.v1.LogLevel,oneof" json:"logs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WatchRequest) Reset() {
+	*x = WatchRequest{}
+	mi := &file_castor_v1_cast_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WatchRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WatchRequest) ProtoMessage() {}
+
+func (x *WatchRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_castor_v1_cast_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WatchRequest.ProtoReflect.Descriptor instead.
+func (*WatchRequest) Descriptor() ([]byte, []int) {
+	return file_castor_v1_cast_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *WatchRequest) GetCastId() string {
+	if x != nil {
+		return x.CastId
+	}
+	return ""
+}
+
+func (x *WatchRequest) GetLogs() LogLevel {
+	if x != nil && x.Logs != nil {
+		return *x.Logs
+	}
+	return LogLevel_LOG_LEVEL_UNSPECIFIED
+}
+
+type WatchResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Update:
+	//
+	//	*WatchResponse_Status
+	//	*WatchResponse_Line
+	//	*WatchResponse_Ended
+	Update        isWatchResponse_Update `protobuf_oneof:"update"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WatchResponse) Reset() {
+	*x = WatchResponse{}
+	mi := &file_castor_v1_cast_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WatchResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WatchResponse) ProtoMessage() {}
+
+func (x *WatchResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_castor_v1_cast_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WatchResponse.ProtoReflect.Descriptor instead.
+func (*WatchResponse) Descriptor() ([]byte, []int) {
+	return file_castor_v1_cast_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *WatchResponse) GetUpdate() isWatchResponse_Update {
+	if x != nil {
+		return x.Update
+	}
+	return nil
+}
+
+func (x *WatchResponse) GetStatus() *CastStatus {
+	if x != nil {
+		if x, ok := x.Update.(*WatchResponse_Status); ok {
+			return x.Status
+		}
+	}
+	return nil
+}
+
+func (x *WatchResponse) GetLine() *LogLine {
+	if x != nil {
+		if x, ok := x.Update.(*WatchResponse_Line); ok {
+			return x.Line
+		}
+	}
+	return nil
+}
+
+func (x *WatchResponse) GetEnded() *Ended {
+	if x != nil {
+		if x, ok := x.Update.(*WatchResponse_Ended); ok {
+			return x.Ended
+		}
+	}
+	return nil
+}
+
+type isWatchResponse_Update interface {
+	isWatchResponse_Update()
+}
+
+type WatchResponse_Status struct {
+	Status *CastStatus `protobuf:"bytes,1,opt,name=status,proto3,oneof"`
+}
+
+type WatchResponse_Line struct {
+	Line *LogLine `protobuf:"bytes,2,opt,name=line,proto3,oneof"`
+}
+
+type WatchResponse_Ended struct {
+	// ended is always the last message.
+	Ended *Ended `protobuf:"bytes,3,opt,name=ended,proto3,oneof"`
+}
+
+func (*WatchResponse_Status) isWatchResponse_Update() {}
+
+func (*WatchResponse_Line) isWatchResponse_Update() {}
+
+func (*WatchResponse_Ended) isWatchResponse_Update() {}
+
+// CastStatus is where a cast stands, for people to read.
+type CastStatus struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Phase Phase                  `protobuf:"varint,1,opt,name=phase,proto3,enum=castor.v1.Phase" json:"phase,omitempty"`
+	// streams is how many streams the cast was handed, once it measures them.
+	Streams uint32 `protobuf:"varint,2,opt,name=streams,proto3" json:"streams,omitempty"`
+	// castable is how many of them measuring kept.
+	Castable uint32 `protobuf:"varint,3,opt,name=castable,proto3" json:"castable,omitempty"`
+	// attempt counts tries from 1, once casting.
+	Attempt uint32 `protobuf:"varint,4,opt,name=attempt,proto3" json:"attempt,omitempty"`
+	// revision is the latest change of plan, unset before any.
+	Revision      *Revision `protobuf:"bytes,5,opt,name=revision,proto3" json:"revision,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CastStatus) Reset() {
+	*x = CastStatus{}
+	mi := &file_castor_v1_cast_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CastStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CastStatus) ProtoMessage() {}
+
+func (x *CastStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_castor_v1_cast_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CastStatus.ProtoReflect.Descriptor instead.
+func (*CastStatus) Descriptor() ([]byte, []int) {
+	return file_castor_v1_cast_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *CastStatus) GetPhase() Phase {
+	if x != nil {
+		return x.Phase
+	}
+	return Phase_PHASE_UNSPECIFIED
+}
+
+func (x *CastStatus) GetStreams() uint32 {
+	if x != nil {
+		return x.Streams
+	}
+	return 0
+}
+
+func (x *CastStatus) GetCastable() uint32 {
+	if x != nil {
+		return x.Castable
+	}
+	return 0
+}
+
+func (x *CastStatus) GetAttempt() uint32 {
+	if x != nil {
+		return x.Attempt
+	}
+	return 0
+}
+
+func (x *CastStatus) GetRevision() *Revision {
+	if x != nil {
+		return x.Revision
+	}
+	return nil
+}
+
+type Ended struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Outcome Outcome                `protobuf:"varint,1,opt,name=outcome,proto3,enum=castor.v1.Outcome" json:"outcome,omitempty"`
+	// reason is why a failed cast failed.
+	Reason        string `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Ended) Reset() {
+	*x = Ended{}
+	mi := &file_castor_v1_cast_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Ended) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Ended) ProtoMessage() {}
+
+func (x *Ended) ProtoReflect() protoreflect.Message {
+	mi := &file_castor_v1_cast_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Ended.ProtoReflect.Descriptor instead.
+func (*Ended) Descriptor() ([]byte, []int) {
+	return file_castor_v1_cast_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *Ended) GetOutcome() Outcome {
+	if x != nil {
+		return x.Outcome
+	}
+	return Outcome_OUTCOME_UNSPECIFIED
+}
+
+func (x *Ended) GetReason() string {
+	if x != nil {
+		return x.Reason
 	}
 	return ""
 }
@@ -167,7 +782,7 @@ type StopRequest struct {
 
 func (x *StopRequest) Reset() {
 	*x = StopRequest{}
-	mi := &file_castor_v1_cast_proto_msgTypes[2]
+	mi := &file_castor_v1_cast_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -179,7 +794,7 @@ func (x *StopRequest) String() string {
 func (*StopRequest) ProtoMessage() {}
 
 func (x *StopRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_castor_v1_cast_proto_msgTypes[2]
+	mi := &file_castor_v1_cast_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -192,7 +807,7 @@ func (x *StopRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopRequest.ProtoReflect.Descriptor instead.
 func (*StopRequest) Descriptor() ([]byte, []int) {
-	return file_castor_v1_cast_proto_rawDescGZIP(), []int{2}
+	return file_castor_v1_cast_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *StopRequest) GetCastId() string {
@@ -210,7 +825,7 @@ type StopResponse struct {
 
 func (x *StopResponse) Reset() {
 	*x = StopResponse{}
-	mi := &file_castor_v1_cast_proto_msgTypes[3]
+	mi := &file_castor_v1_cast_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -222,7 +837,7 @@ func (x *StopResponse) String() string {
 func (*StopResponse) ProtoMessage() {}
 
 func (x *StopResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_castor_v1_cast_proto_msgTypes[3]
+	mi := &file_castor_v1_cast_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -235,31 +850,30 @@ func (x *StopResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopResponse.ProtoReflect.Descriptor instead.
 func (*StopResponse) Descriptor() ([]byte, []int) {
-	return file_castor_v1_cast_proto_rawDescGZIP(), []int{3}
+	return file_castor_v1_cast_proto_rawDescGZIP(), []int{11}
 }
 
-type StartRequest_Streams struct {
+type ListCastsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Streams       []*Stream              `protobuf:"bytes,1,rep,name=streams,proto3" json:"streams,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *StartRequest_Streams) Reset() {
-	*x = StartRequest_Streams{}
-	mi := &file_castor_v1_cast_proto_msgTypes[4]
+func (x *ListCastsRequest) Reset() {
+	*x = ListCastsRequest{}
+	mi := &file_castor_v1_cast_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *StartRequest_Streams) String() string {
+func (x *ListCastsRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*StartRequest_Streams) ProtoMessage() {}
+func (*ListCastsRequest) ProtoMessage() {}
 
-func (x *StartRequest_Streams) ProtoReflect() protoreflect.Message {
-	mi := &file_castor_v1_cast_proto_msgTypes[4]
+func (x *ListCastsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_castor_v1_cast_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -270,14 +884,165 @@ func (x *StartRequest_Streams) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use StartRequest_Streams.ProtoReflect.Descriptor instead.
-func (*StartRequest_Streams) Descriptor() ([]byte, []int) {
-	return file_castor_v1_cast_proto_rawDescGZIP(), []int{0, 0}
+// Deprecated: Use ListCastsRequest.ProtoReflect.Descriptor instead.
+func (*ListCastsRequest) Descriptor() ([]byte, []int) {
+	return file_castor_v1_cast_proto_rawDescGZIP(), []int{12}
 }
 
-func (x *StartRequest_Streams) GetStreams() []*Stream {
+type ListCastsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Casts         []*Cast                `protobuf:"bytes,1,rep,name=casts,proto3" json:"casts,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListCastsResponse) Reset() {
+	*x = ListCastsResponse{}
+	mi := &file_castor_v1_cast_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListCastsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListCastsResponse) ProtoMessage() {}
+
+func (x *ListCastsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_castor_v1_cast_proto_msgTypes[13]
 	if x != nil {
-		return x.Streams
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListCastsResponse.ProtoReflect.Descriptor instead.
+func (*ListCastsResponse) Descriptor() ([]byte, []int) {
+	return file_castor_v1_cast_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ListCastsResponse) GetCasts() []*Cast {
+	if x != nil {
+		return x.Casts
+	}
+	return nil
+}
+
+type Cast struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// id is opaque.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// device is what the cast plays on; a pinned one has an empty id.
+	Device        *Device     `protobuf:"bytes,2,opt,name=device,proto3" json:"device,omitempty"`
+	Source        *Source     `protobuf:"bytes,3,opt,name=source,proto3" json:"source,omitempty"`
+	Status        *CastStatus `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Cast) Reset() {
+	*x = Cast{}
+	mi := &file_castor_v1_cast_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Cast) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Cast) ProtoMessage() {}
+
+func (x *Cast) ProtoReflect() protoreflect.Message {
+	mi := &file_castor_v1_cast_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Cast.ProtoReflect.Descriptor instead.
+func (*Cast) Descriptor() ([]byte, []int) {
+	return file_castor_v1_cast_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *Cast) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *Cast) GetDevice() *Device {
+	if x != nil {
+		return x.Device
+	}
+	return nil
+}
+
+func (x *Cast) GetSource() *Source {
+	if x != nil {
+		return x.Source
+	}
+	return nil
+}
+
+func (x *Cast) GetStatus() *CastStatus {
+	if x != nil {
+		return x.Status
+	}
+	return nil
+}
+
+type Source_Pages struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Urls          []string               `protobuf:"bytes,1,rep,name=urls,proto3" json:"urls,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Source_Pages) Reset() {
+	*x = Source_Pages{}
+	mi := &file_castor_v1_cast_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Source_Pages) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Source_Pages) ProtoMessage() {}
+
+func (x *Source_Pages) ProtoReflect() protoreflect.Message {
+	mi := &file_castor_v1_cast_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Source_Pages.ProtoReflect.Descriptor instead.
+func (*Source_Pages) Descriptor() ([]byte, []int) {
+	return file_castor_v1_cast_proto_rawDescGZIP(), []int{4, 0}
+}
+
+func (x *Source_Pages) GetUrls() []string {
+	if x != nil {
+		return x.Urls
 	}
 	return nil
 }
@@ -286,22 +1051,85 @@ var File_castor_v1_cast_proto protoreflect.FileDescriptor
 
 const file_castor_v1_cast_proto_rawDesc = "" +
 	"\n" +
-	"\x14castor/v1/cast.proto\x12\tcastor.v1\x1a\x1bbuf/validate/validate.proto\x1a\x16castor/v1/stream.proto\"\x88\x02\n" +
-	"\fStartRequest\x127\n" +
-	"\x05found\x18\x01 \x01(\v2\x1f.castor.v1.StartRequest.StreamsH\x00R\x05found\x12)\n" +
-	"\x05named\x18\x02 \x01(\v2\x11.castor.v1.StreamH\x00R\x05named\x12@\n" +
-	"\vpreferences\x18\x03 \x01(\v2\x16.castor.v1.PreferencesB\x06\xbaH\x03\xc8\x01\x01R\vpreferences\x1a@\n" +
-	"\aStreams\x125\n" +
-	"\astreams\x18\x01 \x03(\v2\x11.castor.v1.StreamB\b\xbaH\x05\x92\x01\x02\b\x01R\astreamsB\x10\n" +
-	"\astreams\x12\x05\xbaH\x02\b\x01\"(\n" +
-	"\rStartResponse\x12\x17\n" +
-	"\acast_id\x18\x01 \x01(\tR\x06castId\"/\n" +
+	"\x14castor/v1/cast.proto\x12\tcastor.v1\x1a\x1bbuf/validate/validate.proto\x1a\x16castor/v1/device.proto\x1a\x13castor/v1/log.proto\x1a\x18castor/v1/revision.proto\x1a\x16castor/v1/stream.proto\"\xad\x01\n" +
+	"\vCastRequest\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x11.castor.v1.TargetB\x06\xbaH\x03\xc8\x01\x01R\x06target\x121\n" +
+	"\x06source\x18\x02 \x01(\v2\x11.castor.v1.SourceB\x06\xbaH\x03\xc8\x01\x01R\x06source\x128\n" +
+	"\vpreferences\x18\x03 \x01(\v2\x16.castor.v1.PreferencesR\vpreferences\"'\n" +
+	"\fCastResponse\x12\x17\n" +
+	"\acast_id\x18\x01 \x01(\tR\x06castId\"}\n" +
+	"\x0eResolveRequest\x121\n" +
+	"\x06source\x18\x01 \x01(\v2\x11.castor.v1.SourceB\x06\xbaH\x03\xc8\x01\x01R\x06source\x128\n" +
+	"\vpreferences\x18\x02 \x01(\v2\x16.castor.v1.PreferencesR\vpreferences\"B\n" +
+	"\x0fResolveResponse\x12/\n" +
+	"\x06ranked\x18\x01 \x03(\v2\x17.castor.v1.RankedStreamR\x06ranked\"\xa4\x02\n" +
+	"\x06Source\x12+\n" +
+	"\x06stream\x18\x01 \x01(\v2\x11.castor.v1.StreamH\x00R\x06stream\x12/\n" +
+	"\x05pages\x18\x02 \x01(\v2\x17.castor.v1.Source.PagesH\x00R\x05pages\x1a\xaa\x01\n" +
+	"\x05Pages\x12\xa0\x01\n" +
+	"\x04urls\x18\x01 \x03(\tB\x8b\x01\xbaH\x87\x01\x92\x01\x83\x01\b\x01\x10\x10\"}\xba\x01u\n" +
+	"\burl.http\x12\x1cmust be an http or https URL\x1aKthis.isUri() && (this.startsWith('http://') || this.startsWith('https://'))r\x03\x18\x80@R\x04urlsB\x0f\n" +
+	"\x06source\x12\x05\xbaH\x02\b\x01\"\xe6\x01\n" +
+	"\vPreferences\x12@\n" +
+	"\bdelivery\x18\x01 \x01(\x0e2\x13.castor.v1.DeliveryB\n" +
+	"\xbaH\a\x82\x01\x04\x10\x01 \x00H\x00R\bdelivery\x88\x01\x01\x12+\n" +
+	"\n" +
+	"max_height\x18\x02 \x01(\rB\a\xbaH\x04*\x02(\x02H\x01R\tmaxHeight\x88\x01\x01\x12>\n" +
+	"\tsubtitles\x18\x03 \x01(\tB\x1b\xbaH\x18r\x162\x14^(auto|[a-z]{2,3})?$H\x02R\tsubtitles\x88\x01\x01B\v\n" +
+	"\t_deliveryB\r\n" +
+	"\v_max_heightB\f\n" +
+	"\n" +
+	"_subtitles\"s\n" +
+	"\fWatchRequest\x12 \n" +
+	"\acast_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x06castId\x128\n" +
+	"\x04logs\x18\x02 \x01(\x0e2\x13.castor.v1.LogLevelB\n" +
+	"\xbaH\a\x82\x01\x04\x10\x01 \x00H\x00R\x04logs\x88\x01\x01B\a\n" +
+	"\x05_logs\"\x9e\x01\n" +
+	"\rWatchResponse\x12/\n" +
+	"\x06status\x18\x01 \x01(\v2\x15.castor.v1.CastStatusH\x00R\x06status\x12(\n" +
+	"\x04line\x18\x02 \x01(\v2\x12.castor.v1.LogLineH\x00R\x04line\x12(\n" +
+	"\x05ended\x18\x03 \x01(\v2\x10.castor.v1.EndedH\x00R\x05endedB\b\n" +
+	"\x06update\"\xb5\x01\n" +
+	"\n" +
+	"CastStatus\x12&\n" +
+	"\x05phase\x18\x01 \x01(\x0e2\x10.castor.v1.PhaseR\x05phase\x12\x18\n" +
+	"\astreams\x18\x02 \x01(\rR\astreams\x12\x1a\n" +
+	"\bcastable\x18\x03 \x01(\rR\bcastable\x12\x18\n" +
+	"\aattempt\x18\x04 \x01(\rR\aattempt\x12/\n" +
+	"\brevision\x18\x05 \x01(\v2\x13.castor.v1.RevisionR\brevision\"\xce\x01\n" +
+	"\x05Ended\x128\n" +
+	"\aoutcome\x18\x01 \x01(\x0e2\x12.castor.v1.OutcomeB\n" +
+	"\xbaH\a\x82\x01\x04\x10\x01 \x00R\aoutcome\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason:s\xbaHp\x1an\n" +
+	"\fended.reason\x122reason is set when, and only when, the cast failed\x1a*(this.outcome == 3) == (this.reason != '')\"/\n" +
 	"\vStopRequest\x12 \n" +
 	"\acast_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x06castId\"\x0e\n" +
-	"\fStopResponse2\x82\x01\n" +
-	"\vCastService\x12:\n" +
-	"\x05Start\x12\x17.castor.v1.StartRequest\x1a\x18.castor.v1.StartResponse\x127\n" +
-	"\x04Stop\x12\x16.castor.v1.StopRequest\x1a\x17.castor.v1.StopResponseB\x92\x01\n" +
+	"\fStopResponse\"\x12\n" +
+	"\x10ListCastsRequest\":\n" +
+	"\x11ListCastsResponse\x12%\n" +
+	"\x05casts\x18\x01 \x03(\v2\x0f.castor.v1.CastR\x05casts\"\x9b\x01\n" +
+	"\x04Cast\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12)\n" +
+	"\x06device\x18\x02 \x01(\v2\x11.castor.v1.DeviceR\x06device\x12)\n" +
+	"\x06source\x18\x03 \x01(\v2\x11.castor.v1.SourceR\x06source\x12-\n" +
+	"\x06status\x18\x04 \x01(\v2\x15.castor.v1.CastStatusR\x06status*r\n" +
+	"\x05Phase\x12\x15\n" +
+	"\x11PHASE_UNSPECIFIED\x10\x00\x12\x14\n" +
+	"\x10PHASE_CONNECTING\x10\x01\x12\x14\n" +
+	"\x10PHASE_EXTRACTING\x10\x02\x12\x13\n" +
+	"\x0fPHASE_MEASURING\x10\x03\x12\x11\n" +
+	"\rPHASE_CASTING\x10\x04*^\n" +
+	"\aOutcome\x12\x17\n" +
+	"\x13OUTCOME_UNSPECIFIED\x10\x00\x12\x11\n" +
+	"\rOUTCOME_ENDED\x10\x01\x12\x13\n" +
+	"\x0fOUTCOME_STOPPED\x10\x02\x12\x12\n" +
+	"\x0eOUTCOME_FAILED\x10\x032\xc7\x02\n" +
+	"\vCastService\x127\n" +
+	"\x04Cast\x12\x16.castor.v1.CastRequest\x1a\x17.castor.v1.CastResponse\x12@\n" +
+	"\aResolve\x12\x19.castor.v1.ResolveRequest\x1a\x1a.castor.v1.ResolveResponse\x12<\n" +
+	"\x05Watch\x12\x17.castor.v1.WatchRequest\x1a\x18.castor.v1.WatchResponse0\x01\x127\n" +
+	"\x04Stop\x12\x16.castor.v1.StopRequest\x1a\x17.castor.v1.StopResponse\x12F\n" +
+	"\tListCasts\x12\x1b.castor.v1.ListCastsRequest\x1a\x1c.castor.v1.ListCastsResponseB\x92\x01\n" +
 	"\rcom.castor.v1B\tCastProtoP\x01Z1github.com/stupside/castor/gen/castor/v1;castorv1\xa2\x02\x03CXX\xaa\x02\tCastor.V1\xca\x02\tCastor\\V1\xe2\x02\x15Castor\\V1\\GPBMetadata\xea\x02\n" +
 	"Castor::V1b\x06proto3"
 
@@ -317,30 +1145,72 @@ func file_castor_v1_cast_proto_rawDescGZIP() []byte {
 	return file_castor_v1_cast_proto_rawDescData
 }
 
-var file_castor_v1_cast_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_castor_v1_cast_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_castor_v1_cast_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_castor_v1_cast_proto_goTypes = []any{
-	(*StartRequest)(nil),         // 0: castor.v1.StartRequest
-	(*StartResponse)(nil),        // 1: castor.v1.StartResponse
-	(*StopRequest)(nil),          // 2: castor.v1.StopRequest
-	(*StopResponse)(nil),         // 3: castor.v1.StopResponse
-	(*StartRequest_Streams)(nil), // 4: castor.v1.StartRequest.Streams
-	(*Stream)(nil),               // 5: castor.v1.Stream
-	(*Preferences)(nil),          // 6: castor.v1.Preferences
+	(Phase)(0),                // 0: castor.v1.Phase
+	(Outcome)(0),              // 1: castor.v1.Outcome
+	(*CastRequest)(nil),       // 2: castor.v1.CastRequest
+	(*CastResponse)(nil),      // 3: castor.v1.CastResponse
+	(*ResolveRequest)(nil),    // 4: castor.v1.ResolveRequest
+	(*ResolveResponse)(nil),   // 5: castor.v1.ResolveResponse
+	(*Source)(nil),            // 6: castor.v1.Source
+	(*Preferences)(nil),       // 7: castor.v1.Preferences
+	(*WatchRequest)(nil),      // 8: castor.v1.WatchRequest
+	(*WatchResponse)(nil),     // 9: castor.v1.WatchResponse
+	(*CastStatus)(nil),        // 10: castor.v1.CastStatus
+	(*Ended)(nil),             // 11: castor.v1.Ended
+	(*StopRequest)(nil),       // 12: castor.v1.StopRequest
+	(*StopResponse)(nil),      // 13: castor.v1.StopResponse
+	(*ListCastsRequest)(nil),  // 14: castor.v1.ListCastsRequest
+	(*ListCastsResponse)(nil), // 15: castor.v1.ListCastsResponse
+	(*Cast)(nil),              // 16: castor.v1.Cast
+	(*Source_Pages)(nil),      // 17: castor.v1.Source.Pages
+	(*Target)(nil),            // 18: castor.v1.Target
+	(*RankedStream)(nil),      // 19: castor.v1.RankedStream
+	(*Stream)(nil),            // 20: castor.v1.Stream
+	(Delivery)(0),             // 21: castor.v1.Delivery
+	(LogLevel)(0),             // 22: castor.v1.LogLevel
+	(*LogLine)(nil),           // 23: castor.v1.LogLine
+	(*Revision)(nil),          // 24: castor.v1.Revision
+	(*Device)(nil),            // 25: castor.v1.Device
 }
 var file_castor_v1_cast_proto_depIdxs = []int32{
-	4, // 0: castor.v1.StartRequest.found:type_name -> castor.v1.StartRequest.Streams
-	5, // 1: castor.v1.StartRequest.named:type_name -> castor.v1.Stream
-	6, // 2: castor.v1.StartRequest.preferences:type_name -> castor.v1.Preferences
-	5, // 3: castor.v1.StartRequest.Streams.streams:type_name -> castor.v1.Stream
-	0, // 4: castor.v1.CastService.Start:input_type -> castor.v1.StartRequest
-	2, // 5: castor.v1.CastService.Stop:input_type -> castor.v1.StopRequest
-	1, // 6: castor.v1.CastService.Start:output_type -> castor.v1.StartResponse
-	3, // 7: castor.v1.CastService.Stop:output_type -> castor.v1.StopResponse
-	6, // [6:8] is the sub-list for method output_type
-	4, // [4:6] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	18, // 0: castor.v1.CastRequest.target:type_name -> castor.v1.Target
+	6,  // 1: castor.v1.CastRequest.source:type_name -> castor.v1.Source
+	7,  // 2: castor.v1.CastRequest.preferences:type_name -> castor.v1.Preferences
+	6,  // 3: castor.v1.ResolveRequest.source:type_name -> castor.v1.Source
+	7,  // 4: castor.v1.ResolveRequest.preferences:type_name -> castor.v1.Preferences
+	19, // 5: castor.v1.ResolveResponse.ranked:type_name -> castor.v1.RankedStream
+	20, // 6: castor.v1.Source.stream:type_name -> castor.v1.Stream
+	17, // 7: castor.v1.Source.pages:type_name -> castor.v1.Source.Pages
+	21, // 8: castor.v1.Preferences.delivery:type_name -> castor.v1.Delivery
+	22, // 9: castor.v1.WatchRequest.logs:type_name -> castor.v1.LogLevel
+	10, // 10: castor.v1.WatchResponse.status:type_name -> castor.v1.CastStatus
+	23, // 11: castor.v1.WatchResponse.line:type_name -> castor.v1.LogLine
+	11, // 12: castor.v1.WatchResponse.ended:type_name -> castor.v1.Ended
+	0,  // 13: castor.v1.CastStatus.phase:type_name -> castor.v1.Phase
+	24, // 14: castor.v1.CastStatus.revision:type_name -> castor.v1.Revision
+	1,  // 15: castor.v1.Ended.outcome:type_name -> castor.v1.Outcome
+	16, // 16: castor.v1.ListCastsResponse.casts:type_name -> castor.v1.Cast
+	25, // 17: castor.v1.Cast.device:type_name -> castor.v1.Device
+	6,  // 18: castor.v1.Cast.source:type_name -> castor.v1.Source
+	10, // 19: castor.v1.Cast.status:type_name -> castor.v1.CastStatus
+	2,  // 20: castor.v1.CastService.Cast:input_type -> castor.v1.CastRequest
+	4,  // 21: castor.v1.CastService.Resolve:input_type -> castor.v1.ResolveRequest
+	8,  // 22: castor.v1.CastService.Watch:input_type -> castor.v1.WatchRequest
+	12, // 23: castor.v1.CastService.Stop:input_type -> castor.v1.StopRequest
+	14, // 24: castor.v1.CastService.ListCasts:input_type -> castor.v1.ListCastsRequest
+	3,  // 25: castor.v1.CastService.Cast:output_type -> castor.v1.CastResponse
+	5,  // 26: castor.v1.CastService.Resolve:output_type -> castor.v1.ResolveResponse
+	9,  // 27: castor.v1.CastService.Watch:output_type -> castor.v1.WatchResponse
+	13, // 28: castor.v1.CastService.Stop:output_type -> castor.v1.StopResponse
+	15, // 29: castor.v1.CastService.ListCasts:output_type -> castor.v1.ListCastsResponse
+	25, // [25:30] is the sub-list for method output_type
+	20, // [20:25] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_castor_v1_cast_proto_init() }
@@ -348,23 +1218,34 @@ func file_castor_v1_cast_proto_init() {
 	if File_castor_v1_cast_proto != nil {
 		return
 	}
+	file_castor_v1_device_proto_init()
+	file_castor_v1_log_proto_init()
+	file_castor_v1_revision_proto_init()
 	file_castor_v1_stream_proto_init()
-	file_castor_v1_cast_proto_msgTypes[0].OneofWrappers = []any{
-		(*StartRequest_Found)(nil),
-		(*StartRequest_Named)(nil),
+	file_castor_v1_cast_proto_msgTypes[4].OneofWrappers = []any{
+		(*Source_Stream)(nil),
+		(*Source_Pages_)(nil),
+	}
+	file_castor_v1_cast_proto_msgTypes[5].OneofWrappers = []any{}
+	file_castor_v1_cast_proto_msgTypes[6].OneofWrappers = []any{}
+	file_castor_v1_cast_proto_msgTypes[7].OneofWrappers = []any{
+		(*WatchResponse_Status)(nil),
+		(*WatchResponse_Line)(nil),
+		(*WatchResponse_Ended)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_castor_v1_cast_proto_rawDesc), len(file_castor_v1_cast_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   5,
+			NumEnums:      2,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_castor_v1_cast_proto_goTypes,
 		DependencyIndexes: file_castor_v1_cast_proto_depIdxs,
+		EnumInfos:         file_castor_v1_cast_proto_enumTypes,
 		MessageInfos:      file_castor_v1_cast_proto_msgTypes,
 	}.Build()
 	File_castor_v1_cast_proto = out.File

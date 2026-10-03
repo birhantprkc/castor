@@ -11,3 +11,5 @@ func (FMP4) Package(dir string, l origin.Layout) origin.Output {
 	return pack(dir, l, segments{ext: ".m4s", mime: "video/mp4",
 		args: []string{"-hls_segment_type", "fmp4", "-hls_fmp4_init_filename", "init.mp4"}})
 }
+
+func (FMP4) Muxes() string { return "mp4" }

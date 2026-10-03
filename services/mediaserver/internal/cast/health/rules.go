@@ -1,0 +1,169 @@
+package health
+
+import (
+	"fmt"
+	"slices"
+)
+
+type action int
+
+const (
+	// keepWatching re-reads the facts on the next tick.
+	keepWatching action = iota
+	// open ends the wait successfully.
+	open
+	revise
+	// abandon ends the cast with the verdict's reasoning and the measurements behind it.
+	abandon
+)
+
+// verdict is the pair the action table is keyed on: what was judged, and in which phase.
+type verdict struct {
+	kind  Kind
+	phase Phase
+}
+
+// actions is what each verdict asks for in each phase; no verdict while playing revises, which would restart the cast under a viewer.
+var actions = map[verdict]action{
+	{kind: starting, phase: Reading}: keepWatching,
+	{kind: starting, phase: Opening}: keepWatching,
+	{kind: healthy, phase: Playing}:  keepWatching,
+
+	{kind: ready, phase: Reading}: open,
+	{kind: ready, phase: Opening}: open,
+
+	{kind: Dead, phase: Reading}:          revise,
+	{kind: Dead, phase: Opening}:          revise,
+	{kind: Stalled, phase: Reading}:       revise,
+	{kind: Stalled, phase: Opening}:       revise,
+	{kind: Undeliverable, phase: Reading}: revise,
+
+	{kind: Stalled, phase: Playing}:       abandon,
+	{kind: Undeliverable, phase: Playing}: abandon,
+	{kind: Unfetched, phase: Playing}:     abandon,
+}
+
+// party is whom a verdict blames, and so whose evidence explains it.
+type party int
+
+const (
+	theProducer party = iota
+	theDevice
+)
+
+// rule is one row of the judgement table; a caller sees the Fault it reaches.
+type rule struct {
+	// name identifies the row in logs.
+	name string
+	// why is the row's reasoning, carried to the user.
+	why string
+	// phases is where the row applies; the action table decides what to do.
+	phases []Phase
+	// when is nil on the fallback rows, which are never asked.
+	when   func(Health) bool
+	kind   Kind
+	blames party
+}
+
+// rules are asked in order, the first match deciding; the fallback rows answer the rest.
+var rules = []rule{{
+	// A partial buffer would play, then stop, so a read failing before play is dead.
+	name:   "read-failed",
+	why:    "the source read reached a terminal error before playback could start",
+	phases: []Phase{Reading},
+	when:   func(h Health) bool { return h.failed },
+	kind:   Dead,
+}, {
+	// Such as a container refusing the codec at its header.
+	name:   "produced-nothing",
+	why:    "the producer ended without writing anything a device could fetch",
+	phases: []Phase{Opening},
+	when:   func(h Health) bool { return h.ended && !h.playable() },
+	kind:   Dead,
+}, {
+	// A delivery with no patience of its own would otherwise wait on a silent upstream forever.
+	name:   "produced-nothing-yet",
+	why:    "the producer is still running but has written nothing a device could fetch for the whole stall window; the likeliest cause is an upstream that accepted the connection and never sent a byte",
+	phases: []Phase{Opening},
+	when:   func(h Health) bool { return !h.ended && !h.playable() && h.sinceGrowth > StallWindow },
+	kind:   Stalled,
+}, {
+	name:   "stalled",
+	why:    "the producer stopped delivering, or delivers under half of playback pace, and the device has played everything that reached it; the likeliest cause is a signed playlist whose segments have expired (they answer 404), and re-extracting the link is what gets a fresh token",
+	phases: []Phase{Reading, Playing},
+	when:   func(h Health) bool { return !h.ended && h.sinceGrowth > StallWindow && !h.buffered() },
+	kind:   Stalled,
+}, {
+	name:   "undeliverable",
+	why:    "the source has delivered fewer media seconds per wall-clock second than playback consumes for longer than a reconnect ceiling, so the cast can never catch up however long it is given",
+	phases: []Phase{Reading},
+	when:   func(h Health) bool { return h.starving() && h.sinceDeficit > deficitWindow },
+	kind:   Undeliverable,
+}, {
+	// The gate holds a fresh deficit rather than answering it.
+	name:   "under-playback-rate",
+	why:    "the read is delivering less than playback consumes, and the deficit has not yet outlasted the backoff this read was handed",
+	phases: []Phase{Reading},
+	when:   Health.starving,
+	kind:   starting,
+}, {
+	// In-flight: the deficit outlasted the stall window while a viewer watches.
+	name:   "undeliverable-in-flight",
+	why:    "the source has been delivering less than playback consumes for longer than the stall window, so the device's buffer cannot be refilled",
+	phases: []Phase{Playing},
+	when:   func(h Health) bool { return h.starving() && h.sinceDeficit > StallWindow },
+	kind:   Undeliverable,
+}, {
+	name:   "unfetched",
+	why:    "the device accepted the stream URL and was never handed a byte of what this cast produced for it",
+	phases: []Phase{Playing},
+	when:   func(h Health) bool { return h.handed == 0 && h.sinceFetch > fetchWindow },
+	kind:   Unfetched,
+	blames: theDevice,
+}, {
+	name:   "burn-in-ready",
+	why:    "the buffer holds media, the read has proved it can deliver it, and the transcription is far enough ahead of the encoder",
+	phases: []Phase{Reading},
+	when: func(h Health) bool {
+		return h.subtitles && (h.playable() && h.measured() && h.leads() || h.ended)
+	},
+	kind: ready,
+}, {
+	name:   "ready",
+	why:    "the buffer holds media and the read has proved it can deliver it",
+	phases: []Phase{Reading},
+	when: func(h Health) bool {
+		return !h.subtitles && (h.playable() && h.measured() || h.ended)
+	},
+	kind: ready,
+}, {
+	name:   "artifact-ready",
+	why:    "the artifact a device fetches exists, or this delivery has waited as long as it is willing to",
+	phases: []Phase{Opening},
+	when:   func(h Health) bool { return h.playable() || h.overdue },
+	kind:   ready,
+}}
+
+// nothingEstablished answers both phases before playback when no rule did: nothing has been established.
+var nothingEstablished = rule{name: "starting", why: "nothing has been established yet", kind: starting}
+
+// nothingAgainst answers the playing phase when no rule did: a cast in flight with nothing against it.
+var nothingAgainst = rule{name: "healthy", why: "nothing is against this cast", kind: healthy}
+
+func judge(p Phase, h Health) (rule, action, error) {
+	r := nothingEstablished
+	if p == Playing {
+		r = nothingAgainst
+	}
+	for _, candidate := range rules {
+		if slices.Contains(candidate.phases, p) && candidate.when(h) {
+			r = candidate
+			break
+		}
+	}
+	act, ok := actions[verdict{kind: r.kind, phase: p}]
+	if !ok {
+		return rule{}, 0, fmt.Errorf("rule %q reached a %s verdict in the %s phase, which has no action", r.name, r.kind, p)
+	}
+	return r, act, nil
+}

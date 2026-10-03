@@ -2,7 +2,6 @@ package quirk
 
 import (
 	"fmt"
-	"slices"
 	"strconv"
 	"time"
 
@@ -39,7 +38,7 @@ type ptsWrapAfter struct{ after time.Duration }
 func (ptsWrapAfter) Name() string { return "pts-wrap-after" }
 
 func (p ptsWrapAfter) Bend(s *origin.Stream) error {
-	if !slices.Contains([]string{"file-ts", "hls-ts"}, s.Packager.Name()) {
+	if s.Packager.Muxes() != origin.MPEGTS {
 		return fmt.Errorf("only MPEG-TS timestamps wrap, not %s's", s.Packager.Name())
 	}
 	if p.after >= time.Duration(s.Seconds)*time.Second {

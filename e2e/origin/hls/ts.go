@@ -10,3 +10,5 @@ func (TS) Supports(origin.Layout) error { return nil }
 func (TS) Package(dir string, l origin.Layout) origin.Output {
 	return pack(dir, l, segments{ext: ".ts", mime: "video/mp2t"})
 }
+
+func (TS) Muxes() string { return origin.MPEGTS }

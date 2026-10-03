@@ -13,11 +13,11 @@ type Fetches string
 const (
 	// Once opens it with the one fetch it plays.
 	Once Fetches = "once"
-	// HeadProbeReplay sends HEAD, reads a probe's worth and hangs up, then reopens it with Range: bytes=0-, as many TVs do.
+	// HeadProbeReplay sends HEAD, reads a probe's worth and hangs up, then reopens it with Range: bytes=0-, as many devices do.
 	HeadProbeReplay Fetches = "head-probe-replay"
 )
 
-// probeBytes is what a TV reads to sniff the container before it hangs up.
+// probeBytes is what a device reads to sniff the container before it hangs up.
 const probeBytes = 64 << 10
 
 // fetchers start the playback of uri, declared as the DIDL's content type.
@@ -26,7 +26,7 @@ var fetchers = map[Fetches]func(s *receiver.Session, uri, declared string){
 	HeadProbeReplay: headProbeReplay,
 }
 
-// headProbeReplay probes after Play is answered, as a TV does rather than hold its SOAP reply past the sender's timeout.
+// headProbeReplay probes after Play is answered, as a device does rather than hold its SOAP reply past the sender's timeout.
 func headProbeReplay(s *receiver.Session, uri, declared string) {
 	s.Go(func() {
 		if resp, ok := probe(s, http.MethodHead, uri); ok {
@@ -47,7 +47,7 @@ func headProbeReplay(s *receiver.Session, uri, declared string) {
 	})
 }
 
-// probe sends one of the TV's requests before playback, reporting any answer but 200.
+// probe sends one of the device's requests before playback, reporting any answer but 200.
 func probe(s *receiver.Session, method, uri string) (*http.Response, bool) {
 	req, err := http.NewRequestWithContext(s.Context(), method, uri, nil)
 	if err != nil {

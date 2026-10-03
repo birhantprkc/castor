@@ -11,3 +11,5 @@ func (Short) Package(dir string, l origin.Layout) origin.Output {
 	return pack(dir, l, segments{ext: ".ts", mime: "video/mp2t",
 		args: []string{"-hls_time", "0.5", "-force_key_frames", "expr:gte(t,n_forced*0.5)"}})
 }
+
+func (Short) Muxes() string { return origin.MPEGTS }

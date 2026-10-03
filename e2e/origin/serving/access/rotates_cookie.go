@@ -23,16 +23,15 @@ func (RotatesCookie) Wrap(next http.Handler, p origin.Published) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if p.IsSegment(r) {
 			c, err := r.Cookie("edge")
-			n, _ := strconv.Atoi(strings.TrimPrefix(func() string {
-				if err != nil {
-					return ""
-				}
-				return c.Value
-			}(), "gen-"))
+			if err != nil {
+				http.Error(w, "stale edge session", http.StatusForbidden)
+				return
+			}
+			n, _ := strconv.Atoi(strings.TrimPrefix(c.Value, "gen-"))
 			mu.Lock()
 			current := issued
 			mu.Unlock()
-			if err != nil || n < current-kept {
+			if n < current-kept {
 				http.Error(w, "stale edge session", http.StatusForbidden)
 				return
 			}

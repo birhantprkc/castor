@@ -58,7 +58,7 @@ type Session struct {
 	// headers are what the device puts on its taped fetch, beyond the user agent.
 	headers map[string]string
 
-	// ctx and wg bound every goroutine the session runs; the test's cleanup cancels and joins them.
+	// ctx and wg bound every goroutine the session runs; ctx ends before the test's cleanup joins them.
 	ctx context.Context
 	wg  sync.WaitGroup
 
@@ -70,9 +70,8 @@ type Session struct {
 }
 
 func NewSession(t *testing.T, setup Setup) *Session {
-	ctx, cancel := context.WithCancel(context.Background())
-	s := &Session{setup: setup, dir: t.TempDir(), ctx: ctx, first: make(chan struct{}), done: make(chan struct{})}
-	t.Cleanup(func() { cancel(); s.wg.Wait() })
+	s := &Session{setup: setup, dir: t.TempDir(), ctx: t.Context(), first: make(chan struct{}), done: make(chan struct{})}
+	t.Cleanup(s.wg.Wait)
 	return s
 }
 

@@ -14,9 +14,11 @@ export LIBRARY_PATH  := $(LIBRARY_PATH):$(CURDIR)/$(BUILD)/ggml/src/ggml-blas:$(
 export CGO_LDFLAGS   := -framework Foundation -framework Metal -framework MetalKit
 endif
 
+.DEFAULT_GOAL := build
+
 .PHONY: build lib env clean hooks generate
 
-# eval "$(make env)" once per shell, then plain `go run .` / `go build` work.
+# eval "$(make env)" once per shell, then plain `go run ./cmd/castor` / `go build` work.
 env:
 	@echo 'export C_INCLUDE_PATH="$(C_INCLUDE_PATH)"'
 	@echo 'export LIBRARY_PATH="$(LIBRARY_PATH)"'
@@ -24,13 +26,15 @@ env:
 	@echo 'export CGO_LDFLAGS="$(CGO_LDFLAGS)"'
 
 build: lib
-	go build -o castor .
+	go build -o castor ./cmd/castor
+	go build -o castor-media ./cmd/castor-media
+	CGO_ENABLED=0 go build -o castor-api ./cmd/castor-api
 
 # The cgo library alone, which CI links its tests and lint runs against.
 lib: $(LIB)
 
 clean:
-	rm -rf $(BUILD) castor
+	rm -rf $(BUILD) castor castor-api castor-media
 
 # Regenerate gen/ from proto/; buf runs the protoc plugins pinned as go tools.
 generate:

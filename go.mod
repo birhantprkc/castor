@@ -4,6 +4,7 @@ go 1.27.0
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.1
+	buf.build/go/protovalidate v1.4.0
 	charm.land/bubbles/v2 v2.2.1
 	charm.land/bubbletea/v2 v2.0.10
 	charm.land/lipgloss/v2 v2.0.6
@@ -26,7 +27,6 @@ require (
 	github.com/ggerganov/whisper.cpp/bindings/go v0.0.0-00010101000000-000000000000
 	github.com/go-playground/validator/v10 v10.30.5
 	github.com/go-viper/mapstructure/v2 v2.5.0
-	github.com/gogo/protobuf v1.3.2
 	github.com/huin/goupnp v1.3.0
 	github.com/icholy/digest v1.2.0
 	github.com/knadh/koanf/parsers/yaml v1.1.1
@@ -48,7 +48,6 @@ require (
 replace github.com/ggerganov/whisper.cpp/bindings/go => ./third_party/whisper.cpp/bindings/go
 
 require (
-	buf.build/go/protovalidate v1.4.0 // indirect
 	cel.dev/cel-go v0.32.0 // indirect
 	cel.dev/expr v0.25.3 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
@@ -74,6 +73,7 @@ require (
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/gobwas/ws v1.4.0 // indirect
+	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/grandcat/zeroconf v1.0.0 // indirect
 	github.com/knadh/koanf/maps v0.1.3 // indirect
 	github.com/leodido/go-urn v1.5.0 // indirect

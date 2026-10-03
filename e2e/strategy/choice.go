@@ -3,6 +3,7 @@ package strategy
 import (
 	"bytes"
 	"fmt"
+	"slices"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -32,8 +33,8 @@ func (cs *Choices) UnmarshalYAML(n *yaml.Node) error {
 	if n.Kind != yaml.MappingNode {
 		return fmt.Errorf("line %d: want a map of strategy names to their settings", n.Line)
 	}
-	for i := 0; i < len(n.Content); i += 2 {
-		*cs = append(*cs, Choice{Name: n.Content[i].Value, Settings: *n.Content[i+1]})
+	for pair := range slices.Chunk(n.Content, 2) {
+		*cs = append(*cs, Choice{Name: pair[0].Value, Settings: *pair[1]})
 	}
 	return nil
 }

@@ -4,6 +4,7 @@ package judge
 import (
 	"errors"
 	"net/url"
+	"slices"
 	"time"
 
 	"github.com/stupside/castor/e2e/origin"
@@ -42,12 +43,7 @@ type Outcome interface {
 
 // ReceiverFetchedOrigin reports whether the receiver reached the origin itself rather than through castor.
 func (e Evidence) ReceiverFetchedOrigin() bool {
-	for _, r := range e.Origin.Requests() {
-		if r.UserAgent == receiver.UserAgent {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(e.Origin.Requests(), func(r origin.Request) bool { return r.UserAgent == receiver.UserAgent })
 }
 
 // HandedOrigin reports whether the receiver was handed a URL on the origin rather than castor's relay.

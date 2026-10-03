@@ -27,45 +27,61 @@ func TestEveryCaseCastsWhatItsReceiverCanPlay(t *testing.T) {
 	for _, file := range files {
 		t.Run(strings.TrimSuffix(filepath.Base(file), ".yaml"), func(t *testing.T) {
 			t.Parallel()
-			p := load(t, file)
-			src := origin.Start(t, tools.FFmpeg, p.stream, p.behaviours)
-			session := receiver.NewSession(t, receiver.Setup{Tools: tools, Players: players, Viewer: p.viewer})
-			endpoint, err := p.device.Start(t, session)
+			s := read(t, file)
+			layouts, err := s.layouts()
 			if err != nil {
-				t.Fatal(err)
+				t.Fatalf("%s: %v", file, err)
 			}
-			invocation := p.command.Invoke(t, src)
-			launch, err := p.carrier.Carry(t, configDoc(t, p.castor, invocation.Config, p.device.Type(), endpoint.Host))
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			ctx, cancel := context.WithTimeout(t.Context(), castTimeout)
-			defer cancel()
-			out, castErr := castor.Cast(ctx, launch, invocation.Args)
-			// Read now: waiting on the receiver below can outlast the deadline castor itself met.
-			exited, killed := time.Now(), ctx.Err() != nil
-			t.Cleanup(func() {
-				if t.Failed() {
-					t.Logf("castor's output:\n%s", out)
-				}
-			})
-
-			got, handed := session.Received(t, handOff)
-			e := judge.Evidence{
-				Origin: src, Endpoint: endpoint, Viewer: p.viewer, Received: got, Handed: handed,
-				CastErr: castErr, Exited: exited, Killed: killed, Ceiling: p.ceiling,
-			}
-			played := got.Played
-			t.Logf("castor exited %v; handed %q (%s): %s %dp %d-bit %s, %s %dch, %v",
-				castErr, got.URL, got.ContentType, played.Video, played.Height, played.Depth, cmp.Or(played.Transfer, "untagged"),
-				played.Audio, played.Channels, played.Duration)
-			for _, check := range slices.Concat([]judge.Check{p.outcome}, p.checks, invocation.Checks) {
-				for _, failure := range check.Judge(e) {
-					t.Errorf("%s: %s", check.Name(), failure)
-				}
+			for _, layout := range layouts {
+				t.Run(layout.Name(), func(t *testing.T) {
+					t.Parallel()
+					// Each cast binds its own strategies, since an origin's behaviours and a device keep state.
+					p, err := s.resolve()
+					if err != nil {
+						t.Fatalf("%s: %v", file, err)
+					}
+					cast(t, tools, p, layout)
+				})
 			}
 		})
+	}
+}
+
+// cast runs one case under one layout and judges what the receiver played.
+func cast(t *testing.T, tools receiver.Tools, p plan, layout topology) {
+	src := origin.Start(t, tools.FFmpeg, p.stream, p.behaviours)
+	session := receiver.NewSession(t, receiver.Setup{Tools: tools, Players: players, Viewer: p.viewer})
+	endpoint, err := p.device.Start(t, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation := p.command.Invoke(t, src)
+	doc := configDoc(t, p.castor, invocation.Config, p.device.Type(), endpoint.Host)
+
+	ctx, cancel := context.WithTimeout(t.Context(), castTimeout)
+	defer cancel()
+	out, castErr := layout.Cast(t, ctx, p.carrier, doc, invocation.Args)
+	// Read now: waiting on the receiver below can outlast the deadline castor itself met.
+	exited, killed := time.Now(), ctx.Err() != nil
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("castor's output:\n%s", out)
+		}
+	})
+
+	got, handed := session.Received(t, handOff)
+	e := judge.Evidence{
+		Origin: src, Endpoint: endpoint, Viewer: p.viewer, Received: got, Handed: handed,
+		CastErr: castErr, Exited: exited, Killed: killed, Ceiling: p.ceiling,
+	}
+	played := got.Played
+	t.Logf("castor exited %v; handed %q (%s): %s %dp %d-bit %s, %s %dch, %v",
+		castErr, got.URL, got.ContentType, played.Video, played.Height, played.Depth, cmp.Or(played.Transfer, "untagged"),
+		played.Audio, played.Channels, played.Duration)
+	for _, check := range slices.Concat([]judge.Check{p.outcome}, p.checks, invocation.Checks) {
+		for _, failure := range check.Judge(e) {
+			t.Errorf("%s: %s", check.Name(), failure)
+		}
 	}
 }
 

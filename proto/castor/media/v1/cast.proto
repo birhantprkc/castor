@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package castor.media.v1;
+
+import "buf/validate/validate.proto";
+import "castor/v1/cast.proto";
+
+// CastService starts, stops and follows casts.
+service CastService {
+  // Start begins a cast and returns at once; it plays once a device is lent to it through DeviceService.
+  rpc Start(StartRequest) returns (StartResponse);
+  // Stop ends a cast and returns at once.
+  rpc Stop(StopRequest) returns (StopResponse);
+  // Watch follows a cast without driving it, as the public CastService.Watch does.
+  // buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE
+  rpc Watch(castor.v1.WatchRequest) returns (stream castor.v1.WatchResponse);
+}
+
+message StartRequest {
+  // source is a stream measured and cast as is, or pages whose streams the media server finds and ranks.
+  castor.v1.Source source = 1 [(buf.validate.field).required = true];
+  // preferences are the cast's, every one of them set.
+  castor.v1.Preferences preferences = 2 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).cel = {
+      id: "preferences.complete"
+      message: "delivery, max_height and subtitles are all set"
+      expression: "has(this.delivery) && has(this.max_height) && has(this.subtitles)"
+    }
+  ];
+}
+
+message StartResponse {
+  string cast_id = 1;
+}
+
+message StopRequest {
+  string cast_id = 1 [(buf.validate.field).string.min_len = 1];
+}
+
+message StopResponse {}

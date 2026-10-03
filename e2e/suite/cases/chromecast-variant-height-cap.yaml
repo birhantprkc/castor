@@ -6,7 +6,7 @@ stream:
 receiver:
   device: chromecast
 castor:
-  resolver:
+  cast:
     max_height: 240
 expect:
   delivery: served

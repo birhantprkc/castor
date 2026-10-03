@@ -31,3 +31,5 @@ func (SingleFile) Package(dir string, _ origin.Layout) origin.Output {
 			"-hls_segment_filename", filepath.Join(dir, "stream"+ext), filepath.Join(dir, entry)},
 	}
 }
+
+func (SingleFile) Muxes() string { return "mp4" }

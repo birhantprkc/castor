@@ -9,6 +9,7 @@ import (
 
 	"github.com/stupside/castor/e2e/command"
 	"github.com/stupside/castor/e2e/origin"
+	"github.com/stupside/castor/e2e/origin/serving"
 )
 
 // clipSegments is how much of the stream the ad replays: a few seconds, the length of a pre-roll.
@@ -21,7 +22,12 @@ func (AdClip) Name() string { return "ad-clip" }
 
 func (AdClip) Mount(mux *http.ServeMux, src *origin.Origin) string {
 	mux.HandleFunc("/ad/preroll.m3u8", func(w http.ResponseWriter, r *http.Request) {
-		resp, err := http.Get(src.URL)
+		req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, src.URL, nil)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
@@ -47,21 +53,21 @@ func cut(playlist, base string) (string, bool) {
 	}
 	var out strings.Builder
 	segments := 0
-	lines := strings.Split(playlist, "\n")
-	for i := 0; i < len(lines) && segments < clipSegments; i++ {
-		line := lines[i]
+	for line := range serving.Lines(playlist) {
+		if segments == clipSegments {
+			break
+		}
 		switch {
-		case strings.HasPrefix(line, "#EXTINF") && i+1 < len(lines):
-			uri, err := root.Parse(strings.TrimSpace(lines[i+1]))
+		case line.Entry():
+			uri, err := root.Parse(strings.TrimSpace(line.URI))
 			if err != nil {
 				return "", false
 			}
-			out.WriteString(line + "\n" + uri.String() + "\n")
+			out.WriteString(line.Text + uri.String() + "\n")
 			segments++
-			i++
-		case strings.HasPrefix(line, "#EXT-X-ENDLIST"), strings.HasPrefix(line, "#EXT-X-STREAM-INF"):
+		case strings.HasPrefix(line.Text, "#EXT-X-ENDLIST"), strings.HasPrefix(line.Text, "#EXT-X-STREAM-INF"):
 		default:
-			out.WriteString(line + "\n")
+			out.WriteString(line.Text)
 		}
 	}
 	return out.String() + "#EXT-X-ENDLIST\n", segments > 0

@@ -8,7 +8,7 @@ origin:
 receiver:
   device: chromecast
 castor:
-  resolver:
+  cast:
     max_height: 480
 expect:
   video: copied

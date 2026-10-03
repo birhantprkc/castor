@@ -17,6 +17,8 @@ type Container struct {
 
 func (c Container) Name() string { return c.Called }
 
+func (c Container) Muxes() string { return c.Muxer }
+
 func (c Container) Supports(l origin.Layout) error {
 	return errors.Join(
 		refuse(l.Rungs > 1, "a single file carries one video rendition: use a height, not a ladder"),

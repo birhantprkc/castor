@@ -1,49 +1,35 @@
-# Castor ships working defaults for everything mechanical (timeouts, probing,
-# capture, transcoding, network interface, Chrome discovery). This file only
-# holds what identifies your install: the device to cast to, the sources to
-# cast from, and explicit opt-ins. Any default can still be overridden here
-# or via CASTOR_SECTION__FIELD environment variables.
+# What identifies your install: the device, your sources and your opt-ins. Everything
+# else has a working default; any key can be overridden with CASTOR_SECTION__FIELD.
 
 device:
-  # Run `castor scan` to discover devices on your network, then paste the name here.
+  # Run `castor scan` and paste the device's name and type (dlna, chromecast or roku).
   name: "Samsung Q80CA 55 TV"
   type: "dlna"
-  # Pin the device by address to skip discovery entirely. Set this when discovery
-  # can't reach the device: SSDP/mDNS is multicast, so it doesn't cross VLANs and
-  # is blocked on Android/Termux ("netlinkrib: permission denied"). Castor then
-  # talks to the device by unicast. With host set, name is just a label.
-  #   DLNA:              the device IP (Castor asks it for its description over one
-  #                      unicast request; if it doesn't answer, give the full
-  #                      description URL, e.g. http://192.168.0.3:9197/dmr)
-  #   Chromecast / Roku: the device IP
+  # Reach the device by unicast where discovery can't (VLANs, Android/Termux); name becomes a label.
+  # Its IP, or for a DLNA device that does not answer there, its description URL.
   # host: 192.168.0.3
 
 cast:
-  # How the device gets the bytes, and the only knob there is for it.
-  #   auto  (the default) hand the source URL to a device that fetches for itself,
-  #         but only where Castor has established that it can: the checks are
-  #         several and they change, so they are not listed here. Every cast logs
-  #         which path it took and why on the "cast composition" line (--debug).
-  #   serve relay always, for a source a device refuses for some reason Castor
-  #         cannot see. This spends this machine's bandwidth and CPU on every
-  #         cast, so it stays opt-in.
+  # auto (the default) hands a device that fetches for itself the source when it can play it;
+  # serve always relays, for a source a device refuses. `--debug` logs which and why.
   # delivery: serve
+  # The tallest picture sent to the device (default 1080). A taller source castor measured is
+  # relayed and scaled down, re-encoding the whole title.
+  # max_height: 1080
+  # Burned-in subtitles: a whisper language code (en, fr) or auto; unset for none. Only devices
+  # castor always streams to (DLNA) get them, never one that fetches for itself.
+  # subtitles: en
 
 sources:
-  # Castor ships no sources of its own. You bring your own, the same way a media
-  # server points at libraries you provide. Each entry is a site whose embedded
-  # player Castor can extract a stream from: `proxies` are base URLs (tried in
-  # order, so list mirrors of the same site together), and `templates` map an
-  # IMDB/TMDB id to that site's movie and episode paths. Replace the placeholders
-  # below with a source you are authorized to use.
+  # Castor ships no sources: add sites you are authorized to use. `proxies` are base URLs tried
+  # in order; `templates` map an IMDB or TMDB id to the site's movie and episode paths.
   - proxies:
       - "https://your-source.example"
     templates:
       movie: "/embed/movie/{itemID}"
       episode: "/embed/tv/{itemID}/{season}-{episode}"
 
-  # Sources can also pass their parameters as a query string; use whichever
-  # shape matches the site you are pointing at.
+  # Parameters can also go in a query string.
   - proxies:
       - "https://another-source.example"
     templates:
@@ -51,45 +37,31 @@ sources:
       episode: "/embed?type=tv&id={itemID}&season={season}&episode={episode}"
 
 whisper:
-  # Auto-generated subtitles, burned into the video. This is the only toggle
-  # (no CLI flag). The transcription and VAD models download once to your
-  # user cache; language defaults to English. Set `language` for anything
-  # else, and `model_path` to trade speed for accuracy.
-  # Burn-in needs frames Castor is drawing, so it applies only to devices
-  # Castor streams to directly (DLNA). A device that fetches for itself
-  # (Chromecast, Roku) gets no subtitles from this, even when Castor relays
-  # the stream to it.
-  enable: false
-
-resolver:
-  # The tallest video to cast. It is a maximum on what reaches the device, on
-  # every path: source selection prefers the largest stream no taller than this,
-  # everything Castor produces is scaled down to it, and a source Castor
-  # established is taller is relayed and scaled rather than handed over, because
-  # Castor cannot scale a stream it never reads. That relay re-encodes the whole
-  # title, so raise this if you would rather the device play the source as it is.
-  # A source whose height nothing established is still handed over.
-  # Defaults to 1080; raise it to your TV's native height (e.g. 2160 for a 4K
-  # panel), or lower it to save bandwidth. There is no "off": to lift the
-  # ceiling, set it above anything you own.
-  # max_height: 1080
+  # Defaults to ggml-tiny.en (English only), downloaded once to your user cache; point it at a
+  # multilingual model for other languages or auto.
+  # model_path: ""
 
 tmdb:
-  # Used by the interactive `castor cast`. Get a free key at https://www.themoviedb.org/settings/api
-  # Put the real key in git-ignored config.local.yaml (overlays this file),
-  # or set CASTOR_TMDB__API_KEY in the environment.
+  # For the interactive `castor cast`; get a free key at https://www.themoviedb.org/settings/api.
+  # Keep the real one in config.local.yaml (git-ignored) or CASTOR_TMDB__API_KEY.
   api_key: "<YOUR_TMDB_API_KEY>"
 
-# Connecting: the castor server on another machine your casts run on. It does
-# the heavy work and serves your TV, while this machine finds the devices and
-# starts the cast. Unset (the default) runs one inside castor itself.
-remote:
-  # url: http://my-nas:8410
+# The API server finds your devices and runs casts on them.
+api:
+  # One elsewhere on your network; unset (the default), each castor command runs its own.
+  # url: http://my-nas:8411
+  # Where `castor api` listens (default :8411, every interface).
+  # listen: ":8411"
+  # The token every request must carry; set it whenever this server listens on a network.
+  # token: "<A_LONG_RANDOM_STRING>"
 
-# Serving: this machine as `castor server`, for castor on other machines.
+# The media server does the heavy work and serves your devices.
 server:
-  # Where it listens. Defaults to :8410.
+  # One on another machine, such as a NAS; unset (the default), the API server runs its own.
+  # url: http://my-nas:8410
+  # The token its API asks for, the same here and on that machine.
+  # token: "<A_LONG_RANDOM_STRING>"
+  # Where `castor server` listens (default :8410, every interface).
   # listen: ":8410"
-  # Where TVs reach it. Defaults to its address on its own network; set it for
-  # a server outside your TV's, as a public URL.
+  # Where devices reach it, for a server outside their network (default: its own address).
   # advertise: http://castor.example.com:8410

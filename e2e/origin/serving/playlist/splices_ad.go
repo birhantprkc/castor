@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -100,12 +100,11 @@ func (s splice) Wrap(next http.Handler, p origin.Published) http.Handler {
 // spliced replaces the content entries the pod covers with the pod, fenced by discontinuities, so the length is unchanged.
 func (s splice) spliced(playlist, cdn, ext string) []byte {
 	var out strings.Builder
-	lines := strings.SplitAfter(playlist, "\n")
 	// An fMP4 pod brings its own init, and the content's must be named again once the pod ends.
 	var adInit, contentInit string
 	if ext == ".m4s" {
 		adInit = fmt.Sprintf("#EXT-X-MAP:URI=%q\n", cdn+"/ad/init.mp4")
-		for _, line := range lines {
+		for line := range strings.Lines(playlist) {
 			if strings.HasPrefix(line, "#EXT-X-MAP") {
 				contentInit = line
 				break
@@ -113,9 +112,9 @@ func (s splice) spliced(playlist, cdn, ext string) []byte {
 		}
 	}
 	entry := 0
-	for i := 0; i < len(lines); i++ {
-		if !strings.HasPrefix(lines[i], "#EXTINF") || i+1 >= len(lines) {
-			out.WriteString(lines[i])
+	for line := range serving.Lines(playlist) {
+		if !line.Entry() {
+			out.WriteString(line.Text)
 			continue
 		}
 		if entry == s.After {
@@ -126,38 +125,25 @@ func (s splice) spliced(playlist, cdn, ext string) []byte {
 			out.WriteString("#EXT-X-DISCONTINUITY\n" + contentInit)
 		}
 		if entry < s.After || entry >= s.After+s.Segments {
-			out.WriteString(lines[i] + lines[i+1])
+			out.WriteString(line.Text + line.URI)
 		}
 		entry++
-		i++
 	}
 	return []byte(out.String())
 }
 
-// encodeCreative encodes the ad once per framing: one-second segments of 16:9 bars at height and a 48 kHz tone, unlike any content.
+// encodeCreative encodes the ad once per framing: TS, and fMP4 behind its own init.
 func encodeCreative(segments, height int) (creative, error) {
-	ffmpeg, err := exec.LookPath("ffmpeg")
-	if err != nil {
-		return creative{}, err
-	}
 	dir, err := os.MkdirTemp("", "castor-e2e-ad-")
 	if err != nil {
 		return creative{}, err
 	}
 	defer os.RemoveAll(dir)
-	width := (height*16/9 + 1) &^ 1
 	encode := func(ext string, framing ...string) ([][]byte, error) {
-		args := []string{"-hide_banner", "-loglevel", "error", "-y",
-			"-f", "lavfi", "-i", fmt.Sprintf("smptebars=size=%dx%d:rate=15", width, height),
-			"-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000",
-			"-t", strconv.Itoa(segments),
-			"-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-g", "15",
-			"-c:a", "aac", "-ac", "2",
-			"-f", "hls", "-hls_time", "1", "-hls_list_size", "0", "-hls_playlist_type", "vod"}
-		args = append(append(args, framing...),
-			"-hls_segment_filename", filepath.Join(dir, "ad_%03d"+ext), filepath.Join(dir, "ad"+ext+".m3u8"))
-		if log, err := exec.Command(ffmpeg, args...).CombinedOutput(); err != nil {
-			return nil, fmt.Errorf("encoding the creative: %w\n%s", err, log)
+		mux := slices.Concat([]string{"-f", "hls", "-hls_time", "1", "-hls_list_size", "0", "-hls_playlist_type", "vod"}, framing,
+			[]string{"-hls_segment_filename", filepath.Join(dir, "ad_%03d"+ext), filepath.Join(dir, "ad"+ext+".m3u8")})
+		if err := origin.Creative(segments, height, mux...); err != nil {
+			return nil, err
 		}
 		pieces := make([][]byte, segments)
 		for n := range segments {

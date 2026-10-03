@@ -11,7 +11,7 @@ receiver:
         video: {h264: 8}
         audio: {aac: 2}
 castor:
-  resolver:
+  cast:
     max_height: 480
 expect:
   delivery: served

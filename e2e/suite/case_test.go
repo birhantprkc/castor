@@ -33,9 +33,11 @@ type spec struct {
 	// Castor is castor's own config.yaml for this cast; the device section is the receiver's.
 	Castor yaml.Node `yaml:"castor"`
 	// Config is how that config reaches castor: a file (the default) or the environment alone.
-	Config  string           `yaml:"config"`
-	Outcome string           `yaml:"outcome"`
-	Expect  strategy.Choices `yaml:"expect"`
+	Config string `yaml:"config"`
+	// Topology is each layout of castor's processes the case casts under: one command (the default), its two servers apart, or both.
+	Topology []string         `yaml:"topology"`
+	Outcome  string           `yaml:"outcome"`
+	Expect   strategy.Choices `yaml:"expect"`
 }
 
 // plan is a spec with every name it holds bound to its strategy.
@@ -54,9 +56,9 @@ type plan struct {
 
 // castorKnobs are the settings in a case's castor section the judge holds castor to.
 type castorKnobs struct {
-	Resolver struct {
+	Cast struct {
 		MaxHeight int `yaml:"max_height"`
-	} `yaml:"resolver"`
+	} `yaml:"cast"`
 }
 
 func (s spec) resolve() (plan, error) {
@@ -87,7 +89,7 @@ func (s spec) resolve() (plan, error) {
 	if err := decodeSection(s.Castor, &knobs); err != nil {
 		return plan{}, fmt.Errorf("castor: %w", err)
 	}
-	p.castor, p.ceiling = s.Castor, cmp.Or(knobs.Resolver.MaxHeight, math.MaxInt)
+	p.castor, p.ceiling = s.Castor, cmp.Or(knobs.Cast.MaxHeight, math.MaxInt)
 	if p.carrier, err = carriers.Lookup(cmp.Or(s.Config, settings.File{}.Name())); err != nil {
 		return plan{}, fmt.Errorf("config: %w", err)
 	}
@@ -106,8 +108,8 @@ func (s spec) resolve() (plan, error) {
 	return p, err
 }
 
-// load reads a case strictly, so a mistyped key fails the case instead of being ignored, and binds its strategies.
-func load(t *testing.T, file string) plan {
+// read decodes a case strictly, so a mistyped key fails the case instead of being ignored.
+func read(t *testing.T, file string) spec {
 	t.Helper()
 	f, err := os.Open(file)
 	if err != nil {
@@ -120,11 +122,23 @@ func load(t *testing.T, file string) plan {
 	if err := dec.Decode(&s); err != nil {
 		t.Fatalf("%s: %v", file, err)
 	}
-	p, err := s.resolve()
-	if err != nil {
-		t.Fatalf("%s: %v", file, err)
+	return s
+}
+
+// layouts are the topologies the case casts under.
+func (s spec) layouts() ([]topology, error) {
+	names := s.Topology
+	if len(names) == 0 {
+		names = []string{embedded{}.Name()}
 	}
-	return p
+	layouts := make([]topology, len(names))
+	for i, name := range names {
+		var err error
+		if layouts[i], err = topologies.Lookup(name); err != nil {
+			return nil, fmt.Errorf("topology: %w", err)
+		}
+	}
+	return layouts, nil
 }
 
 // configDoc is the case's castor section plus what the command needs, with the device pinned to the receiver.
@@ -134,18 +148,36 @@ func configDoc(t *testing.T, section yaml.Node, needs map[string]any, deviceType
 	if err := decodeSection(section, &doc); err != nil {
 		t.Fatalf("castor section: %v", err)
 	}
-	needs = maps.Clone(needs)
-	if needs == nil {
-		needs = map[string]any{}
+	return with(t, with(t, doc, needs), map[string]any{"device": map[string]any{"type": deviceType, "host": host}})
+}
+
+// with is doc with sections merged into it; a key the case already set fails the case rather than being overridden.
+func with(t *testing.T, doc, sections map[string]any) map[string]any {
+	t.Helper()
+	return merge(t, "castor", doc, sections)
+}
+
+func merge(t *testing.T, path string, doc, over map[string]any) map[string]any {
+	t.Helper()
+	out := maps.Clone(doc)
+	if out == nil {
+		out = map[string]any{}
 	}
-	needs["device"] = map[string]any{"type": deviceType, "host": host}
-	for key, value := range needs {
-		if _, taken := doc[key]; taken {
-			t.Fatalf("castor.%s is set by the case's receiver or command: remove it from the castor section", key)
+	for key, value := range over {
+		at := path + "." + key
+		have, taken := out[key]
+		if !taken {
+			out[key] = value
+			continue
 		}
-		doc[key] = value
+		haveSection, ok := have.(map[string]any)
+		section, isSection := value.(map[string]any)
+		if !ok || !isSection {
+			t.Fatalf("%s is set by the suite for the receiver, command or topology: remove it from the castor section", at)
+		}
+		out[key] = merge(t, at, haveSection, section)
 	}
-	return doc
+	return out
 }
 
 // decodeSection reads castor's section as castor would, unknown keys included; an absent section leaves v as it is.

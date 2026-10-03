@@ -3,7 +3,6 @@ package playlist
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"net/http"
 	"path"
 	"regexp"
@@ -67,15 +66,12 @@ func (s restart) Wrap(next http.Handler, p origin.Published) http.Handler {
 
 // restarted is a media playlist as the encoder publishes it once it has restarted; one that has not reached it passes through.
 func (s restart) restarted(playlist string) []byte {
-	lines := strings.SplitAfter(playlist, "\n")
-	// listed maps each #EXTINF line to the index of the segment it introduces.
-	listed := map[int]int{}
-	for i, line := range lines[:len(lines)-1] {
-		if index, ok := serving.SegmentIndex(uriPath(lines[i+1])); ok && strings.HasPrefix(line, "#EXTINF") {
-			listed[i] = index
+	var indices []int
+	for line := range serving.Lines(playlist) {
+		if index, ok := segmentOf(line); ok {
+			indices = append(indices, index)
 		}
 	}
-	indices := slices.Collect(maps.Values(listed))
 	if !slices.Contains(indices, s.Segment) {
 		// Once the restart slides out of a window, the encoder still numbers from where it restarted.
 		if s.Sequence == Reset && len(indices) > 0 && slices.Min(indices) > s.Segment {
@@ -84,24 +80,27 @@ func (s restart) restarted(playlist string) []byte {
 		return []byte(playlist)
 	}
 	var out strings.Builder
-	for i := 0; i < len(lines); i++ {
-		index, entry := listed[i]
+	for line := range serving.Lines(playlist) {
+		index, entry := segmentOf(line)
 		switch {
-		case strings.HasPrefix(lines[i], "#EXT-X-MEDIA-SEQUENCE") && s.Sequence == Reset:
+		case strings.HasPrefix(line.Text, "#EXT-X-MEDIA-SEQUENCE") && s.Sequence == Reset:
 			out.WriteString("#EXT-X-MEDIA-SEQUENCE:0\n")
-		case !entry:
-			out.WriteString(lines[i])
-		case index < s.Segment && s.Sequence == Reset:
-			i++
-		case index == s.Segment && s.Sequence == Continue:
-			out.WriteString("#EXT-X-DISCONTINUITY\n")
-			fallthrough
+		case entry && index < s.Segment && s.Sequence == Reset:
+		case entry && index == s.Segment && s.Sequence == Continue:
+			out.WriteString("#EXT-X-DISCONTINUITY\n" + line.Text + line.URI)
 		default:
-			out.WriteString(lines[i] + lines[i+1])
-			i++
+			out.WriteString(line.Text + line.URI)
 		}
 	}
 	return []byte(out.String())
+}
+
+// segmentOf is the index of the segment an entry lists, and false for any other line.
+func segmentOf(line serving.Line) (int, bool) {
+	if !line.Entry() {
+		return 0, false
+	}
+	return serving.SegmentIndex(uriPath(line.URI))
 }
 
 var sequencePattern = regexp.MustCompile(`#EXT-X-MEDIA-SEQUENCE:\d+`)

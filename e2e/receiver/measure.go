@@ -65,7 +65,7 @@ type streamFacts struct {
 	} `json:"side_data_list"`
 }
 
-// takers fold each stream into the measurement: the tallest picture, as a TV's player settles on it, and the first sound.
+// takers fold each stream into the measurement: the tallest picture, as a device's player settles on it, and the first sound.
 var takers = map[string]func(m *Measured, s streamFacts){
 	"video": func(m *Measured, s streamFacts) {
 		if m.Video != "" && s.Height <= m.Height {

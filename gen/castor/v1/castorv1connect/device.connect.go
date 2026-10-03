@@ -33,17 +33,15 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// DeviceServiceDriveProcedure is the fully-qualified name of the DeviceService's Drive RPC.
-	DeviceServiceDriveProcedure = "/castor.v1.DeviceService/Drive"
-	// DeviceServiceAnswerProcedure is the fully-qualified name of the DeviceService's Answer RPC.
-	DeviceServiceAnswerProcedure = "/castor.v1.DeviceService/Answer"
+	// DeviceServiceListDevicesProcedure is the fully-qualified name of the DeviceService's ListDevices
+	// RPC.
+	DeviceServiceListDevicesProcedure = "/castor.v1.DeviceService/ListDevices"
 )
 
 // DeviceServiceClient is a client for the castor.v1.DeviceService service.
 type DeviceServiceClient interface {
-	// Drive lends the device: a cast takes one, starts once it is lent, and plays on once its client leaves.
-	Drive(context.Context, *v1.DriveRequest) (*connect.ServerStreamForClient[v1.DriveResponse], error)
-	Answer(context.Context, *v1.AnswerRequest) (*v1.AnswerResponse, error)
+	// ListDevices discovers the devices this server reaches, within its network timeout.
+	ListDevices(context.Context, *v1.ListDevicesRequest) (*v1.ListDevicesResponse, error)
 }
 
 // NewDeviceServiceClient constructs a client for the castor.v1.DeviceService service. By default,
@@ -57,16 +55,10 @@ func NewDeviceServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 	baseURL = strings.TrimRight(baseURL, "/")
 	deviceServiceMethods := v1.File_castor_v1_device_proto.Services().ByName("DeviceService").Methods()
 	return &deviceServiceClient{
-		drive: connect.NewClient[v1.DriveRequest, v1.DriveResponse](
+		listDevices: connect.NewClient[v1.ListDevicesRequest, v1.ListDevicesResponse](
 			httpClient,
-			baseURL+DeviceServiceDriveProcedure,
-			connect.WithSchema(deviceServiceMethods.ByName("Drive")),
-			connect.WithClientOptions(opts...),
-		),
-		answer: connect.NewClient[v1.AnswerRequest, v1.AnswerResponse](
-			httpClient,
-			baseURL+DeviceServiceAnswerProcedure,
-			connect.WithSchema(deviceServiceMethods.ByName("Answer")),
+			baseURL+DeviceServiceListDevicesProcedure,
+			connect.WithSchema(deviceServiceMethods.ByName("ListDevices")),
 			connect.WithClientOptions(opts...),
 		),
 	}
@@ -74,18 +66,12 @@ func NewDeviceServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 
 // deviceServiceClient implements DeviceServiceClient.
 type deviceServiceClient struct {
-	drive  *connect.Client[v1.DriveRequest, v1.DriveResponse]
-	answer *connect.Client[v1.AnswerRequest, v1.AnswerResponse]
+	listDevices *connect.Client[v1.ListDevicesRequest, v1.ListDevicesResponse]
 }
 
-// Drive calls castor.v1.DeviceService.Drive.
-func (c *deviceServiceClient) Drive(ctx context.Context, req *v1.DriveRequest) (*connect.ServerStreamForClient[v1.DriveResponse], error) {
-	return c.drive.CallServerStream(ctx, connect.NewRequest(req))
-}
-
-// Answer calls castor.v1.DeviceService.Answer.
-func (c *deviceServiceClient) Answer(ctx context.Context, req *v1.AnswerRequest) (*v1.AnswerResponse, error) {
-	response, err := c.answer.CallUnary(ctx, connect.NewRequest(req))
+// ListDevices calls castor.v1.DeviceService.ListDevices.
+func (c *deviceServiceClient) ListDevices(ctx context.Context, req *v1.ListDevicesRequest) (*v1.ListDevicesResponse, error) {
+	response, err := c.listDevices.CallUnary(ctx, connect.NewRequest(req))
 	if response != nil {
 		return response.Msg, err
 	}
@@ -94,9 +80,8 @@ func (c *deviceServiceClient) Answer(ctx context.Context, req *v1.AnswerRequest)
 
 // DeviceServiceHandler is an implementation of the castor.v1.DeviceService service.
 type DeviceServiceHandler interface {
-	// Drive lends the device: a cast takes one, starts once it is lent, and plays on once its client leaves.
-	Drive(context.Context, *v1.DriveRequest, *connect.ServerStream[v1.DriveResponse]) error
-	Answer(context.Context, *v1.AnswerRequest) (*v1.AnswerResponse, error)
+	// ListDevices discovers the devices this server reaches, within its network timeout.
+	ListDevices(context.Context, *v1.ListDevicesRequest) (*v1.ListDevicesResponse, error)
 }
 
 // NewDeviceServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -106,24 +91,16 @@ type DeviceServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewDeviceServiceHandler(svc DeviceServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	deviceServiceMethods := v1.File_castor_v1_device_proto.Services().ByName("DeviceService").Methods()
-	deviceServiceDriveHandler := connect.NewServerStreamHandlerSimple(
-		DeviceServiceDriveProcedure,
-		svc.Drive,
-		connect.WithSchema(deviceServiceMethods.ByName("Drive")),
-		connect.WithHandlerOptions(opts...),
-	)
-	deviceServiceAnswerHandler := connect.NewUnaryHandlerSimple(
-		DeviceServiceAnswerProcedure,
-		svc.Answer,
-		connect.WithSchema(deviceServiceMethods.ByName("Answer")),
+	deviceServiceListDevicesHandler := connect.NewUnaryHandlerSimple(
+		DeviceServiceListDevicesProcedure,
+		svc.ListDevices,
+		connect.WithSchema(deviceServiceMethods.ByName("ListDevices")),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/castor.v1.DeviceService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case DeviceServiceDriveProcedure:
-			deviceServiceDriveHandler.ServeHTTP(w, r)
-		case DeviceServiceAnswerProcedure:
-			deviceServiceAnswerHandler.ServeHTTP(w, r)
+		case DeviceServiceListDevicesProcedure:
+			deviceServiceListDevicesHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -133,10 +110,6 @@ func NewDeviceServiceHandler(svc DeviceServiceHandler, opts ...connect.HandlerOp
 // UnimplementedDeviceServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedDeviceServiceHandler struct{}
 
-func (UnimplementedDeviceServiceHandler) Drive(context.Context, *v1.DriveRequest, *connect.ServerStream[v1.DriveResponse]) error {
-	return connect.NewError(connect.CodeUnimplemented, errors.New("castor.v1.DeviceService.Drive is not implemented"))
-}
-
-func (UnimplementedDeviceServiceHandler) Answer(context.Context, *v1.AnswerRequest) (*v1.AnswerResponse, error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("castor.v1.DeviceService.Answer is not implemented"))
+func (UnimplementedDeviceServiceHandler) ListDevices(context.Context, *v1.ListDevicesRequest) (*v1.ListDevicesResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("castor.v1.DeviceService.ListDevices is not implemented"))
 }

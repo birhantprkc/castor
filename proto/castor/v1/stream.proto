@@ -4,20 +4,19 @@ package castor.v1;
 
 import "buf/validate/validate.proto";
 
-// StreamService ranks streams as a cast would, without casting.
-service StreamService {
-  rpc Rank(RankRequest) returns (RankResponse);
-}
-
 // Stream is one link to the media, with what fetching it needs.
 message Stream {
-  string url = 1 [(buf.validate.field).cel = {
-    id: "url.http"
-    message: "must be an http or https URL"
-    expression: "this.startsWith('http://') || this.startsWith('https://')"
-  }];
+  string url = 1 [
+    (buf.validate.field).string.max_len = 8192,
+    (buf.validate.field).cel = {
+      id: "url.http"
+      message: "must be an http or https URL"
+      expression: "this.isUri() && (this.startsWith('http://') || this.startsWith('https://'))"
+    }
+  ];
   // headers are replayed on every fetch, as captured where the link was found.
   map<string, string> headers = 2 [(buf.validate.field).map = {
+    max_pairs: 64
     keys: {
       string: {well_known_regex: KNOWN_REGEX_HTTP_HEADER_NAME}
     }
@@ -28,42 +27,21 @@ message Stream {
       }
     }
   }];
-  // content_type is empty for a named link, which the server then identifies.
+  // content_type is empty for a link given as is, which castor then identifies.
   string content_type = 3;
-}
-
-// Preferences is what the operator asks of one cast.
-message Preferences {
-  Delivery delivery = 1 [
-    (buf.validate.field).required = true,
-    (buf.validate.field).enum.defined_only = true
-  ];
-  // max_height is the tallest picture the cast may show.
-  uint32 max_height = 2 [(buf.validate.field).uint32.gte = 2];
-  // subtitles is the language to burn in, a whisper code or auto to detect it, empty for none.
-  string subtitles = 3 [(buf.validate.field).string.pattern = "^(auto|[a-z]{2,3})?$"];
 }
 
 enum Delivery {
   DELIVERY_UNSPECIFIED = 0;
   // DELIVERY_AUTO lets the evidence decide between pass-through and serving.
   DELIVERY_AUTO = 1;
-  // DELIVERY_SERVE refuses pass-through: the server reads the source and serves the renderer.
+  // DELIVERY_SERVE refuses pass-through: the media server reads the source and serves the device.
   DELIVERY_SERVE = 2;
-}
-
-message RankRequest {
-  repeated Stream streams = 1 [(buf.validate.field).repeated.min_items = 1];
-  Preferences preferences = 2 [(buf.validate.field).required = true];
-}
-
-message RankResponse {
-  // ranked is the order a cast walks the streams in, best first.
-  repeated RankedStream ranked = 1;
 }
 
 message RankedStream {
   string url = 1;
+  // bitrate is in bits per second, 0 where nothing measured or declared it.
   uint64 bitrate = 2;
   // last_resort marks a stream admitted without a measurement to back it.
   bool last_resort = 3;

@@ -88,8 +88,9 @@ var (
 		command.Movie{},
 		command.Episode{},
 	}
-	carriers = strategy.Registry[settings.Carrier]{settings.File{}, settings.Env{}}
-	families = strategy.Registry[receiver.Family]{dlna.Family{}, chromecast.Family{}, roku.Family{}}
+	carriers   = strategy.Registry[settings.Carrier]{settings.File{}, settings.Env{}}
+	topologies = strategy.Registry[topology]{embedded{}, split{}}
+	families   = strategy.Registry[receiver.Family]{dlna.Family{}, chromecast.Family{}, roku.Family{}}
 	// players are tried in order; File takes anything, so it is last.
 	players = strategy.Registry[receiver.Player]{player.Playlist{}, player.File{}}
 	viewers = strategy.Registry[strategy.Factory[receiver.Viewer]]{

@@ -1,0 +1,84 @@
+// Package mediaserver is the media server's entry point: it reads its configuration, binds its engine and runs it as `castor server`, as castor-media, or inside castor itself.
+package mediaserver
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"net/url"
+
+	"github.com/urfave/cli/v3"
+
+	"github.com/stupside/castor/internal/settings"
+	"github.com/stupside/castor/internal/transport"
+	"github.com/stupside/castor/services/mediaserver/internal/cast"
+	"github.com/stupside/castor/services/mediaserver/internal/castlog"
+	"github.com/stupside/castor/services/mediaserver/internal/mediaroute"
+)
+
+// Command is `castor server`: the media server alone, serving the API servers that reach it and their devices until interrupted.
+func Command() *cli.Command {
+	return &cli.Command{
+		Name:  "server",
+		Usage: "Run casts for castor on other machines, and serve their devices, until interrupted",
+		Action: func(ctx context.Context, cmd *cli.Command) error {
+			cfg, err := settings.Load(cmd, defaults())
+			if err != nil {
+				return err
+			}
+			l, err := net.Listen("tcp", cfg.Server.Listen)
+			if err != nil {
+				return fmt.Errorf("listening on %s: %w", cfg.Server.Listen, err)
+			}
+			// A detached media server keeps every line on its own output too; watchers get their casts' lines live.
+			h := slog.Default().Handler()
+			slog.SetDefault(slog.New(castlog.Router(h, h)))
+			reach, err := cfg.advertised(ctx, l)
+			if err != nil {
+				return fmt.Errorf("resolving where devices reach this server (set server.advertise): %w", err)
+			}
+			slog.InfoContext(ctx, "serving", "address", l.Addr().String(), "devices_reach", reach.String())
+			transport.WarnOpen(ctx, l, cfg.Server.Token, "server.token")
+			srv := cast.New(cfg.backend(), reach)
+			return transport.Serve(ctx, l, onePort(srv, cfg.Server.Token), srv.Shutdown)
+		},
+	}
+}
+
+// onePort serves the media server's API behind token and its media route beside it, which devices fetch without the token they never have.
+func onePort(srv *cast.Server, token string) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/", transport.Authorized(srv.API, token))
+	mux.Handle(mediaroute.Pattern, srv.Media)
+	return mux
+}
+
+// Embedded runs a media server in this process until stop, its own lines going to lines: its API on loopback, its media route where devices on this network reach it.
+func Embedded(ctx context.Context, cmd *cli.Command, lines slog.Handler) (transport.Endpoint, func(), error) {
+	cfg, err := settings.Load(cmd, defaults())
+	if err != nil {
+		return transport.Endpoint{}, nil, err
+	}
+	slog.SetDefault(slog.New(castlog.Router(slog.Default().Handler(), lines)))
+	lan, err := cfg.deviceListener(ctx)
+	if err != nil {
+		return transport.Endpoint{}, nil, fmt.Errorf("opening where devices reach this machine: %w", err)
+	}
+	loop, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		_ = lan.Close()
+		return transport.Endpoint{}, nil, fmt.Errorf("embedded media server: %w", err)
+	}
+	reach := &url.URL{Scheme: "http", Host: lan.Addr().String()}
+	srv := cast.New(cfg.backend(), reach)
+	slog.InfoContext(ctx, "embedded media server ready", "api", loop.Addr().String(), "devices_reach", reach.String())
+	stopAPI := transport.Background(ctx, loop, transport.Authorized(srv.API, cfg.Server.Token), srv.Shutdown)
+	stopMedia := transport.Background(ctx, lan, srv.Media, srv.Shutdown)
+	stop := func() {
+		stopAPI()
+		stopMedia()
+	}
+	return transport.Endpoint{URL: "http://" + loop.Addr().String(), Token: cfg.Server.Token}, stop, nil
+}

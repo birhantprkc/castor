@@ -25,7 +25,7 @@ func (StopsAfter) Build(settings yaml.Node) (receiver.Viewer, error) {
 	return stopper{after: after}, nil
 }
 
-// viewingRate is how fast a TV drains its buffer, slow enough that the stop lands mid-stream.
+// viewingRate is how fast a device drains its buffer, slow enough that the stop lands mid-stream.
 const viewingRate = 256 << 10
 
 type stopper struct{ after time.Duration }

@@ -22,3 +22,5 @@ func (Time) Package(dir string, l origin.Layout) origin.Output {
 	out.Args = slices.Insert(out.Args, len(out.Args)-1, "-avoid_negative_ts", "make_zero")
 	return out
 }
+
+func (Time) Muxes() string { return "mp4" }

@@ -27,9 +27,8 @@ func (s Stream) FPS() float64 {
 // encodeArgs is the encoder half: synthetic tracks, one keyframe a second so every one-second segment opens on one.
 // Each rung is its own video stream; muxed audio is mapped once per rung, since it travels inside every rendition.
 func (s Stream) encodeArgs() []string {
-	width := (s.Height()*16/9 + 1) &^ 1
 	inputs := slices.Concat([]string{"-hide_banner", "-loglevel", "error", "-y"}, s.VideoIn,
-		[]string{"-f", "lavfi", "-i", fmt.Sprintf("testsrc=size=%dx%d:rate=%s", width, s.Height(), cmp.Or(s.Rate, DefaultRate))})
+		[]string{"-f", "lavfi", "-i", fmt.Sprintf("testsrc=size=%dx%d:rate=%s", width(s.Height()), s.Height(), cmp.Or(s.Rate, DefaultRate))})
 	// The transfer tags frames before anything else, so every rendition carries it.
 	chain := slices.DeleteFunc(slices.Concat([]string{s.Transfer.Filter()}, s.Filters, []string{fmt.Sprintf("split=%d", len(s.Heights))}),
 		func(f string) bool { return f == "" })

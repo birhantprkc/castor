@@ -28,3 +28,5 @@ func (SingleFile) Package(dir string, l origin.Layout) origin.Output {
 			"-single_file_name", "rep-$RepresentationID$.mp4", filepath.Join(dir, entry)},
 	}
 }
+
+func (SingleFile) Muxes() string { return "mp4" }

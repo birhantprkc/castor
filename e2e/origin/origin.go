@@ -7,8 +7,10 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -46,6 +48,11 @@ func Start(t *testing.T, ffmpeg string, s Stream, behaviours []Behaviour) *Origi
 	t.Helper()
 	dir := t.TempDir()
 	out := s.Packager.Package(dir, s.layout())
+	for name, body := range out.Files {
+		if err := os.WriteFile(filepath.Join(dir, name), body, 0o600); err != nil {
+			t.Fatalf("packaging the origin: %v", err)
+		}
+	}
 	if log, err := exec.CommandContext(t.Context(), ffmpeg, slices.Concat(s.encodeArgs(), out.Args)...).CombinedOutput(); err != nil {
 		t.Fatalf("encoding the origin: %v\n%s", err, log)
 	}

@@ -39,7 +39,12 @@ type Packager interface {
 	// Supports refuses a layout this packaging cannot publish, before anything is encoded.
 	Supports(l Layout) error
 	Package(dir string, l Layout) Output
+	// Muxes is the ffmpeg muxer the media is written in, as MPEGTS.
+	Muxes() string
 }
+
+// MPEGTS is the muxer with no display matrix, whose 33-bit timestamps wrap.
+const MPEGTS = "mpegts"
 
 // Behaviour is how the origin serves what it published: faithfully, as a live edge, or with hostility.
 type Behaviour interface {
@@ -98,6 +103,8 @@ type Output struct {
 	Args  []string
 	// Then is each ffmpeg command that turns what Args wrote into what is published, run in order.
 	Then [][]string
+	// Files are written into the directory, by name, before anything is encoded.
+	Files map[string][]byte
 	// SegmentExt is the extension segments were written with; Types maps every extension written to its MIME.
 	SegmentExt string
 	Types      map[string]string
