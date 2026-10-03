@@ -2,11 +2,9 @@ name: continuous-integration
 
 on:
   push:
-    paths-ignore: ['docs/**']
     branches-ignore: ['main']
   pull_request:
     branches: ['**']
-    paths-ignore: ['docs/**']
 
 permissions:
   contents: read
@@ -23,6 +21,8 @@ jobs:
         with:
           submodules: true
       - uses: ./.github/actions/setup
+      # The real-encode tests need ffmpeg, which the runner image lacks; tested.sh fails on their skip.
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - run: eval "$(make env)" && ./scripts/tested.sh
 
   lint:
@@ -33,34 +33,27 @@ jobs:
           submodules: true
       - uses: ./.github/actions/setup
       - run: eval "$(make env)" && go vet ./...
-      # Pinned, not @latest: a lint gate that changes under CI turns an unrelated
-      # push red and teaches everyone to ignore it. It runs under make env because
-      # the repo is cgo and staticcheck type-checks the whole graph.
-      # Every check, style included, over all hand-written code; gen/ is buf's.
-      - run: eval "$(make env)" && go run honnef.co/go/tools/cmd/staticcheck@2026.2.1 -checks all ./internal/... ./cmd/... ./e2e/...
-      # -test is load-bearing: without it every function only a test reaches reads
-      # as dead. deadcode exits 0 whether or not it found anything, so the gate is
-      # its output and not its status. One line is allowed through: castorNativeLog
-      # carries //export and nativelog.c installs it as whisper.cpp's global log
-      # callback, so its only caller is C and no Go callgraph can see it.
+      # Pinned so a new release never turns an unrelated push red; gen/ is buf's.
+      - run: eval "$(make env)" && go run honnef.co/go/tools/cmd/staticcheck@2026.2.1 -checks all ./services/... ./tui/... ./internal/... ./cmd/... ./e2e/...
+      # deadcode always exits 0, so its output is the gate; castorNativeLog is called only from C.
       - run: |
           eval "$(make env)"
-          dead=$(go run golang.org/x/tools/cmd/deadcode@v0.50.0 -test ./... 2>&1 | grep -v '^internal/subtitle/whisper/nativelog.go:[0-9]*:[0-9]*: unreachable func: castorNativeLog$' || true)
+          dead=$(go run golang.org/x/tools/cmd/deadcode@v0.51.0 -test ./... 2>&1 | grep -v '^services/mediaserver/internal/subtitle/whisper/nativelog.go:[0-9]*:[0-9]*: unreachable func: castorNativeLog$' || true)
           [ -z "$dead" ] || { printf 'unreachable:\n%s\n' "$dead"; exit 1; }
-      # go fix carries the modernizers since Go 1.26, so the gate follows the
-      # toolchain go.mod pins. It exits non-zero with the diff it suggests: run
-      # `go fix ./...` and commit it.
+      # Fails with the diff it suggests: run `go fix ./...` and commit it.
       - run: eval "$(make env)" && go fix -diff ./...
+      # castor-api runs where the devices are, so it ships cross-compiled without cgo.
+      - run: CGO_ENABLED=0 go build -o /dev/null ./cmd/castor-api
       - run: |
-          unformatted=$(gofmt -s -l cmd internal e2e main.go)
+          unformatted=$(gofmt -s -l services tui cmd internal e2e)
           [ -z "$unformatted" ] || { printf 'unformatted:\n%s\n' "$unformatted"; exit 1; }
 
-  # The contract: lint and format the protos, refuse breaking changes against
-  # main, and fail when the committed gen/ differs from what the protos produce.
   proto:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -69,5 +62,8 @@ jobs:
           version: 1.73.0
           setup_only: true
       - run: buf lint && buf format -d --exit-code
-      - run: buf breaking --against "https://github.com/${GITHUB_REPOSITORY}.git#branch=main"
+      # Only a released contract is held to compatibility.
+      - run: |
+          tag=$(git tag --sort=-v:refname | head -1)
+          if git cat-file -e "$tag:proto/castor/v1" 2>/dev/null; then buf breaking --against ".git#tag=$tag"; fi
       - run: make generate && test -z "$(git status --porcelain -- gen)"

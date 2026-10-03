@@ -1,10 +1,6 @@
 name: continuous-delivery
 
-# release-please grooms a standing Release PR from Conventional Commits; on its
-# merge it cuts the <x.y.z> tag + GitHub Release and hands the stable version to
-# _delivery (the shared build/publish engine the canary lane also calls). Because
-# both jobs run in this single workflow run, no PAT is needed to bridge the tag to
-# the build.
+# Merging release-please's PR tags a release and delivers it in the same run, so no PAT bridges the tag.
 
 on:
   push:

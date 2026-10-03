@@ -1,10 +1,6 @@
 name: canary-release
 
-# On-demand canary preview. Dispatch this workflow on any branch: it computes
-# <next-patch>-canary.<short-sha> from the released version and hands it to the
-# shared _delivery engine. The `-` in the version makes _delivery treat it as a
-# prerelease, so it publishes only the moving `:canary` image tag and never
-# touches `:latest`, the GitHub Release, or the Homebrew cask.
+# Publishes <next-patch>-canary.<sha> from any branch; the `-` keeps _delivery off every stable pointer.
 
 on:
   workflow_dispatch: {}
@@ -39,7 +35,6 @@ jobs:
   publish:
     needs: version
     uses: ./.github/workflows/_delivery.yml
-    secrets: inherit
     permissions:
       contents: write
       packages: write

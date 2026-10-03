@@ -1,24 +1,30 @@
 #!/usr/bin/env bash
-# Stage the native binaries (from the build matrix, in prebuilt/) into release
-# archives + checksums.txt + a Docker build context. Run from the repo root, in CI.
+# Stage prebuilt/ into release archives, checksums.txt and the Docker context; run from the repo root in CI.
 set -euo pipefail
 
 version="${VERSION:?VERSION must be set}"
+
+# archive packs one binary, with the license and readme, as <name>_<version>_<os>_<arch>.
+archive() {
+  local name=$1 bin=$2 os=$3 arch=$4 work
+  work=$(mktemp -d)
+  cp LICENSE README.md "$work/"
+  if [ "$os" = windows ]; then
+    cp "$bin" "$work/$name.exe"
+    zip -qj "dist/${name}_${version}_${os}_${arch}.zip" "$work/$name.exe" "$work/LICENSE" "$work/README.md"
+  else
+    cp "$bin" "$work/$name"; chmod +x "$work/$name"
+    tar -C "$work" -czf "dist/${name}_${version}_${os}_${arch}.tar.gz" "$name" LICENSE README.md
+  fi
+}
 
 mkdir -p dist docker
 for dir in prebuilt/castor-*; do
   target="${dir#prebuilt/castor-}"   # e.g. linux-amd64
   os="${target%-*}"; arch="${target##*-}"
 
-  work=$(mktemp -d)
-  cp LICENSE README.md "$work/"
-  if [ "$os" = windows ]; then
-    cp "$dir/castor" "$work/castor.exe"
-    zip -qj "dist/castor_${version}_${os}_${arch}.zip" "$work/castor.exe" "$work/LICENSE" "$work/README.md"
-  else
-    cp "$dir/castor" "$work/castor"; chmod +x "$work/castor"
-    tar -C "$work" -czf "dist/castor_${version}_${os}_${arch}.tar.gz" castor LICENSE README.md
-  fi
+  archive castor "$dir/castor" "$os" "$arch"
+  archive castor-media "$dir/castor-media" "$os" "$arch"
 
   if [ "$os" = linux ]; then
     mkdir -p "docker/$arch"
@@ -26,4 +32,9 @@ for dir in prebuilt/castor-*; do
   fi
 done
 
-( cd dist && sha256sum castor_*.tar.gz castor_*.zip > checksums.txt )
+for bin in prebuilt/api/castor-api_*; do
+  target="${bin#prebuilt/api/castor-api_}"   # e.g. linux_arm64
+  archive castor-api "$bin" "${target%_*}" "${target##*_}"
+done
+
+( cd dist && sha256sum *.tar.gz *.zip > checksums.txt )

@@ -1,7 +1,4 @@
-# Debian 13 "trixie" (current stable). ffmpeg 7.1 with full VAAPI
-# support (h264/hevc/av1/vp9 encoders) and chromium as a proper .deb.
-# Requires buildx for multi-arch: TARGETARCH is set by buildx, not by
-# plain docker build.  For VAAPI pass --device /dev/dri:/dev/dri.
+# Trixie's ffmpeg encodes on VA-API (pass --device /dev/dri); TARGETARCH comes from buildx.
 FROM debian:trixie-slim
 ARG TARGETARCH
 
@@ -16,9 +13,7 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*
 
 ENV CASTOR_BROWSER__CHROME_PATH=/usr/bin/chromium \
-    CASTOR_BROWSER__HEADLESS=true \
     CASTOR_BROWSER__NO_SANDBOX=true
 
-COPY docker/${TARGETARCH}/castor /usr/local/bin/castor
-RUN chmod +x /usr/local/bin/castor
+COPY --chmod=0755 docker/${TARGETARCH}/castor /usr/local/bin/castor
 ENTRYPOINT ["castor"]

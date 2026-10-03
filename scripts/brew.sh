@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Render the Homebrew cask for this release and push it to the tap.
-# Run from the repo root, in CI, after release.sh has staged the archives.
+# Render the Homebrew cask from release.sh's archives and push it to the tap.
 set -euo pipefail
 
 version="${VERSION:?VERSION must be set}"

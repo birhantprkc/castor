@@ -1,17 +1,12 @@
 name: _delivery
 
-# Shared build + publish engine for one version. Called by continuous-delivery.yml
-# (stable, from release-please) and canary-release.yml (on-demand prerelease). The version
-# string is the only difference between the two lanes: a prerelease version
-# (contains a `-`, e.g. 1.4.4-canary.abc1234) publishes only the moving `:canary`
-# image tag and skips the `:latest` tag, the GitHub Release assets, and the
-# Homebrew cask, so previews never move the stable pointers.
+# Builds and publishes one version; a version with a `-` is a prerelease, which moves only `:canary`.
 
 on:
   workflow_call:
     inputs:
       version:
-        description: "Bare version to ship, e.g. 1.4.4 or 1.4.4-canary.abc1234."
+        description: "Version to ship: the release tag (v1.4.4) or a canary (1.4.4-canary.abc1234)."
         required: true
         type: string
     secrets:
@@ -51,8 +46,7 @@ jobs:
               -DCMAKE_SYSTEM_PROCESSOR=aarch64
               -DCMAKE_C_COMPILER=zcc
               -DCMAKE_CXX_COMPILER=zxx
-          # Windows uses zig's own archiver: the objects are COFF, which the
-          # host binutils need not understand to index.
+          # zig's own archiver, since the host binutils need not index COFF objects.
           - target: windows-amd64
             runner: ubuntu-latest
             goos: windows
@@ -110,7 +104,7 @@ jobs:
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         if: matrix.zig_triple
         with:
-          version: latest
+          version: 0.15.1
       - if: matrix.zig_triple
         run: |
           printf '#!/bin/sh\nexec zig cc  -target ${{ matrix.zig_triple }} "$@"\n' | sudo tee /usr/local/bin/zcc > /dev/null
@@ -125,8 +119,7 @@ jobs:
             -DGGML_NATIVE=OFF \
             ${{ matrix.cmake_args }}
           cmake --build "$BUILD" --target whisper -j"$(nproc 2>/dev/null || sysctl -n hw.logicalcpu)"
-      # ggml drops the lib prefix on Windows unconditionally, and the binding's
-      # -lggml still looks for libggml.a.
+      # ggml drops the lib prefix on Windows, but the binding's -lggml looks for libggml.a.
       - if: matrix.goos == 'windows'
         run: for lib in "$BUILD"/ggml/src/ggml*.a; do cp "$lib" "${lib%/*}/lib${lib##*/}"; done
       - env:
@@ -139,20 +132,44 @@ jobs:
         run: |
           export CGO_CFLAGS="-I$WHISPER/include -I$WHISPER/ggml/include"
           export CGO_LDFLAGS="-L$BUILD/src -L$BUILD/ggml/src -L$BUILD/ggml/src/ggml-blas -L$BUILD/ggml/src/ggml-metal"
-          go build -trimpath \
-            -ldflags "-s -w \
-              -X 'github.com/stupside/castor/internal/version.Version=${VERSION}' \
-              -X 'github.com/stupside/castor/internal/version.Commit=${GITHUB_SHA}' \
-              -X 'github.com/stupside/castor/internal/version.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)'" \
-            -o dist/castor .
+          ldflags="-s -w -X github.com/stupside/castor/internal/process.version=${VERSION}"
+          go build -trimpath -ldflags "$ldflags" -o dist/castor ./cmd/castor
+          go build -trimpath -ldflags "$ldflags" -o dist/castor-media ./cmd/castor-media
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: castor-${{ matrix.target }}
-          path: dist/castor
+          path: dist/
+          if-no-files-found: error
+
+  # castor-api links no cgo, so one runner cross-compiles it for every target.
+  build-api:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - env:
+          CGO_ENABLED: "0"
+          VERSION: ${{ inputs.version }}
+        run: |
+          ldflags="-s -w -X github.com/stupside/castor/internal/process.version=${VERSION}"
+          for target in linux/amd64 linux/arm64 linux/arm darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            os="${target%/*}"; arch="${target#*/}"
+            GOOS=$os GOARCH=$arch GOARM=7 go build -trimpath -ldflags "$ldflags" -o "dist/castor-api_${os}_${arch}" ./cmd/castor-api
+          done
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: api
+          path: dist/
           if-no-files-found: error
 
   publish:
-    needs: build
+    needs: [build, build-api]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -168,6 +185,10 @@ jobs:
         with:
           pattern: castor-*
           path: prebuilt
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: api
+          path: prebuilt/api
       - run: ./scripts/release.sh
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -180,8 +201,6 @@ jobs:
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.IMAGE }}
-          # Full version tag always; the moving `latest`/`canary` pointers are
-          # mutually exclusive on whether the version is a prerelease.
           tags: |
             type=raw,value=${{ inputs.version }}
             type=raw,value=latest,enable=${{ !contains(inputs.version, '-') }}
@@ -191,19 +210,14 @@ jobs:
             org.opencontainers.image.licenses=MIT
       - uses: docker/bake-action@018cb6412ab401ebaa809aa5f85966b74628600f # v7.4.0
         with:
-          # Build from the checked-out workspace, not the remote git tree
-          # (bake-action's v6+ default): scripts/release.sh stages the native
-          # binaries into docker/<arch>/ at runtime and the Dockerfile COPYs
-          # them, so they only exist in the local context.
+          # The workspace, not the git tree: release.sh staged the binaries in docker/<arch>/.
           source: .
           files: |
             ./docker-bake.hcl
             ${{ steps.meta.outputs.bake-file }}
           push: true
 
-      # ── Stable-only: never run for a prerelease (canary) version ──
-      # release-please already created the Release; attach binaries + checksums
-      # to it without touching its generated changelog body.
+      # Stable only: attach the archives to the Release release-please created.
       - if: ${{ !contains(inputs.version, '-') }}
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
