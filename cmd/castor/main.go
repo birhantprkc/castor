@@ -12,11 +12,10 @@ import (
 )
 
 func main() {
-	media := apiserver.Media(mediaserver.Embedded)
-	local := Local(apiserver.Embedded(media))
+	local := Local(apiserver.Embedded(mediaserver.Embedded))
 	process.Run(&cli.Command{
 		Name:     "castor",
 		Usage:    "Cast video streams to networked devices",
-		Commands: slices.Concat(Commands(local), []*cli.Command{apiserver.Command(media), mediaserver.Command()}),
+		Commands: slices.Concat(Commands(local), []*cli.Command{apiserver.Command(), mediaserver.Command()}),
 	})
 }

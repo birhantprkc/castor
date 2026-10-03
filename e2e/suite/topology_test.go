@@ -28,7 +28,7 @@ func (embedded) Cast(t *testing.T, ctx context.Context, carrier settings.Carrier
 	return castor.Cast(ctx, launch, args)
 }
 
-// split runs `castor server` and `castor api` as processes of their own, each behind its token, and castor as their client.
+// split runs `castor media-server` and `castor api-server` as processes of their own, each behind its token, and castor as their client.
 type split struct{}
 
 func (split) Name() string { return "split" }
@@ -36,12 +36,12 @@ func (split) Name() string { return "split" }
 func (split) Cast(t *testing.T, ctx context.Context, carrier settings.Carrier, doc map[string]any, args []string) ([]byte, error) {
 	mediaToken, apiToken := rand.Text(), rand.Text()
 	// Port 0 so parallel cases never race for one; castor's config only accepts it on every interface.
-	media := start(t, carrier, with(t, doc, map[string]any{"server": map[string]any{"listen": ":0", "token": mediaToken}}), "server")
+	media := start(t, carrier, with(t, doc, map[string]any{"server": map[string]any{"listen": ":0", "token": mediaToken}}), "media-server")
 	mediaURL := media.ready(t, mediaToken)
 	api := start(t, carrier, with(t, doc, map[string]any{
 		"server": map[string]any{"url": mediaURL, "token": mediaToken},
 		"api":    map[string]any{"listen": ":0", "token": apiToken},
-	}), "api")
+	}), "api-server")
 	apiURL := api.ready(t, apiToken)
 
 	launch, err := carrier.Carry(t, with(t, doc, map[string]any{"api": map[string]any{"url": apiURL, "token": apiToken}}))

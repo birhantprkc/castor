@@ -25,10 +25,10 @@ Each tier knows one thing, and runs where that thing is.
 | Setup | What runs where |
 | --- | --- |
 | On one computer | `castor cast` or `castor scan` runs the TUI, an API server on loopback and a media server in one process. |
-| Shared media server | `castor server` on a machine that stays on; each computer runs `castor` with `server.url`, so its API server casts through it. |
-| Shared API server | `castor api` on the devices' network; clients set `api.url`. It runs its own media server unless `server.url` names one. |
+| Shared media server | `castor media-server` on a machine that stays on; each computer runs `castor` with `server.url`, so its API server casts through it. |
+| Shared API server | `castor api-server` on the devices' network, casting through the `castor media-server` that `server.url` names; clients set `api.url`. |
 
-`castor` links all three tiers and, when a command names no server, runs them in its own process. `castor server` is the media server alone.
+`castor` links all three tiers and, when a command names no server, runs them in its own process. `castor media-server` is the media server alone and `castor api-server` the API server alone: each runs one tier, never the other.
 
 ## Boundaries
 

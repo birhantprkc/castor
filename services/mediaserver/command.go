@@ -15,11 +15,11 @@ import (
 	"github.com/stupside/castor/services/mediaserver/internal/mediaroute"
 )
 
-// Command is `castor server`: the media server alone, serving the API servers that reach it and their devices until interrupted.
+// Command is `castor media-server`: the media server alone, serving the API servers that reach it and their devices until interrupted.
 func Command() *cli.Command {
 	return &cli.Command{
-		Name:  "server",
-		Usage: "Run casts for castor on other machines, and serve their devices, until interrupted",
+		Name:  "media-server",
+		Usage: "Run the media server castor's API servers cast through, and serve their devices, until interrupted",
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			cfg, err := settings.Load(cmd, defaults())
 			if err != nil {

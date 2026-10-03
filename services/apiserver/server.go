@@ -1,4 +1,4 @@
-// Package apiserver is castor's API server, run as `castor api` or inside castor itself.
+// Package apiserver is castor's API server, run as `castor api-server` or inside castor itself.
 package apiserver
 
 import (

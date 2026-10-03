@@ -35,7 +35,7 @@ type ResolverConfig struct {
 	ProbeTimeout    time.Duration `yaml:"probe_timeout" validate:"required"`
 }
 
-// ServerConfig is where `castor server` listens, where devices reach it, and the token its API asks for.
+// ServerConfig is where `castor media-server` listens, where devices reach it, and the token its API asks for.
 type ServerConfig struct {
 	Listen string `yaml:"listen" validate:"required,hostname_port|startswith=:"`
 	// Advertise is where devices reach this server from outside its network.

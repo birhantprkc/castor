@@ -50,18 +50,18 @@ tmdb:
 api:
   # One elsewhere on your network; unset (the default), each castor command runs its own.
   # url: http://my-nas:8411
-  # Where `castor api` listens (default :8411, every interface).
+  # Where `castor api-server` listens (default :8411, every interface).
   # listen: ":8411"
   # The token every request must carry; set it whenever this server listens on a network.
   # token: "<A_LONG_RANDOM_STRING>"
 
 # The media server does the heavy work and serves your devices.
 server:
-  # One on another machine, such as a NAS; unset (the default), the API server runs its own.
+  # One on another machine, such as a NAS; required by `castor api-server`, otherwise unset (the default) runs one in each castor command.
   # url: http://my-nas:8410
   # The token its API asks for, the same here and on that machine.
   # token: "<A_LONG_RANDOM_STRING>"
-  # Where `castor server` listens (default :8410, every interface).
+  # Where `castor media-server` listens (default :8410, every interface).
   # listen: ":8410"
   # Where devices reach it, for a server outside their network (default: its own address).
   # advertise: http://castor.example.com:8410

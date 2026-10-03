@@ -29,7 +29,7 @@
 
 Smart TVs won't cast arbitrary web video, and screen mirroring is laggy. Castor puts the video from a web page or a link on your TV, even when the TV can't play it as it is, with generated subtitles if you want them.
 
-Use it on your computer alone, or run a castor server on a machine that stays on, such as a NAS, and cast through it from every computer at home.
+Use it on your computer alone, or run a castor media server on a machine that stays on, such as a NAS, and cast through it from every computer at home.
 
 *A general-purpose casting tool: it casts only what you point it at. See [Purpose and disclaimer](#purpose-and-disclaimer).*
 
@@ -79,8 +79,8 @@ castor cast player https://example.com/watch/some-video
 | `castor cast` | Browse titles and cast, interactively (needs a [TMDB key](#tmdb-key)) |
 | `castor cast movie <id>` | Resolve a movie id against your [sources](#sources) and cast |
 | `castor cast episode <id> --season N --episode N` | Same, for a TV episode |
-| `castor server` | Run the media server other computers cast through ([another machine](#run-castor-on-another-machine)) |
-| `castor api` | Serve castor's API, for apps and integrations ([another machine](#run-castor-on-another-machine)) |
+| `castor media-server` | Run the media server other computers cast through ([another machine](#run-castor-on-another-machine)) |
+| `castor api-server` | Serve castor's API, for apps and integrations ([another machine](#run-castor-on-another-machine)) |
 
 `castor cast --dry-run ...` prints the streams it found instead of casting. Run `castor --help` for all flags.
 
@@ -163,7 +163,7 @@ tmdb:
 A machine that stays on, such as a NAS, does the heavy work; your computer finds the TV and drives it. On the server, with a token in its config:
 
 ```sh
-castor server   # listens on :8410 (server.listen)
+castor media-server   # listens on :8410 (server.listen)
 ```
 
 On your computer:
@@ -178,10 +178,11 @@ Once the TV plays, closing the terminal leaves the cast playing; Ctrl+C stops it
 
 ### The API, for apps and integrations
 
-Everything castor does to your TVs is an API: list them, cast a link or a page on one, follow the cast, stop it. Run it on a machine on your TV's network:
+Everything castor does to your TVs is an API: list them, cast a link or a page on one, follow the cast, stop it. Run it on a machine on your TV's network, casting through a media server (the [shared one](#a-shared-media-server), or one beside it on the same machine):
 
 ```sh
-castor api   # listens on :8411 (api.listen)
+castor media-server   # listens on :8410 (server.listen)
+castor api-server     # listens on :8411 (api.listen), with server.url: http://localhost:8410
 ```
 
 ```sh

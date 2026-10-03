@@ -2,6 +2,7 @@ package apiserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -14,23 +15,23 @@ import (
 // Media runs a media server in this process, for an API server that names none, its own lines going to lines.
 type Media func(ctx context.Context, cmd *cli.Command, lines slog.Handler) (transport.Endpoint, func(), error)
 
-// Command is `castor api`: the API server, casting through the media server it names or one it runs, until interrupted.
-func Command(media Media) *cli.Command {
+// Command is `castor api-server`: the API server alone, casting through the media server server.url names, until interrupted.
+func Command() *cli.Command {
 	return &cli.Command{
-		Name:  "api",
-		Usage: "Serve castor's API, casting on the devices on this network, until interrupted",
+		Name:  "api-server",
+		Usage: "Serve castor's API on the devices on this network, casting through the media server server.url names, until interrupted",
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			cfg, err := settings.Load(cmd, defaults())
 			if err != nil {
 				return err
 			}
-			// A media server run here writes its lines as this server's own, as `castor server` does.
-			srv, stop, err := cfg.server(ctx, cmd, media, slog.Default().Handler())
-			if err != nil {
-				return err
+			if cfg.Server.URL == "" {
+				return errors.New("server.url is required: the API server casts through a media server (`castor media-server`)")
 			}
-			// It outlives the API server, which stops its casts through it.
-			defer stop()
+			srv, err := New(cfg.backend(transport.Endpoint{URL: cfg.Server.URL, Token: cfg.Server.Token}), cfg.Cast)
+			if err != nil {
+				return fmt.Errorf("validating config: %w", err)
+			}
 			l, err := transport.Listen(ctx, cfg.API.Listen, cfg.API.Token, "api.token")
 			if err != nil {
 				return err

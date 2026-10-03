@@ -25,13 +25,13 @@ type CastConfig struct {
 	Subtitles string `yaml:"subtitles"`
 }
 
-// APIConfig is where `castor api` listens, and the token it asks every request to carry.
+// APIConfig is where `castor api-server` listens, and the token it asks every request to carry.
 type APIConfig struct {
 	Listen string `yaml:"listen" validate:"required,hostname_port|startswith=:"`
 	Token  string `yaml:"token"`
 }
 
-// ServerConfig is the media server this API server casts through: one elsewhere, or, unset, one in its own process.
+// ServerConfig is the media server this API server casts through; unset, castor runs one beside it in its own process.
 type ServerConfig struct {
 	URL   string `yaml:"url" validate:"omitempty,http_url"`
 	Token string `yaml:"token"`
