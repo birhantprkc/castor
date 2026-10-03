@@ -9,29 +9,10 @@ import (
 	"os/exec"
 	"runtime"
 	"slices"
-	"strconv"
 	"sync/atomic"
 	"syscall"
 
 	"github.com/stupside/castor/services/mediaserver/internal/media"
-)
-
-// Extra output fd constants: -progress fd 3 is the one output every invocation has.
-const (
-	firstExtraFD = 3
-	progressFD   = 3
-	pcmFD        = 4
-)
-
-// pipeURL spells an fd the way ffmpeg's pipe protocol takes it.
-func pipeURL(fd int) string { return "pipe:" + strconv.Itoa(fd) }
-
-// The pipes a command reads its input from and routes its outputs to; Start carries the -progress feed and the PCM tee over loopback.
-var (
-	StdinPipe    = pipeURL(0)
-	StdoutPipe   = pipeURL(1)
-	ProgressPipe = pipeURL(progressFD)
-	PCMPipe      = pipeURL(pcmFD)
 )
 
 // noExitStatus = no status yet (not waited) or castor's kill ended it (stall: ffmpeg's error path never ran).
@@ -148,7 +129,7 @@ func Start(ctx context.Context, path string, command Command, opts Options) (*Pr
 		Stdout:  stdout,
 		cmd:     cmd,
 		extra:   extra,
-		tail:    newTail(),
+		tail:    newRingTail(),
 		markers: &markerWatch{},
 		scanned: scanned,
 		stopped: stopped,

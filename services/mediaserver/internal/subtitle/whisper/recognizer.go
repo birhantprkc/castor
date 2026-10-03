@@ -1,4 +1,3 @@
-// Package whisper transcribes a cast's sound with whisper.cpp.
 package whisper
 
 import (

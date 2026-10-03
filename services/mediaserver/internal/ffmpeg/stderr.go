@@ -69,7 +69,7 @@ type ringTail struct {
 	buf []string
 }
 
-func newTail() *ringTail {
+func newRingTail() *ringTail {
 	return &ringTail{buf: make([]string, 0, stderrTailCapacity)}
 }
 

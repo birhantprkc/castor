@@ -37,35 +37,35 @@ type AudioSupport struct {
 }
 
 // AcceptsContainer reports whether the device plays contentType directly (the pass-through decision).
-func (r Capabilities) AcceptsContainer(contentType string) bool {
-	return slices.Contains(r.Containers, contentType)
+func (c Capabilities) AcceptsContainer(contentType string) bool {
+	return slices.Contains(c.Containers, contentType)
 }
 
 // PlaybackSampleRate is the highest audio sample rate any device castor serves plays.
 const PlaybackSampleRate = 48000
 
-func (r Capabilities) CanCopyVideo(v ProbeInfo) bool {
-	if v.VideoInterlaced && !r.Deinterlaces {
+func (c Capabilities) CanCopyVideo(v ProbeInfo) bool {
+	if v.VideoInterlaced && !c.Deinterlaces {
 		return false
 	}
-	return slices.ContainsFunc(r.Video, func(s VideoSupport) bool { return s.accepts(v) })
+	return slices.ContainsFunc(c.Video, func(s VideoSupport) bool { return s.accepts(v) })
 }
 
-// SupportsVideoCodec reports whether the device decodes video codec c natively.
-func (r Capabilities) SupportsVideoCodec(c Codec) bool {
-	return slices.ContainsFunc(r.Video, func(s VideoSupport) bool { return s.Codec == c })
+// SupportsVideoCodec reports whether the device decodes this video codec natively.
+func (c Capabilities) SupportsVideoCodec(codec Codec) bool {
+	return slices.ContainsFunc(c.Video, func(s VideoSupport) bool { return s.Codec == codec })
 }
 
-func (r Capabilities) CanCopyAudio(p ProbeInfo) bool {
+func (c Capabilities) CanCopyAudio(p ProbeInfo) bool {
 	if p.AudioSampleRate > PlaybackSampleRate {
 		return false
 	}
-	return slices.ContainsFunc(r.Audio, func(s AudioSupport) bool { return s.accepts(p) })
+	return slices.ContainsFunc(c.Audio, func(s AudioSupport) bool { return s.accepts(p) })
 }
 
-// SupportsAudioCodec reports whether the device decodes audio codec c natively.
-func (r Capabilities) SupportsAudioCodec(c Codec) bool {
-	return slices.ContainsFunc(r.Audio, func(s AudioSupport) bool { return s.Codec == c })
+// SupportsAudioCodec reports whether the device decodes this audio codec natively.
+func (c Capabilities) SupportsAudioCodec(codec Codec) bool {
+	return slices.ContainsFunc(c.Audio, func(s AudioSupport) bool { return s.Codec == codec })
 }
 
 func (s AudioSupport) accepts(p ProbeInfo) bool {

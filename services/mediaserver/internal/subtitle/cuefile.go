@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/stupside/castor/services/mediaserver/internal/media"
 )
@@ -21,11 +23,11 @@ const (
 // CueFile is the live subtitle text file the encoder reads, swapped as cues commit.
 type CueFile struct {
 	path string
-	cues *Builder
+	cues *Cues
 }
 
 // NewCueFile names the cue file castor keeps inside dir. Nothing is written until Create.
-func NewCueFile(dir string, cues *Builder) *CueFile {
+func NewCueFile(dir string, cues *Cues) *CueFile {
 	return &CueFile{path: filepath.Join(dir, "cue.txt"), cues: cues}
 }
 
@@ -63,4 +65,26 @@ func (f *CueFile) Writer(ctx context.Context) func(media.Progress) {
 		slog.DebugContext(ctx, "subtitle cue swapped", "out_time", seconds, "text", text)
 		last = text
 	}
+}
+
+func wrap(text string, width int) string {
+	var b strings.Builder
+	lineLen := 0
+	for w := range strings.FieldsSeq(text) {
+		n := utf8.RuneCountInString(w)
+		switch {
+		case lineLen == 0:
+			b.WriteString(w)
+			lineLen = n
+		case lineLen+1+n <= width:
+			b.WriteByte(' ')
+			b.WriteString(w)
+			lineLen += 1 + n
+		default:
+			b.WriteByte('\n')
+			b.WriteString(w)
+			lineLen = n
+		}
+	}
+	return b.String()
 }

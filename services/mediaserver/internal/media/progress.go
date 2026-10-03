@@ -8,3 +8,6 @@ type Progress struct {
 	Bytes    int64
 	Speed    Speed
 }
+
+// Speed is media seconds per wall-clock second (ffmpeg's speed= field).
+type Speed float64

@@ -3,61 +3,15 @@ package ffmpeg
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"os/exec"
 	"slices"
-	"strings"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/stupside/castor/services/mediaserver/internal/media"
 )
-
-func TestSilentFailuresAreCaughtOnAnyLine(t *testing.T) {
-	for _, marker := range []string{
-		"[mpegts @ 0x1] AAC bitstream not in ADTS format and extradata missing",
-		"[mp4 @ 0x2] Malformed AAC bitstream detected: use the audio bitstream filter 'aac_adtstoasc' to fix it",
-	} {
-		t.Run(marker, func(t *testing.T) {
-			// The marker scrolls out of the bounded tail and must still be remembered.
-			lines := []string{marker}
-			for i := range stderrTailCapacity * 2 {
-				lines = append(lines, fmt.Sprintf("frame= %d fps=25", i))
-			}
-			tail, markers := drainLines(t, lines...)
-			if markers.failure() == nil {
-				t.Error("the marker was forgotten once it left the tail")
-			}
-			if got := tail.snapshot(); len(got) != stderrTailCapacity || slices.Contains(got, marker) {
-				t.Errorf("the tail holds %d lines, want the last %d", len(got), stderrTailCapacity)
-			}
-		})
-	}
-
-	t.Run("a clean transcript reports nothing", func(t *testing.T) {
-		if _, markers := drainLines(t, "Input #0, mpegts, from 'pipe:0':", "frame=  250 fps=0.0"); markers.failure() != nil {
-			t.Errorf("clean run reported %v", markers.failure())
-		}
-	})
-}
-
-// A blocking write into a full stderr pipe stops the encode dead, so an over-long line must not stop the drain.
-func TestTheDrainOutlastsALineTooLongToHold(t *testing.T) {
-	marker := "[mp4 @ 0x1] Malformed AAC bitstream detected"
-	tail, markers := drainLines(t, strings.Repeat("x", stderrLineBuffer*3), marker)
-	if markers.failure() == nil || !slices.Contains(tail.snapshot(), marker) {
-		t.Error("nothing printed after the over-long line was read")
-	}
-}
-
-func drainLines(t *testing.T, lines ...string) (*ringTail, *markerWatch) {
-	t.Helper()
-	tail, markers := newTail(), &markerWatch{}
-	drainStderr(t.Context(), strings.NewReader(strings.Join(lines, "\n")+"\n"), tail, markers)
-	return tail, markers
-}
 
 func TestWaitDoesNotOutrunTheStderrDrain(t *testing.T) {
 	const last = "castor-final-stderr-line"

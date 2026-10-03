@@ -2,7 +2,7 @@ package probe
 
 import (
 	"cmp"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strconv"
@@ -13,13 +13,13 @@ import (
 	"github.com/stupside/castor/services/mediaserver/internal/media"
 )
 
-const probeEntries = "format=format_name,bit_rate,duration,start_time:" +
+const showEntries = "format=format_name,bit_rate,duration,start_time:" +
 	"stream=index,codec_type,codec_name,profile,level,width,height,pix_fmt,color_transfer,field_order,channels,sample_rate:" +
 	"stream_disposition=attached_pic:stream_side_data=rotation:" +
 	"program=program_id:program_stream_disposition=attached_pic:" +
 	"frame=stream_index,interlaced_frame"
 
-func decodeProbeTracks(out []byte, videoIndex, audioIndex int) (media.ProbeInfo, error) {
+func decode(out []byte, videoIndex, audioIndex int) (media.ProbeInfo, error) {
 	var result struct {
 		Streams []struct {
 			Index         int    `json:"index"`

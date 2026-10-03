@@ -1,3 +1,4 @@
+// Package subtitle turns a cast's transcribed speech into the captions burnt into its picture.
 package subtitle
 
 import (
@@ -12,6 +13,9 @@ import (
 	"time"
 	"unicode"
 )
+
+// SampleRate is the rate the PCM feed a transcription reads must be produced at: mono s16le at 16 kHz.
+const SampleRate = 16000
 
 const (
 	// bytesPerSec is the PCM feed's rate in bytes (mono s16le).
@@ -67,7 +71,7 @@ func (t *Transcription) markDone() {
 }
 
 // Run commits pcm's words into sink until pcm ends; open readies the recognizer, and release frees it.
-func (t *Transcription) Run(ctx context.Context, pcm io.Reader, open func(context.Context) (r Recognizer, release func(), err error), sink *Builder) error {
+func (t *Transcription) Run(ctx context.Context, pcm io.Reader, open func(context.Context) (r Recognizer, release func(), err error), sink *Cues) error {
 	defer t.markDone() // runs last: cues are flushed before Done() flips
 	defer sink.Close() // runs first: flush the final pending words
 
@@ -207,7 +211,7 @@ func trimBuffer(ctx context.Context, buf []float32, bufStart float64, history []
 
 	var cut float64
 	for _, w := range history {
-		if SentenceEnd(w.Text) {
+		if sentenceEnd(w.Text) {
 			cut = max(cut, w.End)
 		}
 	}

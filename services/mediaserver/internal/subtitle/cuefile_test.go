@@ -32,7 +32,7 @@ func TestTheCueFileHoldsTheLineForTheFrameBeingEncoded(t *testing.T) {
 
 func cueFixture(t *testing.T) (*CueFile, string) {
 	t.Helper()
-	cues := &Builder{}
+	cues := &Cues{}
 	cues.Commit([]Word{{Start: 2, End: 4, Text: "Hello."}}, 10)
 	file := NewCueFile(t.TempDir(), cues)
 	path, err := file.Create()
@@ -49,4 +49,25 @@ func readFile(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+func TestWrap(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		in    string
+		width int
+		want  string
+	}{
+		// Never inside a word: a split word is unreadable at television distance.
+		{"a tight width breaks between words", "alpha beta gamma", 10, "alpha beta\ngamma"},
+		{"a word longer than the width is left whole", "supercalifragilistic", 10, "supercalifragilistic"},
+		// Columns, not bytes.
+		{"an accented line gets the full width", "\u00e9t\u00e9 \u00e9t\u00e9 \u00e9t\u00e9", 8, "\u00e9t\u00e9 \u00e9t\u00e9\n\u00e9t\u00e9"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := wrap(tt.in, tt.width); got != tt.want {
+				t.Errorf("wrap(%q, %d) = %q, want %q", tt.in, tt.width, got, tt.want)
+			}
+		})
+	}
 }

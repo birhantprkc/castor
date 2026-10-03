@@ -5,6 +5,24 @@ import (
 	"strings"
 )
 
+// Extra output fd constants: -progress fd 3 is the one output every invocation has.
+const (
+	firstExtraFD = 3
+	progressFD   = 3
+	pcmFD        = 4
+)
+
+// pipeURL spells an fd the way ffmpeg's pipe protocol takes it.
+func pipeURL(fd int) string { return "pipe:" + strconv.Itoa(fd) }
+
+// The pipes a command reads its input from and routes its outputs to; Start carries the -progress feed and the PCM tee over loopback.
+var (
+	StdinPipe    = pipeURL(0)
+	StdoutPipe   = pipeURL(1)
+	ProgressPipe = pipeURL(progressFD)
+	PCMPipe      = pipeURL(pcmFD)
+)
+
 // Command is an argv plus the extra output pipes it routes to, counted from the argv itself.
 type Command struct {
 	Args       []string

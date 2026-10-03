@@ -19,7 +19,7 @@ func castorNativeLog(level C.int, text *C.char) {
 		return
 	}
 	// Global callback on arbitrary threads; no request context.
-	if level == 4 { // GGML_LOG_LEVEL_ERROR
+	if level == C.GGML_LOG_LEVEL_ERROR {
 		slog.ErrorContext(context.Background(), "whisper native", "text", msg)
 	} else {
 		slog.WarnContext(context.Background(), "whisper native", "text", msg)

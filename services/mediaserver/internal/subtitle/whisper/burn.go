@@ -1,3 +1,4 @@
+// Package whisper transcribes a cast's sound with whisper.cpp.
 package whisper
 
 import (
@@ -24,7 +25,7 @@ type Burn struct {
 	vadModelPath string
 
 	transcription subtitle.Transcription
-	cues          *subtitle.Builder
+	cues          *subtitle.Cues
 	file          *subtitle.CueFile
 }
 
@@ -38,7 +39,7 @@ func New(ctx context.Context, cfg Config, language, workDir string) (*Burn, erro
 	if err != nil {
 		return nil, err
 	}
-	cues := &subtitle.Builder{}
+	cues := &subtitle.Cues{}
 	return &Burn{
 		language:     language,
 		modelPath:    modelPath,

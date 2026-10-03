@@ -20,7 +20,7 @@ const (
 	coverArt   = `{"codec_type":"video","codec_name":"mjpeg","width":640,"height":360,"disposition":{"attached_pic":1}}`
 )
 
-func TestDecodeProbeSelectsThePictureAndTheDefaultAudio(t *testing.T) {
+func TestDecodeSelectsThePictureAndTheDefaultAudio(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		streams    string
@@ -34,9 +34,9 @@ func TestDecodeProbeSelectsThePictureAndTheDefaultAudio(t *testing.T) {
 		{"a later alternate audio does not replace the default", h264Stream + "," + aacStream + `,{"codec_type":"audio","codec_name":"ac3","channels":6}`, media.CodecH264, 1080},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			info, err := decodeProbeTracks(probeJSON(vodFormat, tc.streams), 0, 0)
+			info, err := decode(probeJSON(vodFormat, tc.streams), 0, 0)
 			if err != nil {
-				t.Fatalf("decodeProbeTracks: %v", err)
+				t.Fatalf("decode: %v", err)
 			}
 			if info.VideoCodec != tc.wantVideo || info.VideoHeight != tc.wantHeight {
 				t.Errorf("video = %q at %d, want %q at %d", info.VideoCodec, info.VideoHeight, tc.wantVideo, tc.wantHeight)
@@ -48,7 +48,7 @@ func TestDecodeProbeSelectsThePictureAndTheDefaultAudio(t *testing.T) {
 	}
 }
 
-func TestDecodeProbeReadsTheContainersOwnFacts(t *testing.T) {
+func TestDecodeReadsTheContainersOwnFacts(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
 		format       string
@@ -60,9 +60,9 @@ func TestDecodeProbeReadsTheContainersOwnFacts(t *testing.T) {
 		{"a playlist with no numbers is still a measurement", `"format_name":"hls,applehttp","bit_rate":"N/A","duration":"N/A"`, media.HLS, 0, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			info, err := decodeProbeTracks(probeJSON(tc.format, h264Stream+","+aacStream), 0, 0)
+			info, err := decode(probeJSON(tc.format, h264Stream+","+aacStream), 0, 0)
 			if err != nil {
-				t.Fatalf("decodeProbeTracks: %v", err)
+				t.Fatalf("decode: %v", err)
 			}
 			if info.ContentType != tc.wantType || info.BitRate != tc.wantBitRate || info.Duration != tc.wantDuration {
 				t.Errorf("facts = %q/%d/%s, want %q/%d/%s", info.ContentType, info.BitRate, info.Duration, tc.wantType, tc.wantBitRate, tc.wantDuration)
@@ -72,11 +72,11 @@ func TestDecodeProbeReadsTheContainersOwnFacts(t *testing.T) {
 }
 
 // Every 0:V:N slot is reported, since DASH representation choice indexes into it.
-func TestDecodeProbeReportsEveryPictureItSaw(t *testing.T) {
+func TestDecodeReportsEveryPictureItSaw(t *testing.T) {
 	streams := coverArt + `,{"codec_type":"video","codec_name":"h264","width":1280,"height":720},` +
 		`{"codec_type":"video","codec_name":"h264","width":3840,"height":2160},` +
 		`{"codec_type":"video","codec_name":"h264","width":0,"height":0},` + aacStream
-	info, err := decodeProbeTracks(probeJSON(vodFormat, streams), 1, 0)
+	info, err := decode(probeJSON(vodFormat, streams), 1, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,13 +89,13 @@ func TestDecodeProbeReportsEveryPictureItSaw(t *testing.T) {
 }
 
 // An HLS master is read as one program per variant, which is how a rung without RESOLUTION gets a height.
-func TestDecodeProbeReportsEachProgramsPicture(t *testing.T) {
+func TestDecodeReportsEachProgramsPicture(t *testing.T) {
 	out := []byte(`{"programs":[` +
 		`{"program_id":0,"streams":[` + aacStream + `,` + coverArt + `,{"codec_type":"video","height":240}]},` +
 		`{"program_id":1,"streams":[` + aacStream + `,{"codec_type":"video","height":360}]},` +
 		`{"program_id":2,"streams":[` + aacStream + `]}],` +
 		`"streams":[` + h264Stream + `],"format":{"format_name":"hls"}}`)
-	info, err := decodeProbeTracks(out, 0, 0)
+	info, err := decode(out, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestTheProbeReadsWhatDecidesWhetherAPictureCanBeCopied(t *testing.T) {
 		"frames": [{"stream_index": 1, "interlaced_frame": 0}, {"stream_index": 0, "interlaced_frame": 1}],
 		"format": {"format_name": "hls", "duration": "12.0"}
 	}`)
-	info, err := decodeProbeTracks(out, 0, 0)
+	info, err := decode(out, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -32,8 +32,8 @@ type cue struct {
 	text       string
 }
 
-// Builder folds a stream of committed words into display cues.
-type Builder struct {
+// Cues folds a stream of committed words into display cues.
+type Cues struct {
 	mu   sync.Mutex
 	cues []cue
 
@@ -41,35 +41,35 @@ type Builder struct {
 }
 
 // Commit folds newly committed words into cues.
-func (b *Builder) Commit(words []Word, settledTo float64) {
-	b.pending = append(b.pending, words...)
-	silentTail := len(b.pending) > 0 &&
-		settledTo-b.pending[len(b.pending)-1].End >= cueGapSeconds
-	b.pending = b.closeCues(b.pending, silentTail)
+func (c *Cues) Commit(words []Word, settledTo float64) {
+	c.pending = append(c.pending, words...)
+	silentTail := len(c.pending) > 0 &&
+		settledTo-c.pending[len(c.pending)-1].End >= cueGapSeconds
+	c.pending = c.closeCues(c.pending, silentTail)
 }
 
 // Close flushes every remaining word into cues. Call it once, after the final Commit.
-func (b *Builder) Close() {
-	b.pending = b.closeCues(b.pending, true)
+func (c *Cues) Close() {
+	c.pending = c.closeCues(c.pending, true)
 }
 
 // cueAt returns the text of the cue covering time tSec, or "" if none does.
-func (b *Builder) cueAt(tSec float64) string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	i, _ := slices.BinarySearchFunc(b.cues, tSec, func(c cue, t float64) int {
-		if c.start > t {
+func (c *Cues) cueAt(tSec float64) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	i, _ := slices.BinarySearchFunc(c.cues, tSec, func(entry cue, t float64) int {
+		if entry.start > t {
 			return 1
 		}
 		return -1
 	})
-	if i > 0 && b.cues[i-1].end > tSec {
-		return b.cues[i-1].text
+	if i > 0 && c.cues[i-1].end > tSec {
+		return c.cues[i-1].text
 	}
 	return ""
 }
 
-func (b *Builder) closeCues(pending []Word, final bool) []Word {
+func (c *Cues) closeCues(pending []Word, final bool) []Word {
 	for len(pending) > 0 {
 		cut := cueCut(pending)
 		if cut == 0 {
@@ -78,13 +78,13 @@ func (b *Builder) closeCues(pending []Word, final bool) []Word {
 			}
 			cut = len(pending)
 		}
-		b.appendCue(pending[:cut])
+		c.appendCue(pending[:cut])
 		pending = pending[cut:]
 	}
 	return pending
 }
 
-func (b *Builder) appendCue(words []Word) {
+func (c *Cues) appendCue(words []Word) {
 	var sb strings.Builder
 	for i, w := range words {
 		if i > 0 {
@@ -95,9 +95,9 @@ func (b *Builder) appendCue(words []Word) {
 	start, end := trimCueEdges(words[0].Start, words[len(words)-1].End)
 	cue := cue{start: start, end: end, text: sb.String()}
 
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.cues = append(b.cues, cue)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cues = append(c.cues, cue)
 }
 
 func cueCut(pending []Word) int {
@@ -127,7 +127,7 @@ func cueCut(pending []Word) int {
 			return i + 1
 		}
 
-		if SentenceEnd(w.Text) && span >= cueMinSeconds {
+		if sentenceEnd(w.Text) && span >= cueMinSeconds {
 			return i + 1
 		}
 
@@ -148,8 +148,8 @@ func trimCueEdges(start, end float64) (float64, float64) {
 	return start + cueStartTrim, end - cueEndTrim
 }
 
-// SentenceEnd reports whether a word closes a sentence, ignoring trailing quotes and brackets.
-func SentenceEnd(s string) bool {
+// sentenceEnd reports whether a word closes a sentence, ignoring trailing quotes and brackets.
+func sentenceEnd(s string) bool {
 	s = strings.TrimRight(s, `"')]`+"”’")
 	r, _ := utf8.DecodeLastRuneInString(s)
 	return strings.ContainsRune(".?!…", r)
@@ -160,26 +160,4 @@ func clauseEnd(s string) bool {
 	s = strings.TrimRight(s, `"')]`+"”’")
 	r, _ := utf8.DecodeLastRuneInString(s)
 	return strings.ContainsRune(".?!…,;:—", r)
-}
-
-func wrap(text string, width int) string {
-	var b strings.Builder
-	lineLen := 0
-	for w := range strings.FieldsSeq(text) {
-		n := utf8.RuneCountInString(w)
-		switch {
-		case lineLen == 0:
-			b.WriteString(w)
-			lineLen = n
-		case lineLen+1+n <= width:
-			b.WriteByte(' ')
-			b.WriteString(w)
-			lineLen += 1 + n
-		default:
-			b.WriteByte('\n')
-			b.WriteString(w)
-			lineLen = n
-		}
-	}
-	return b.String()
 }

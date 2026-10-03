@@ -1,6 +1,7 @@
 package probe
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"slices"
@@ -35,14 +36,14 @@ func (p pass) run(ctx context.Context) (media.ProbeInfo, media.Reach, error) {
 		// Warning, not error: the HTTP status of a refused segment or a 410 is only said at warning.
 		"-v", "warning",
 		"-print_format", "json",
-		"-show_entries", probeEntries,
+		"-show_entries", showEntries,
 		// The first frames only: a demuxer in front of the decoder (HLS) leaves field order unknown until one decodes.
 		"-read_intervals", "%+#2",
 	}
 	args = append(args, p.inputArgs...)
 	args = append(args, p.input)
 
-	var stdout strings.Builder
+	var stdout bytes.Buffer
 	said, err := ffmpeg.Run(ctx, p.ffprobePath, args, nil, &stdout)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -54,7 +55,7 @@ func (p pass) run(ctx context.Context) (media.ProbeInfo, media.Reach, error) {
 		}
 		return media.ProbeInfo{}, classifyReach(said), fmt.Errorf("ffprobe: %w%s", err, evidence(said))
 	}
-	info, err := decodeProbeTracks([]byte(stdout.String()), p.videoIndex, p.audioIndex)
+	info, err := decode(stdout.Bytes(), p.videoIndex, p.audioIndex)
 	return info, media.ReachOpened, err
 }
 

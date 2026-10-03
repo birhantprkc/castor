@@ -64,8 +64,8 @@ func accentedWords(n int) []Word {
 	return words
 }
 
-func TestBuilderClosesAndOrders(t *testing.T) {
-	b := &Builder{}
+func TestCuesCloseInOrder(t *testing.T) {
+	b := &Cues{}
 	words := []Word{
 		{Start: 0.0, End: 0.7, Text: "First"},
 		{Start: 0.8, End: 1.4, Text: "line."}, // span 1.4s ≥ cueMinSeconds
@@ -89,8 +89,8 @@ func TestBuilderClosesAndOrders(t *testing.T) {
 	}
 }
 
-func TestBuilderSilentTailClosesParagraphFinalCue(t *testing.T) {
-	b := &Builder{}
+func TestCuesSilentTailClosesTheFinalCue(t *testing.T) {
+	b := &Cues{}
 	sentence := []Word{
 		{Start: 0.0, End: 0.7, Text: "The"},
 		{Start: 0.8, End: 1.6, Text: "end"}, // no sentence punctuation
@@ -102,26 +102,5 @@ func TestBuilderSilentTailClosesParagraphFinalCue(t *testing.T) {
 	b.Commit(nil, 1.6+cueGapSeconds)
 	if n := len(b.cues); n != 1 {
 		t.Fatalf("confirmed silence should close the trailing cue, got %d cues", n)
-	}
-}
-
-func TestWrap(t *testing.T) {
-	for _, tt := range []struct {
-		name  string
-		in    string
-		width int
-		want  string
-	}{
-		// Never inside a word: a split word is unreadable at television distance.
-		{"a tight width breaks between words", "alpha beta gamma", 10, "alpha beta\ngamma"},
-		{"a word longer than the width is left whole", "supercalifragilistic", 10, "supercalifragilistic"},
-		// Columns, not bytes.
-		{"an accented line gets the full width", "\u00e9t\u00e9 \u00e9t\u00e9 \u00e9t\u00e9", 8, "\u00e9t\u00e9 \u00e9t\u00e9\n\u00e9t\u00e9"},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := wrap(tt.in, tt.width); got != tt.want {
-				t.Errorf("wrap(%q, %d) = %q, want %q", tt.in, tt.width, got, tt.want)
-			}
-		})
 	}
 }
