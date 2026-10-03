@@ -69,6 +69,9 @@ func (h Vitals) buffered() bool { return h.buffer() > 0 }
 // leads is a transcription far enough ahead, or finished.
 func (h Vitals) leads() bool { return h.lead >= transcriptionLead.Seconds() || h.leadDone }
 
+// cushioned is a buffer deep enough to ride out a source that goes quiet for a moment.
+func (h Vitals) cushioned() bool { return h.Position >= readCushion }
+
 // measured is deliverability settled: the read ended, was given no headroom, or stated enough speeds.
 func (h Vitals) measured() bool {
 	return h.ended || h.Headroom <= 1 || h.Samples >= minSpeedSamples
@@ -80,6 +83,9 @@ func (h Vitals) starving() bool {
 }
 
 const (
+	// readCushion is the media a read holds before a device is started, since a device gives up on a stall long before one is judged.
+	readCushion = 30 * time.Second
+
 	// transcriptionLead is how far a burn-in leads before playback starts.
 	transcriptionLead = fetch.EncodeBurst + 10*time.Second
 

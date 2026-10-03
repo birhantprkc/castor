@@ -13,10 +13,11 @@ func TestVerdicts(t *testing.T) {
 		vitals Vitals
 		want   Kind
 	}{
-		{"any landed byte opens a cast", Reading, Vitals{Landed: 1}, ready},
+		{"a cushion of media opens a cast", Reading, Vitals{Landed: 1, Position: readCushion}, ready},
+		{"a buffer under the cushion waits", Reading, Vitals{Landed: 1 << 20, Position: readCushion - time.Second}, starting},
 		{"an empty buffer waits", Reading, Vitals{}, starting},
 		{"a burn-in waits for the transcription lead", Reading, Vitals{Landed: 4 << 20, subtitles: true, lead: transcriptionLead.Seconds() - 1}, starting},
-		{"the transcription lead opens the gate", Reading, Vitals{Landed: 1, subtitles: true, lead: transcriptionLead.Seconds()}, ready},
+		{"the transcription lead opens the gate", Reading, Vitals{Landed: 1, Position: readCushion, subtitles: true, lead: transcriptionLead.Seconds()}, ready},
 		{"a finished transcription over an empty buffer does not open", Reading, Vitals{subtitles: true, leadDone: true}, starting},
 		{"an ended read is never held, even empty under burn-in", Reading, Vitals{ended: true, subtitles: true}, ready},
 		{"silence past the stall window is a stall", Reading, Vitals{sinceGrowth: past}, Stalled},
@@ -25,7 +26,7 @@ func TestVerdicts(t *testing.T) {
 		{"a sustained 0.0627x against 2x is undeliverable", Reading, Vitals{Landed: 33088, Speed: 0.0627, Headroom: 2, Samples: minSpeedSamples, sinceDeficit: deficitWindow + time.Second}, Undeliverable},
 		{"a fresh deficit holds the gate", Reading, Vitals{Landed: 33088, Speed: 0.0627, Headroom: 2, Samples: minSpeedSamples, sinceDeficit: time.Second}, starting},
 		{"too few stated speeds convict nothing", Reading, Vitals{Landed: 33088, Speed: 0.0627, Headroom: 2, Samples: minSpeedSamples - 1, sinceDeficit: 10 * StallWindow}, starting},
-		{"a withheld pace is never undeliverable", Reading, Vitals{Landed: 1 << 20, Speed: 0.0627, Samples: 100, sinceDeficit: 10 * StallWindow}, ready},
+		{"a withheld pace is never undeliverable", Reading, Vitals{Landed: 1 << 20, Position: readCushion, Speed: 0.0627, Samples: 100, sinceDeficit: 10 * StallWindow}, ready},
 		{"the artifact appearing opens a delivery", Opening, Vitals{Landed: 1}, ready},
 		{"a delivery without its artifact waits", Opening, Vitals{}, starting},
 		{"a delivery past its patience proceeds", Opening, Vitals{overdue: true}, ready},

@@ -87,15 +87,15 @@ var rules = []rule{{
 	why:    "the buffer holds media, the read has proved it can deliver it, and the transcription is far enough ahead of the encoder",
 	phases: []Phase{Reading},
 	when: func(h Vitals) bool {
-		return h.subtitles && (h.playable() && h.measured() && h.leads() || h.ended)
+		return h.subtitles && (h.playable() && h.measured() && h.cushioned() && h.leads() || h.ended)
 	},
 	kind: ready,
 }, {
 	name:   "ready",
-	why:    "the buffer holds media and the read has proved it can deliver it",
+	why:    "the buffer holds a cushion of media and the read has proved it can deliver it",
 	phases: []Phase{Reading},
 	when: func(h Vitals) bool {
-		return !h.subtitles && (h.playable() && h.measured() || h.ended)
+		return !h.subtitles && (h.playable() && h.measured() && h.cushioned() || h.ended)
 	},
 	kind: ready,
 }, {
